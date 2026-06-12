@@ -168,9 +168,8 @@
 <div class="footer">football-data.org · ПРОЕКТ ФУТБОЛ v1.1</div>
 
 <script>
-const API_KEY = '8feacd741a3248afad73dbf3adcc488f';
 const WC_ID = 2000;
-const BASE = 'https://api.football-data.org/v4';
+const BASE = 'https://orange-grass-d809.gabas82.workers.dev/football';
 
 const FLAGS = {
   'Mexico':'🇲🇽','South Africa':'🇿🇦','Brazil':'🇧🇷','Argentina':'🇦🇷',
@@ -196,7 +195,7 @@ const FLAGS = {
 function getFlag(n) { return FLAGS[n] || '🏳️'; }
 
 async function apiFetch(url) {
-  const r = await fetch(BASE + url, { headers: { 'X-Auth-Token': API_KEY } });
+  const r = await fetch(BASE + url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
@@ -432,5 +431,3 @@ setInterval(loadAll, 60000);
 </script>
 </body>
 </html>
-
- 
