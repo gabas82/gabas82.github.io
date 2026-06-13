@@ -152,10 +152,9 @@
 </div>
 
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · ПРОЕКТ ФУТБОЛ v1.3</div>
+<div class="footer">football-data.org · ПРОЕКТ ФУТБОЛ v2.0</div>
 
 <script>
-// !! Вика през Cloudflare Worker proxy !!
 const WORKER = 'https://orange-grass-d809.gabas82.workers.dev/football';
 
 const COMPS = [
@@ -167,6 +166,9 @@ const COMPS = [
   { id: 2015, code: 'FL1', name: 'Ligue 1',           flag: '🇫🇷' },
   { id: 2001, code: 'CL',  name: 'Champions League',  flag: '⭐' },
   { id: 2018, code: 'EL',  name: 'Europa League',     flag: '🟠' },
+  { id: 2016, code: 'BG',  name: 'България',          flag: '🇧🇬' },
+  { id: 2003, code: 'DED', name: 'Eredivisie',        flag: '🇳🇱' },
+  { id: 2013, code: 'BSA', name: 'Бразилия Série A',  flag: '🇧🇷' },
 ];
 
 const FLAGS = {
@@ -183,6 +185,7 @@ const FLAGS = {
   'Turkey':'🇹🇷','Ukraine':'🇺🇦','Romania':'🇷🇴','Scotland':'🏴󐁧󐁢󐁳󐁣󐁴󐁿','New Zealand':'🇳🇿',
   'Indonesia':'🇮🇩','Iraq':'🇮🇶','El Salvador':'🇸🇻','Guatemala':'🇬🇹',
   'Bosnia-Herzegovina':'🇧🇦','Bosnia and Herzegovina':'🇧🇦','South Africa':'🇿🇦',
+  'Bulgaria':'🇧🇬','Netherlands':'🇳🇱',
 };
 
 function getFlag(n) { return FLAGS[n] || '🏟️'; }
@@ -191,10 +194,7 @@ let currentTab = 'live';
 let autoTimer = null;
 
 async function apiFetch(path) {
-  // path е например /matches?status=IN_PLAY
-  // Worker очаква: /football/matches?status=IN_PLAY
-  const url = WORKER + path;
-  const r = await fetch(url);
+  const r = await fetch(WORKER + path);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
@@ -226,6 +226,10 @@ function updateTime() {
 }
 
 function getToday() { return new Date().toISOString().split('T')[0]; }
+function getYesterday() {
+  const d = new Date(); d.setDate(d.getDate()-1);
+  return d.toISOString().split('T')[0];
+}
 function getDatePlus(d) {
   const dt = new Date(); dt.setDate(dt.getDate()+d);
   return dt.toISOString().split('T')[0];
@@ -275,7 +279,7 @@ function buildPrediction(match, allMatches) {
   const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP));
   const aWinAdj=100-drawP-hWinAdj;
   const over25P=Math.min(90,Math.max(10,Math.round((expTotal/3)*70)));
-  const bttsP=Math.min(85,Math.max(15,Math.round((Math.min(expH,1)/1)*(Math.min(expA,1)/1)*100+20)));
+  const bttsP=Math.min(85,Math.max(15,Math.round((Math.min(expH,1))*(Math.min(expA,1))*100+20)));
   function poissonProb(lambda,k){let r=Math.exp(-lambda);for(let i=1;i<=k;i++)r*=lambda/i;return r;}
   let scores=[];
   for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100});
@@ -428,8 +432,12 @@ async function loadFinished() {
   const c=document.getElementById('finished-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try {
-    const data=await apiFetch(`/matches?date=${getToday()}&status=FINISHED`);
-    const matches=(data.matches||[]).reverse();
+    const yesterday=getYesterday(), today=getToday();
+    const [d1,d2]=await Promise.all([
+      apiFetch(`/matches?date=${yesterday}&status=FINISHED`),
+      apiFetch(`/matches?date=${today}&status=FINISHED`)
+    ]);
+    const matches=[...(d2.matches||[]),...(d1.matches||[])];
     if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}
     c.innerHTML=matches.map(m=>renderMatch(m,false,null)).join('');
   } catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
@@ -439,16 +447,29 @@ async function loadUpcoming() {
   const c=document.getElementById('upcoming-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ — ИЗЧИСЛЯВАНЕ ПРОГНОЗИ...</div>';
   try {
-    const today=getToday(),day3=getDatePlus(3);
+    const today=getToday(), day3=getDatePlus(3);
     const upData=await apiFetch(`/matches?dateFrom=${today}&dateTo=${day3}&status=SCHEDULED,TIMED`);
     const upcoming=upData.matches||[];
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
-    const past30=new Date();past30.setDate(past30.getDate()-30);
-    const pastStr=past30.toISOString().split('T')[0];
+
+    // Вземи историята от WC + последните 60 дни
+    const past60=new Date(); past60.setDate(past60.getDate()-60);
+    const pastStr=past60.toISOString().split('T')[0];
     let allMatches=[];
-    try{const hist=await apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`);allMatches=hist.matches||[];}catch(e){}
+    try {
+      const [hist, wcMatches]=await Promise.all([
+        apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`),
+        apiFetch(`/competitions/2000/matches?status=FINISHED`)
+      ]);
+      allMatches=[...(hist.matches||[]),...(wcMatches.matches||[])];
+    } catch(e){}
+
     const groups={};
-    upcoming.forEach(m=>{const key=m.competition?.id;if(!groups[key])groups[key]={name:m.competition?.name||'',matches:[]};groups[key].matches.push(m);});
+    upcoming.forEach(m=>{
+      const key=m.competition?.id;
+      if(!groups[key])groups[key]={name:m.competition?.name||'',matches:[]};
+      groups[key].matches.push(m);
+    });
     let html='';
     for(const key in groups){
       const g=groups[key];
