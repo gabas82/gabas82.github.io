@@ -95,6 +95,13 @@
   .bet-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 4px; text-align: center; }
   .bet-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; }
   .bet-value { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; }
+  .odds-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); }
+  .odds-pill { background: var(--card2); border: 1px solid rgba(0,229,255,0.2); border-radius: 8px; padding: 7px 4px; text-align: center; }
+  .odds-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; }
+  .odds-val { font-family: 'Rajdhani',sans-serif; font-size: 15px; font-weight: 700; color: var(--cyan); }
+  .odds-impl { font-size: 9px; color: var(--muted); margin-top: 2px; }
+  .value-badge { display: inline-block; background: rgba(0,230,118,0.2); border: 1px solid var(--green); color: var(--green); font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; letter-spacing: 1px; }
+  .odds-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; padding: 6px 12px 4px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); }
 </style>
 </head>
 <body>
@@ -152,7 +159,7 @@
 </div>
 
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · ПРОЕКТ ФУТБОЛ v2.0</div>
+<div class="footer">football-data.org · ПРОЕКТ ФУТБОЛ v2.1</div>
 
 <script>
 const WORKER = 'https://orange-grass-d809.gabas82.workers.dev/football';
@@ -299,6 +306,57 @@ function buildPrediction(match, allMatches) {
   };
 }
 
+// ===== ODDS БЛОК =====
+function oddsHtml(odds, pred) {
+  if (!odds) return '';
+  const h = odds.homeWin, d = odds.draw, a = odds.awayWin;
+  if (!h || !d || !a) return '';
+
+  // Implied probability от odds
+  const hImpl = Math.round(100/h);
+  const dImpl = Math.round(100/d);
+  const aImpl = Math.round(100/a);
+
+  // VALUE BET детекция — нашата % > implied %
+  const hValue = pred && pred.hWin > hImpl + 5;
+  const dValue = pred && pred.draw > dImpl + 5;
+  const aValue = pred && pred.aWin > aImpl + 5;
+
+  return `<div class="odds-title">📊 БУКМЕЙКЪР КОЕФИЦИЕНТИ</div>
+  <div class="odds-row">
+    <div class="odds-pill">
+      <div class="odds-label">1 ДОМАКИН</div>
+      <div class="odds-val">${h.toFixed(2)}</div>
+      <div class="odds-impl">implied ${hImpl}%</div>
+      ${hValue?'<div class="value-badge">VALUE ✓</div>':''}
+    </div>
+    <div class="odds-pill">
+      <div class="odds-label">X РАВЕН</div>
+      <div class="odds-val">${d.toFixed(2)}</div>
+      <div class="odds-impl">implied ${dImpl}%</div>
+      ${dValue?'<div class="value-badge">VALUE ✓</div>':''}
+    </div>
+    <div class="odds-pill">
+      <div class="odds-label">2 ГОСТ</div>
+      <div class="odds-val">${a.toFixed(2)}</div>
+      <div class="odds-impl">implied ${aImpl}%</div>
+      ${aValue?'<div class="value-badge">VALUE ✓</div>':''}
+    </div>
+  </div>`;
+}
+
+function extractOdds(match) {
+  try {
+    const o = match.odds;
+    if (!o) return null;
+    return {
+      homeWin: o.homeWin,
+      draw: o.draw,
+      awayWin: o.awayWin
+    };
+  } catch(e) { return null; }
+}
+
 function renderMatch(m, showPred, allMatches) {
   const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';
   const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';
@@ -362,9 +420,11 @@ function renderMatch(m, showPred, allMatches) {
       <div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div>
     </div>`;
   }
+
   let predHtml='';
   if(showPred&&allMatches){
     const pred=buildPrediction(m,allMatches);
+    const odds=extractOdds(m);
     if(pred){
       predHtml=`<div class="pred-section">
         <div class="pred-title">🔮 ПРОГНОЗА</div>
@@ -389,7 +449,8 @@ function renderMatch(m, showPred, allMatches) {
           <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${hf}</div>${formDotsHtml(pred.hForm)}</div>
           <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${af}</div>${formDotsHtml(pred.aForm)}</div>
         </div>
-      </div>`;
+      </div>
+      ${oddsHtml(odds, pred)}`;
     }
   }
   return `<div class="match-card ${statusClass}">
@@ -452,7 +513,6 @@ async function loadUpcoming() {
     const upcoming=upData.matches||[];
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
 
-    // Вземи историята от WC + последните 60 дни
     const past60=new Date(); past60.setDate(past60.getDate()-60);
     const pastStr=past60.toISOString().split('T')[0];
     let allMatches=[];
