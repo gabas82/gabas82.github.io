@@ -714,7 +714,8 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
       let htS=[];
       for(let hg=0;hg<=2;hg++)for(let ag=0;ag<=2;ag++)htS.push({h:hg,a:ag,p:poissonProb(expH*0.45,hg)*poissonProb(expA*0.45,ag)*100});
       htS.sort((x,y)=>y.p-x.p);
-      const fakePred={hWin:hW,draw:dW,aWin:aW};
+      const fakePred={hWin:hW,draw:dW,aWin:aW,over25:gm.over25,btts:Math.round(gm.over25*0.7),g10:goalBefore10(expH,expA)};
+      savePrediction(m,fakePred);
       predHtml=`<div class="pred-section">
         <div class="pred-title">🔮 ПРОГНОЗА (букмейкър)</div>
         <div class="pred-grid-3">
