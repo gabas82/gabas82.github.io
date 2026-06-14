@@ -700,10 +700,44 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
       ${htTrendHtml(allMatches,hId,aId,hn,an,hf,af)}
       ${lineupHtml(m,hf,af)}
       ${refereeHtml(m)}`;
+    } else if(odds&&odds.homeWin&&odds.draw&&odds.awayWin){
+      const h=odds.homeWin,d=odds.draw,a=odds.awayWin;
+      const hImpl=Math.round(100/h),dImpl=Math.round(100/d),aImpl=Math.round(100/a);
+      const tot=hImpl+dImpl+aImpl;
+      const hW=Math.round(hImpl/tot*100),dW=Math.round(dImpl/tot*100),aW=100-hW-dW;
+      const expH=h<1.5?2.5:h<2.5?1.5:1.0;
+      const expA=a<1.5?2.5:a<2.5?1.5:1.0;
+      const gm=calcGoalMarkets(expH,expA);
+      let scores=[];
+      for(let hg=0;hg<=4;hg++)for(let ag=0;ag<=4;ag++)scores.push({h:hg,a:ag,p:poissonProb(expH,hg)*poissonProb(expA,ag)*100});
+      scores.sort((x,y)=>y.p-x.p);
+      let htS=[];
+      for(let hg=0;hg<=2;hg++)for(let ag=0;ag<=2;ag++)htS.push({h:hg,a:ag,p:poissonProb(expH*0.45,hg)*poissonProb(expA*0.45,ag)*100});
+      htS.sort((x,y)=>y.p-x.p);
+      const fakePred={hWin:hW,draw:dW,aWin:aW};
+      predHtml=`<div class="pred-section">
+        <div class="pred-title">🔮 ПРОГНОЗА (букмейкър)</div>
+        <div class="pred-grid-3">
+          <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${hW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${hW}%;background:var(--green)"></div></div></div>
+          <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${dW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${dW}%;background:var(--yellow)"></div></div></div>
+          <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${aW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${aW}%;background:var(--red)"></div></div></div>
+        </div>
+        <div class="pred-grid">
+          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${gm.over25>50?'good':'bad'}">${gm.over25}%</div><div class="pred-pct">Оч. голове: ${expH.toFixed(1)} — ${expA.toFixed(1)}</div></div>
+          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value neutral">${Math.round(gm.over25*0.7)}%</div><div class="pred-pct">ПОД 2.5: ${100-gm.over25}%</div></div>
+        </div>
+        ${goalMarketsHtml(gm,hn,an,hf,af)}
+        <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div>
+        <div class="pred-grid">${scores.slice(0,4).map(s=>`<div class="pred-pill"><div class="pred-label">${s.h}:${s.a}</div><div class="pred-value info">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
+        <div class="pred-title" style="margin-top:8px">⏱ РЕЗУЛТАТ ПОЛУВРЕМЕ</div>
+        <div class="pred-grid">${htS.slice(0,4).map(s=>`<div class="pred-pill"><div class="pred-label">П/В ${s.h}:${s.a}</div><div class="pred-value purple">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
+      </div>
+      ${oddsHtml(odds,fakePred)}
+      ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
+      ${lineupHtml(m,hf,af)}
+      ${refereeHtml(m)}`;
     } else {
-      predHtml=`
-      <div class="no-pred-box">⚠️ НЕДОСТАТЪЧНО ДАННИ ЗА ПРОГНОЗА</div>
-      ${oddsHtml(odds,null)}
+      predHtml=`<div class="no-pred-box">⚠️ НЕДОСТАТЪЧНО ДАННИ ЗА ПРОГНОЗА</div>
       ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
       ${lineupHtml(m,hf,af)}
       ${refereeHtml(m)}`;
