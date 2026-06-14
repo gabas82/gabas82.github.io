@@ -778,7 +778,7 @@ async function loadUpcoming(){
     const upData=await apiFetch(`/matches?dateFrom=${today}&dateTo=${day3}&status=SCHEDULED,TIMED`);
     const upcoming=upData.matches||[];
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
-    const past60=new Date();past60.setDate(past60.getDate()-60);
+    const past60=new Date();past60.setDate(past60.getDate()-180);
     const pastStr=past60.toISOString().split('T')[0];
     let allMatches=[];
     try{const[hist,wcM]=await Promise.all([apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`),apiFetch(`/competitions/2000/matches?status=FINISHED`)]);allMatches=[...(hist.matches||[]),...(wcM.matches||[])];}catch(e){}
