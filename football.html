@@ -1,1 +1,802 @@
-  <!DOCTYPE html> <html lang="bg"> <head> <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"> <title>⚽ ФУТБОЛ ДАШБОРД</title> <style> @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap'); * { margin: 0; padding: 0; box-sizing: border-box; } :root { --bg: #0a0e14; --card: #111820; --card2: #161e28; --border: #1e2d3d; --green: #00e676; --yellow: #ffd600; --red: #ff1744; --cyan: #00e5ff; --orange: #ff9100; --text: #e0e8f0; --muted: #5a7a8a; --purple: #c084fc; } body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; padding-bottom: 40px; } .header { background: linear-gradient(135deg,#0a1628,#0d2137,#0a1628); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; } .header-left { display: flex; align-items: center; gap: 10px; } .header-title { font-family: 'Rajdhani',sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 2px; color: var(--green); text-shadow: 0 0 20px rgba(0,230,118,0.4); } .header-sub { font-size: 10px; color: var(--muted); letter-spacing: 1px; } .live-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; animation: pulse 1.5s infinite; box-shadow: 0 0 8px var(--green); } @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} } .refresh-btn { background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.3); color: var(--green); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-family: 'Rajdhani',sans-serif; font-weight: 600; cursor: pointer; letter-spacing: 1px; } .tabs { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); } .tabs::-webkit-scrollbar { display: none; } .tab { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-family: 'Rajdhani',sans-serif; font-weight: 600; letter-spacing: 1px; cursor: pointer; white-space: nowrap; border: 1px solid var(--border); background: var(--card); color: var(--muted); transition: all 0.2s; flex-shrink: 0; } .tab.active { background: rgba(0,230,118,0.15); border-color: var(--green); color: var(--green); } .section-title { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--muted); padding: 0 16px; margin-bottom: 8px; margin-top: 16px; } .match-card { margin: 0 16px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; } .match-card.live { border-color: rgba(0,230,118,0.4); box-shadow: 0 0 15px rgba(0,230,118,0.08); } .match-card.finished { border-color: rgba(90,122,138,0.3); } .match-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--card2); border-bottom: 1px solid var(--border); } .match-league { font-size: 10px; color: var(--muted); letter-spacing: 1px; } .ms { font-size: 10px; font-family: 'Rajdhani',sans-serif; font-weight: 700; letter-spacing: 1px; } .ms.live { color: var(--green); } .ms.finished { color: var(--muted); } .ms.scheduled { color: var(--cyan); } .match-body { padding: 14px 12px; } .teams-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; } .team { flex: 1; text-align: center; } .team-flag { font-size: 28px; display: block; margin-bottom: 4px; } .team-name { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 600; color: var(--text); } .score-box { display: flex; align-items: center; gap: 6px; padding: 0 8px; } .score { font-family: 'Rajdhani',sans-serif; font-size: 36px; font-weight: 700; color: var(--text); min-width: 28px; text-align: center; line-height: 1; } .score-sep { font-family: 'Rajdhani',sans-serif; font-size: 24px; color: var(--muted); } .match-minute { text-align: center; font-size: 11px; color: var(--green); font-family: 'Rajdhani',sans-serif; font-weight: 700; margin-top: 6px; letter-spacing: 1px; } .events { padding: 6px 12px; border-top: 1px solid var(--border); } .event-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; } .event-min { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--muted); min-width: 28px; } .event-player { color: var(--text); flex: 1; } .event-team { font-size: 11px; color: var(--muted); } .pred-section { padding: 8px 12px 12px; border-top: 1px solid var(--border); } .pred-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; } .pred-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; } .pred-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; } .pred-grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; } .pred-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px; text-align: center; } .pred-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 4px; } .pred-value { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; } .pred-pct { font-size: 9px; color: var(--muted); margin-top: 2px; } .conf-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 4px; overflow: hidden; } .conf-fill { height: 100%; border-radius: 2px; transition: width 0.5s; } .good { color: var(--green); } .bad { color: var(--red); } .neutral { color: var(--yellow); } .info { color: var(--cyan); } .purple { color: var(--purple); } .mstats { padding: 8px 12px 10px; border-top: 1px solid var(--border); } .mstat-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; } .mstat-name { font-size: 9px; color: var(--muted); letter-spacing: 1px; min-width: 90px; text-align: center; } .mstat-num { font-family: 'Rajdhani',sans-serif; font-size: 12px; font-weight: 700; min-width: 22px; text-align: center; } .mstat-num.h { color: var(--cyan); } .mstat-num.a { color: var(--orange); } .bar-wrap { flex: 1; display: flex; gap: 2px; align-items: center; } .bar-h { height: 4px; background: var(--cyan); border-radius: 2px; } .bar-a { height: 4px; background: var(--orange); border-radius: 2px; } .next-goal-section { padding: 10px 12px; border-top: 1px solid var(--border); background: rgba(0,230,118,0.03); } .next-goal-title { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--green); letter-spacing: 2px; margin-bottom: 10px; text-align: center; } .next-goal-bar-wrap { position: relative; height: 28px; background: var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 6px; } .next-goal-bar-h { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, #00e676, #00b248); border-radius: 14px 0 0 14px; transition: width 0.8s; display: flex; align-items: center; padding-left: 8px; } .next-goal-bar-a { position: absolute; right: 0; top: 0; height: 100%; background: linear-gradient(90deg, #ff6d00, #ff1744); border-radius: 0 14px 14px 0; transition: width 0.8s; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; } .next-goal-pct { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; color: #000; } .next-goal-teams { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); } .next-goal-no { text-align: center; font-size: 10px; color: var(--muted); margin-top: 4px; } .live-stats-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); } .live-stats-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; margin-bottom: 8px; } .big-table { margin: 0 16px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; } .big-header { padding: 8px 12px; background: var(--card2); border-bottom: 1px solid var(--border); font-size: 9px; color: var(--muted); letter-spacing: 1px; display: grid; gap: 4px; } .big-row { padding: 9px 12px; border-bottom: 1px solid rgba(30,45,61,0.5); font-size: 12px; display: grid; gap: 4px; align-items: center; } .big-row:last-child { border-bottom: none; } .s-pos { color: var(--muted); font-size: 11px; text-align: center; } .s-name { font-family: 'Rajdhani',sans-serif; font-weight: 600; } .s-team { font-size: 10px; color: var(--muted); } .s-goals { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--green); text-align: center; font-size: 14px; } .s-ast { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--cyan); text-align: center; } .s-yel { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--yellow); text-align: center; } .s-red { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--red); text-align: center; } .pts { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--green); text-align: center; font-size: 13px; } .num { text-align: center; color: var(--muted); font-size: 11px; } .form-dots { display: flex; gap: 3px; margin-top: 3px; } .fd { width: 7px; height: 7px; border-radius: 50%; } .fd.W { background: var(--green); } .fd.D { background: var(--yellow); } .fd.L { background: var(--red); } .loading { text-align: center; padding: 40px 20px; color: var(--muted); font-family: 'Rajdhani',sans-serif; font-size: 14px; letter-spacing: 2px; } .spinner { width: 30px; height: 30px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; } @keyframes spin { to { transform: rotate(360deg); } } .error-box { margin: 16px; background: rgba(255,23,68,0.08); border: 1px solid rgba(255,23,68,0.3); border-radius: 12px; padding: 16px; text-align: center; font-size: 13px; color: var(--red); } .last-update { text-align: center; font-size: 10px; color: var(--muted); padding: 8px 16px 0; letter-spacing: 1px; } .footer { text-align: center; padding: 16px; font-size: 10px; color: var(--muted); letter-spacing: 1px; } .tab-content { display: none; } .tab-content.active { display: block; } .comp-header { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--card2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--yellow); letter-spacing: 1px; } .no-data { text-align: center; padding: 30px; color: var(--muted); font-size: 13px; } .bet-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px 12px 10px; border-top: 1px solid var(--border); } .bet-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 4px; text-align: center; } .bet-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; } .bet-value { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; } .odds-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); } .odds-pill { background: var(--card2); border: 1px solid rgba(0,229,255,0.2); border-radius: 8px; padding: 7px 4px; text-align: center; } .odds-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; } .odds-val { font-family: 'Rajdhani',sans-serif; font-size: 15px; font-weight: 700; color: var(--cyan); } .odds-impl { font-size: 9px; color: var(--muted); margin-top: 2px; } .value-badge { display: inline-block; background: rgba(0,230,118,0.2); border: 1px solid var(--green); color: var(--green); font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; letter-spacing: 1px; } .odds-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; padding: 6px 12px 4px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); } .lineup-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); } .lineup-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; } .lineup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .lineup-team { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; } .lineup-team-name { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--yellow); margin-bottom: 6px; letter-spacing: 1px; } .lineup-player { font-size: 10px; color: var(--text); padding: 2px 0; display: flex; align-items: center; gap: 4px; } .lineup-num { font-family: 'Rajdhani',sans-serif; font-size: 10px; color: var(--muted); min-width: 18px; } .lineup-pos { font-size: 9px; color: var(--muted); } .h2h-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); } .h2h-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; } .h2h-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(30,45,61,0.4); font-size: 11px; } .h2h-row:last-child { border-bottom: none; } .h2h-date { color: var(--muted); font-size: 9px; min-width: 50px; } .h2h-teams { flex: 1; text-align: center; color: var(--text); } .h2h-score { font-family: 'Rajdhani',sans-serif; font-weight: 700; font-size: 13px; min-width: 36px; text-align: center; } .h2h-summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; } .h2h-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 6px; text-align: center; } .h2h-pill-label { font-size: 9px; color: var(--muted); margin-bottom: 3px; } .h2h-pill-val { font-family: 'Rajdhani',sans-serif; font-size: 14px; font-weight: 700; } .form5-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); } .form5-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; } .form5-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .form5-team { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; } .form5-team-name { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--yellow); margin-bottom: 6px; } .form5-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px; } .form5-stat { text-align: center; } .form5-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 14px; font-weight: 700; } .form5-stat-label { font-size: 8px; color: var(--muted); } .ht-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); } .ht-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; } .ht-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .ht-team { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; } .ht-team-name { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--yellow); margin-bottom: 6px; } .ht-bars { display: flex; flex-direction: column; gap: 4px; } .ht-bar-row { display: flex; align-items: center; gap: 6px; } .ht-bar-label { font-size: 9px; color: var(--muted); min-width: 20px; } .ht-bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; } .ht-bar-fill { height: 100%; border-radius: 3px; } .ht-bar-val { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; min-width: 24px; text-align: right; } .referee-section { padding: 6px 12px 8px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .referee-label { font-size: 9px; color: var(--muted); letter-spacing: 1px; } .referee-name { font-family: 'Rajdhani',sans-serif; font-size: 12px; font-weight: 600; color: var(--text); } .referee-stats { font-size: 9px; color: var(--muted); } .hist-card { margin: 0 16px 8px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; } .hist-match { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; } .hist-date { font-size: 9px; color: var(--muted); margin-bottom: 6px; } .hist-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin-bottom: 4px; } .hist-pill { background: var(--card2); border-radius: 6px; padding: 4px; text-align: center; } .hist-pill-label { font-size: 8px; color: var(--muted); } .hist-pill-val { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; } .hist-result { font-size: 10px; color: var(--muted); } .hist-stats { padding: 12px 16px; background: var(--card2); border-radius: 12px; margin: 0 16px 16px; } .hist-stats-title { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--yellow); letter-spacing: 2px; margin-bottom: 10px; } .hist-stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; } .hist-stat { text-align: center; } .hist-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 20px; font-weight: 700; } .hist-stat-label { font-size: 9px; color: var(--muted); margin-top: 2px; } .no-pred-box { margin: 8px 12px; padding: 10px; background: rgba(90,122,138,0.08); border: 1px solid rgba(90,122,138,0.2); border-radius: 8px; text-align: center; font-size: 10px; color: var(--muted); letter-spacing: 1px; } </style> </head> <body> <div class="header"> <div class="header-left"> <div> <div class="header-title">⚽ ФУТБОЛ</div> <div class="header-sub">LIVE ДАШБОРД</div> </div> <div class="live-dot"></div> </div> <button class="refresh-btn" onclick="loadCurrentTab()">↻ ОБНОВИ</button> </div> <div class="tabs"> <div class="tab active" onclick="switchTab('live')">🔴 LIVE</div> <div class="tab" onclick="switchTab('today')">📅 ДНЕС</div> <div class="tab" onclick="switchTab('upcoming')">🔮 ПРОГНОЗИ</div> <div class="tab" onclick="switchTab('finished')">✅ СВЪРШИЛИ</div> <div class="tab" onclick="switchTab('history')">📈 ИСТОРИЯ</div> <div class="tab" onclick="switchTab('standings')">📊 КЛАСАЦИЯ</div> <div class="tab" onclick="switchTab('scorers')">⚽ ГОЛМАЙСТОРИ</div> <div class="tab" onclick="switchTab('cards')">🟨 КАРТОНИ</div> </div> <div id="tab-live" class="tab-content active"> <div class="section-title" style="margin-top:12px">LIVE МАЧОВЕ</div> <div id="live-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> </div> <div id="tab-today" class="tab-content"> <div class="section-title" style="margin-top:12px">МАЧОВЕ ДНЕС</div> <div id="today-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> </div> <div id="tab-upcoming" class="tab-content"> <div class="section-title" style="margin-top:12px">ПРОГНОЗИ — ПРЕДСТОЯЩИ МАЧОВЕ</div> <div id="upcoming-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> </div> <div id="tab-finished" class="tab-content"> <div class="section-title" style="margin-top:12px">ПРИКЛЮЧИЛИ МАЧОВЕ</div> <div id="finished-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> </div> <div id="tab-history" class="tab-content"> <div class="section-title" style="margin-top:12px">📈 ИСТОРИЯ НА ПРОГНОЗИТЕ</div> <div id="history-stats"></div> <div id="history-content"><div class="no-data">Няма записани прогнози още</div></div> <div style="text-align:center;padding:16px"> <button onclick="clearHistory()" style="background:rgba(255,23,68,0.1);border:1px solid rgba(255,23,68,0.3);color:var(--red);padding:6px 16px;border-radius:20px;font-size:11px;font-family:'Rajdhani',sans-serif;font-weight:600;cursor:pointer;letter-spacing:1px">🗑️ ИЗЧИСТИ ИСТОРИЯТА</button> </div> </div> <div id="tab-standings" class="tab-content"> <div class="section-title" style="margin-top:12px">КЛАСАЦИИ</div> <div id="standings-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> </div> <div id="tab-scorers" class="tab-content"> <div class="section-title" style="margin-top:12px">ТОП ГОЛМАЙСТОРИ</div> <div id="scorers-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> </div> <div id="tab-cards" class="tab-content"> <div class="section-title" style="margin-top:12px">🟨 НАЙ-МНОГО ЖЪЛТИ</div> <div id="yellow-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div> <div class="section-title" style="margin-top:20px">🟥 НАЙ-МНОГО ЧЕРВЕНИ</div> <div id="red-content"></div> </div> <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div> <div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.4</div> <script> const WORKER = 'https://orange-grass-d809.gabas82.workers.dev/football'; const WORKER_AS = 'https://orange-grass-d809.gabas82.workers.dev/apisports'; const COMPS = [ { id: 2000, code: 'WC', name: 'World Cup 2026', flag: '🏆' }, { id: 2021, code: 'PL', name: 'Premier League', flag: '🏴󐁧󐁢󐁥󐁮󐁧󐁿' }, { id: 2002, code: 'BL1', name: 'Bundesliga', flag: '🇩🇪' }, { id: 2019, code: 'SA', name: 'Serie A', flag: '🇮🇹' }, { id: 2014, code: 'PD', name: 'La Liga', flag: '🇪🇸' }, { id: 2015, code: 'FL1', name: 'Ligue 1', flag: '🇫🇷' }, { id: 2001, code: 'CL', name: 'Champions League', flag: '⭐' }, { id: 2018, code: 'EL', name: 'Europa League', flag: '🟠' }, { id: 2016, code: 'BG', name: 'България', flag: '🇧🇬' }, { id: 2003, code: 'DED', name: 'Eredivisie', flag: '🇳🇱' }, { id: 2013, code: 'BSA', name: 'Бразилия Série A', flag: '🇧🇷' }, ]; const FLAGS = { 'Mexico':'🇲🇽','Brazil':'🇧🇷','Argentina':'🇦🇷','France':'🇫🇷','Germany':'🇩🇪', 'England':'🏴󐁧󐁢󐁥󐁮󐁧󐁿','Spain':'🇪🇸','Portugal':'🇵🇹','Netherlands':'🇳🇱','Italy':'🇮🇹', 'Belgium':'🇧🇪','Croatia':'🇭🇷','Uruguay':'🇺🇾','Colombia':'🇨🇴','USA':'🇺🇸', 'United States':'🇺🇸','Canada':'🇨🇦','Japan':'🇯🇵','South Korea':'🇰🇷','Korea Republic':'🇰🇷', 'Australia':'🇦🇺','Morocco':'🇲🇦','Senegal':'🇸🇳','Ecuador':'🇪🇨','Poland':'🇵🇱', 'Serbia':'🇷🇸','Switzerland':'🇨🇭','Denmark':'🇩🇰','Iran':'🇮🇷','IR Iran':'🇮🇷', 'Saudi Arabia':'🇸🇦','Tunisia':'🇹🇳','Panama':'🇵🇦','Honduras':'🇭🇳','Bolivia':'🇧🇴', 'Chile':'🇨🇱','Paraguay':'🇵🇾','Venezuela':'🇻🇪','Peru':'🇵🇪','Jamaica':'🇯🇲', 'Nigeria':'🇳🇬','Egypt':'🇪🇬','Algeria':'🇩🇿',"Côte d'Ivoire":'🇨🇮','Ghana':'🇬🇭', 'Cameroon':'🇨🇲','Slovakia':'🇸🇰','Austria':'🇦🇹','Czechia':'🇨🇿','Hungary':'🇭🇺', 'Turkey':'🇹🇷','Ukraine':'🇺🇦','Romania':'🇷🇴','Scotland':'🏴󐁧󐁢󐁳󐁣󐁴󐁿','New Zealand':'🇳🇿', 'Indonesia':'🇮🇩','Iraq':'🇮🇶','El Salvador':'🇸🇻','Guatemala':'🇬🇹', 'Bosnia-Herzegovina':'🇧🇦','Bosnia and Herzegovina':'🇧🇦','South Africa':'🇿🇦', 'Bulgaria':'🇧🇬','Ivory Coast':'🇨🇮','Cape Verde':'🇨🇻','Sweden':'🇸🇪', 'Norway':'🇳🇴','Curacao':'🇨🇼', }; function getFlag(n){return FLAGS[n]||'🏟️';} let currentTab='live',autoTimer=null; async function apiFetch(path){ const r=await fetch(WORKER+path); if(!r.ok)throw new Error('HTTP '+r.status); return r.json(); } async function apiFetchAS(path){ const r=await fetch(WORKER_AS+path); if(!r.ok)throw new Error('HTTP '+r.status); return r.json(); } function switchTab(name){ currentTab=name; const names=['live','today','upcoming','finished','history','standings','scorers','cards']; document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name)); document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active')); document.getElementById('tab-'+name).classList.add('active'); clearInterval(autoTimer); loadCurrentTab(); if(name==='live')autoTimer=setInterval(loadCurrentTab,60000); } function loadCurrentTab(){ updateTime(); if(currentTab==='live')loadLive(); else if(currentTab==='today')loadToday(); else if(currentTab==='upcoming')loadUpcoming(); else if(currentTab==='finished')loadFinished(); else if(currentTab==='history')loadHistory(); else if(currentTab==='standings')loadStandings(); else if(currentTab==='scorers')loadScorers(); else if(currentTab==='cards')loadCards(); } function updateTime(){document.getElementById('update-time').textContent=new Date().toLocaleTimeString('bg-BG');} function getToday(){return new Date().toISOString().split('T')[0];} function getYesterday(){const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().split('T')[0];} function getDatePlus(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];} function calcNextGoal(stats, minute) { if(!stats) return null; const possession_h = parseFloat(stats.possession_h)||50; const possession_a = parseFloat(stats.possession_a)||50; const shots_h = parseInt(stats.shots_h)||0; const shots_a = parseInt(stats.shots_a)||0; const shotsOn_h = parseInt(stats.shotsOn_h)||0; const shotsOn_a = parseInt(stats.shotsOn_a)||0; const dangerous_h = parseInt(stats.dangerous_h)||0; const dangerous_a = parseInt(stats.dangerous_a)||0; const xg_h = (possession_h/100)*0.2 + (shotsOn_h)*0.35 + (shots_h)*0.1 + (dangerous_h)*0.15; const xg_a = (possession_a/100)*0.2 + (shotsOn_a)*0.35 + (shots_a)*0.1 + (dangerous_a)*0.15; const minFactor = minute > 60 ? 1.3 : minute > 45 ? 1.1 : 1.0; const total = (xg_h + xg_a) * minFactor || 1; const pctH = Math.round((xg_h * minFactor / total) * 100); const pctA = 100 - pctH; return { pctH, pctA }; } function nextGoalHtml(stats, minute, hn, an, hf, af) { if(!stats) return ''; const ng = calcNextGoal(stats, minute); if(!ng) return ''; return `<div class="next-goal-section"> <div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ</div> <div class="next-goal-bar-wrap"> <div class="next-goal-bar-h" style="width:${ng.pctH}%"><span class="next-goal-pct">${ng.pctH}%</span></div> <div class="next-goal-bar-a" style="width:${ng.pctA}%"><span class="next-goal-pct">${ng.pctA}%</span></div> </div> <div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div> </div>`; } function liveStatsHtml(stats, hn, an) { if(!stats) return ''; const rows = [ ['ПРИТЕЖАНИЕ', stats.possession_h+'%', stats.possession_a+'%', parseFloat(stats.possession_h)||50], ['УДАРИ В РАМКАТА', stats.shotsOn_h, stats.shotsOn_a, calcPct(stats.shotsOn_h, stats.shotsOn_a)], ['ОБЩО УДАРИ', stats.shots_h, stats.shots_a, calcPct(stats.shots_h, stats.shots_a)], ['ОПАСНИ АТАКИ', stats.dangerous_h, stats.dangerous_a, calcPct(stats.dangerous_h, stats.dangerous_a)], ['АТАКИ', stats.attacks_h, stats.attacks_a, calcPct(stats.attacks_h, stats.attacks_a)], ['КОРНЕРИ', stats.corners_h, stats.corners_a, calcPct(stats.corners_h, stats.corners_a)], ['ФАУЛИ', stats.fouls_h, stats.fouls_a, calcPct(stats.fouls_h, stats.fouls_a)], ['ЖЪЛТИ', stats.yellow_h, stats.yellow_a, calcPct(stats.yellow_h, stats.yellow_a)], ]; let html = `<div class="live-stats-section"><div class="live-stats-title">📊 LIVE СТАТИСТИКА</div>`; rows.forEach(([name, hv, av, hw]) => { if(hv==null||hv===undefined) return; html += `<div class="mstat-row"> <span class="mstat-num h">${hv}</span> <div class="bar-wrap"> <div class="bar-h" style="width:${Math.min(hw,50)}%"></div> <div class="bar-a" style="width:${Math.min(100-hw,50)}%"></div> </div> <span class="mstat-num a">${av}</span> <span class="mstat-name">${name}</span> </div>`; }); html += '</div>'; return html; } function calcPct(h,a){const hn=parseInt(h)||0,an=parseInt(a)||0,t=hn+an||1;return Math.round(hn/t*100);} const HIST_KEY = 'football_pred_history'; function getHistory(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return[];}} function saveHistory(arr){try{localStorage.setItem(HIST_KEY,JSON.stringify(arr));}catch(e){}} function savePrediction(m, pred){ if(!pred)return; const hist=getHistory(); const id=m.id||`${m.homeTeam?.id}_${m.awayTeam?.id}_${m.utcDate}`; if(hist.find(h=>h.id===id))return; hist.push({ id, date: m.utcDate, home: m.homeTeam?.shortName||m.homeTeam?.name||'—', away: m.awayTeam?.shortName||m.awayTeam?.name||'—', comp: m.competition?.name||'', pred: {hWin:pred.hWin, draw:pred.draw, aWin:pred.aWin, over25:pred.over25, btts:pred.btts, g10:pred.g10}, result: null }); saveHistory(hist); } async function updateHistoryResults(){ const hist=getHistory(); if(!hist.length)return; const toUpdate=hist.filter(h=>!h.result); if(!toUpdate.length)return; try{ const yesterday=getYesterday(),today=getToday(); const[d1,d2]=await Promise.all([ apiFetch(`/matches?date=${yesterday}&status=FINISHED`), apiFetch(`/matches?date=${today}&status=FINISHED`) ]); const finished=[...(d1.matches||[]),...(d2.matches||[])]; toUpdate.forEach(h=>{ const m=finished.find(f=>f.id==h.id||( (f.homeTeam?.shortName===h.home||f.homeTeam?.name===h.home)&& (f.awayTeam?.shortName===h.away||f.awayTeam?.name===h.away) )); if(m&&m.score?.fullTime?.home!=null){ const hg=m.score.fullTime.home,ag=m.score.fullTime.away; h.result={hg,ag,total:hg+ag,gg:hg>0&&ag>0,winner:hg>ag?'1':ag>hg?'2':'X'}; } }); saveHistory(hist); }catch(e){} } function loadHistory(){ updateHistoryResults(); const hist=getHistory().slice().reverse(); const sc=document.getElementById('history-stats'); const c=document.getElementById('history-content'); if(!hist.length){sc.innerHTML='';c.innerHTML='<div class="no-data">Няма записани прогнози още.<br><br>Отвори таб ПРОГНОЗИ за да се запазят автоматично.</div>';return;} const withResult=hist.filter(h=>h.result); let correct1X2=0,correctOver=0,correctBtts=0,total=withResult.length; withResult.forEach(h=>{ const p=h.pred,r=h.result; const predWinner=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X'; if(predWinner===r.winner)correct1X2++; if((p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5))correctOver++; if((p.btts>50&&r.gg)||(p.btts<=50&&!r.gg))correctBtts++; }); sc.innerHTML=total?`<div class="hist-stats"> <div class="hist-stats-title">📊 СТАТИСТИКА (${total} завършени)</div> <div class="hist-stats-grid"> <div class="hist-stat"><div class="hist-stat-val good">${Math.round(correct1X2/total*100)}%</div><div class="hist-stat-label">1/X/2 ТОЧНОСТ</div></div> <div class="hist-stat"><div class="hist-stat-val info">${Math.round(correctOver/total*100)}%</div><div class="hist-stat-label">НАД/ПОД 2.5</div></div> <div class="hist-stat"><div class="hist-stat-val purple">${Math.round(correctBtts/total*100)}%</div><div class="hist-stat-label">Г/Г ТОЧНОСТ</div></div> </div> </div>`:''; c.innerHTML=hist.map(h=>{ const p=h.pred; const date=new Date(h.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); const predWinner=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X'; let resultHtml='<span style="color:var(--muted);font-size:10px">очаква се резултат...</span>'; if(h.result){ const r=h.result; const w1=predWinner===r.winner?'✅':'❌'; const wO=(p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5)?'✅':'❌'; const wB=(p.btts>50&&r.gg)||(p.btts<=50&&!r.gg)?'✅':'❌'; resultHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"> <span style="font-size:10px;color:var(--text)">Резултат: <b>${r.hg}:${r.ag}</b></span> <span style="font-size:10px">${w1} 1/X/2</span> <span style="font-size:10px">${wO} Над/Под</span> <span style="font-size:10px">${wB} Г/Г</span> </div>`; } return `<div class="hist-card"> <div class="hist-match">${h.home} — ${h.away}</div> <div class="hist-date">${h.comp} · ${date}</div> <div class="hist-grid"> <div class="hist-pill"><div class="hist-pill-label">1</div><div class="hist-pill-val good">${p.hWin}%</div></div> <div class="hist-pill"><div class="hist-pill-label">X</div><div class="hist-pill-val neutral">${p.draw}%</div></div> <div class="hist-pill"><div class="hist-pill-label">2</div><div class="hist-pill-val bad">${p.aWin}%</div></div> <div class="hist-pill"><div class="hist-pill-label">НАД 2.5</div><div class="hist-pill-val info">${p.over25}%</div></div> </div> ${resultHtml} </div>`; }).join(''); } function clearHistory(){ if(confirm('Изчисти цялата история?')){localStorage.removeItem(HIST_KEY);loadHistory();} } function calcForm(matches,teamId){ const finished=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)).slice(-5); return finished.map(m=>{ const isHome=m.homeTeam?.id===teamId; const hg=m.score?.fullTime?.home??0,ag=m.score?.fullTime?.away??0; if(isHome)return hg>ag?'W':hg===ag?'D':'L'; return ag>hg?'W':ag===hg?'D':'L'; }); } function formDotsHtml(form){ if(!form.length)return '<div style="font-size:9px;color:var(--muted)">няма данни</div>'; return `<div class="form-dots">${form.map(f=>`<div class="fd ${f}"></div>`).join('')}</div>`; } function goalBefore10(expH,expA){ const exp10=(expH+expA)*(10/90); return Math.min(45,Math.max(8,Math.round((1-Math.exp(-exp10))*100))); } function poissonProb(lambda,k){let r=Math.exp(-lambda);for(let i=1;i<=k;i++)r*=lambda/i;return r;} function calcGoalMarkets(expH,expA){ function pTotalOver(n){let p=0;for(let h=0;h<=10;h++)for(let a=0;a<=10;a++)if(h+a>n)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(97,Math.max(3,Math.round(p*100)));} function pTeamOver(exp,n){let p=0;for(let g=0;g<=10;g++)if(g>n)p+=poissonProb(exp,g);return Math.min(97,Math.max(3,Math.round(p*100)));} return {over05:pTotalOver(0.5),over15:pTotalOver(1.5),over25:pTotalOver(2.5),over35:pTotalOver(3.5),over45:pTotalOver(4.5),hOver05:pTeamOver(expH,0.5),hOver15:pTeamOver(expH,1.5),aOver05:pTeamOver(expA,0.5),aOver15:pTeamOver(expA,1.5)}; } function goalMarketsHtml(gm,hn,an,hf,af){ return `<div class="pred-title" style="margin-top:8px">⚽ ГОЛОВЕ — ПАЗАРИ</div> <div class="pred-grid-4"> <div class="pred-pill"><div class="pred-label">НАД 0.5</div><div class="pred-value ${gm.over05>70?'good':'neutral'}">${gm.over05}%</div></div> <div class="pred-pill"><div class="pred-label">НАД 1.5</div><div class="pred-value ${gm.over15>60?'good':'neutral'}">${gm.over15}%</div></div> <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${gm.over35>40?'good':'bad'}">${gm.over35}%</div></div> <div class="pred-pill"><div class="pred-label">НАД 4.5</div><div class="pred-value ${gm.over45>25?'neutral':'bad'}">${gm.over45}%</div></div> </div> <div class="pred-title" style="margin-top:4px">${hf} ${hn}</div> <div class="pred-grid"> <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${gm.hOver05>65?'good':'neutral'}">${gm.hOver05}%</div></div> <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${gm.hOver15>40?'good':'neutral'}">${gm.hOver15}%</div></div> </div> <div class="pred-title" style="margin-top:4px">${af} ${an}</div> <div class="pred-grid"> <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${gm.aOver05>65?'good':'neutral'}">${gm.aOver05}%</div></div> <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${gm.aOver15>40?'good':'neutral'}">${gm.aOver15}%</div></div> </div>`; } function h2hHtml(h2hMatches,hName,aName){ if(!h2hMatches||!h2hMatches.length)return ''; const last5=h2hMatches.slice(-5); let hW=0,aW=0,dr=0; last5.forEach(m=>{const hg=m.score?.fullTime?.home??0,ag=m.score?.fullTime?.away??0;if(m.homeTeam?.name===hName){if(hg>ag)hW++;else if(hg===ag)dr++;else aW++;}else{if(ag>hg)hW++;else if(ag===hg)dr++;else aW++;}}); const rows=last5.slice().reverse().map(m=>{const hg=m.score?.fullTime?.home??'?',ag=m.score?.fullTime?.away??'?';const date=m.utcDate?new Date(m.utcDate).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';const col=hg>ag?'var(--green)':hg<ag?'var(--red)':'var(--yellow)';return `<div class="h2h-row"><span class="h2h-date">${date}</span><span class="h2h-teams">${hn} — ${an}</span><span class="h2h-score" style="color:${col}">${hg}:${ag}</span></div>`;}).join(''); return `<div class="h2h-section"><div class="h2h-title">⚔️ HEAD-TO-HEAD</div><div class="h2h-summary"><div class="h2h-pill"><div class="h2h-pill-label">${hName.substring(0,8)}</div><div class="h2h-pill-val good">${hW}</div></div><div class="h2h-pill"><div class="h2h-pill-label">РАВНИ</div><div class="h2h-pill-val neutral">${dr}</div></div><div class="h2h-pill"><div class="h2h-pill-label">${aName.substring(0,8)}</div><div class="h2h-pill-val bad">${aW}</div></div></div>${rows}</div>`; } function form5Html(allMatches,hId,aId,hn,an,hf,af){ function getLast5(teamId,side){return allMatches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId)).slice(-5);} function stats(matches,teamId){if(!matches.length)return null;let w=0,d=0,l=0,gf=0,ga=0;matches.forEach(m=>{const isH=m.homeTeam?.id===teamId;const mg=isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0);const og=isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0);gf+=mg;ga+=og;if(mg>og)w++;else if(mg===og)d++;else l++;});return{w,d,l,gf,ga,n:matches.length};} const hS=stats(getLast5(hId,'home'),hId),aS=stats(getLast5(aId,'away'),aId); if(!hS&&!aS)return ''; function block(s,name,flag,side){if(!s)return `<div class="form5-team"><div class="form5-team-name">${flag} ${name.substring(0,10)} (${side})</div><div style="font-size:9px;color:var(--muted)">няма данни</div></div>`;return `<div class="form5-team"><div class="form5-team-name">${flag} ${name.substring(0,10)} (${side})</div><div class="form5-stats"><div class="form5-stat"><div class="form5-stat-val good">${s.w}</div><div class="form5-stat-label">ПОБЕДИ</div></div><div class="form5-stat"><div class="form5-stat-val neutral">${s.d}</div><div class="form5-stat-label">РАВНИ</div></div><div class="form5-stat"><div class="form5-stat-val bad">${s.l}</div><div class="form5-stat-label">ЗАГУБИ</div></div></div><div style="font-size:9px;color:var(--muted)">Голове: <span style="color:var(--green)">${s.gf}</span> вкарани / <span style="color:var(--red)">${s.ga}</span> допуснати (${s.n} мача)</div></div>`;} return `<div class="form5-section"><div class="form5-title">🏠/✈️ ФОРМА ПОСЛЕДНИТЕ 5</div><div class="form5-grid">${block(hS,hn,hf,'У дома')}${block(aS,an,af,'На гости')}</div></div>`; } function htTrendHtml(allMatches,hId,aId,hn,an,hf,af){ function htStats(teamId){const rel=allMatches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)&&m.score?.halfTime!=null).slice(-10);if(!rel.length)return null;let ht1=0,ht2=0;rel.forEach(m=>{const isH=m.homeTeam?.id===teamId;const htG=isH?(m.score?.halfTime?.home??0):(m.score?.halfTime?.away??0);const ftG=isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0);ht1+=htG;ht2+=(ftG-htG);});return{ht1:(ht1/rel.length).toFixed(1),ht2:(ht2/rel.length).toFixed(1),n:rel.length};} const hT=htStats(hId),aT=htStats(aId); if(!hT&&!aT)return ''; function teamHT(t,name,flag){if(!t)return `<div class="ht-team"><div class="ht-team-name">${flag} ${name.substring(0,10)}</div><div style="font-size:9px;color:var(--muted)">няма данни</div></div>`;const tot=(parseFloat(t.ht1)+parseFloat(t.ht2))||1;const p1=Math.round(parseFloat(t.ht1)/tot*100);return `<div class="ht-team"><div class="ht-team-name">${flag} ${name.substring(0,10)}</div><div class="ht-bars"><div class="ht-bar-row"><span class="ht-bar-label" style="color:var(--cyan)">1П</span><div class="ht-bar-bg"><div class="ht-bar-fill" style="width:${p1}%;background:var(--cyan)"></div></div><span class="ht-bar-val" style="color:var(--cyan)">${t.ht1}</span></div><div class="ht-bar-row"><span class="ht-bar-label" style="color:var(--orange)">2П</span><div class="ht-bar-bg"><div class="ht-bar-fill" style="width:${100-p1}%;background:var(--orange)"></div></div><span class="ht-bar-val" style="color:var(--orange)">${t.ht2}</span></div></div><div style="font-size:9px;color:var(--muted);margin-top:4px">avg голове/мач (${t.n} мача)</div></div>`;} return `<div class="ht-section"><div class="ht-title">📈 ТРЕНД 1во/2ро ПОЛУВРЕМЕ</div><div class="ht-grid">${teamHT(hT,hn,hf)}${teamHT(aT,an,af)}</div></div>`; } function lineupHtml(m,hf,af){ const hl=m.homeTeam?.lineup||[],al=m.awayTeam?.lineup||[]; if(!hl.length&&!al.length)return ''; const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—'; const an=m.awayTeam?.shortName||m.awayTeam?.name||'—'; function pList(l){if(!l.length)return '<div style="font-size:9px;color:var(--muted)">очаква се...</div>';return l.map(p=>`<div class="lineup-player"><span class="lineup-num">${p.shirtNumber||''}</span><span>${p.name||'—'}</span><span class="lineup-pos"> ${p.position||''}</span></div>`).join('');} return `<div class="lineup-section"><div class="lineup-title">👥 НАЧАЛЕН СЪСТАВ</div><div class="lineup-grid"><div class="lineup-team"><div class="lineup-team-name">${hf} ${hn}</div>${pList(hl)}</div><div class="lineup-team"><div class="lineup-team-name">${af} ${an}</div>${pList(al)}</div></div></div>`; } function refereeHtml(m){ const ref=m.referees?.[0]; if(!ref)return ''; return `<div class="referee-section"><span class="referee-label">🟨 СЪДИЯ:</span><span class="referee-name">${ref.name||'—'}</span>${ref.nationality?`<span class="referee-stats">(${ref.nationality})</span>`:''}</div>`; } function oddsHtml(odds,pred){ if(!odds)return ''; const h=odds.homeWin,d=odds.draw,a=odds.awayWin; if(!h||!d||!a)return ''; const hImpl=Math.round(100/h),dImpl=Math.round(100/d),aImpl=Math.round(100/a); const hV=pred&&pred.hWin>hImpl+5,dV=pred&&pred.draw>dImpl+5,aV=pred&&pred.aWin>aImpl+5; return `<div class="odds-title">📊 БУКМЕЙКЪР КОЕФИЦИЕНТИ</div> <div class="odds-row"> <div class="odds-pill"><div class="odds-label">1 ДОМАКИН</div><div class="odds-val">${h.toFixed(2)}</div><div class="odds-impl">implied ${hImpl}%</div>${hV?'<div class="value-badge">VALUE ✓</div>':''}</div> <div class="odds-pill"><div class="odds-label">X РАВЕН</div><div class="odds-val">${d.toFixed(2)}</div><div class="odds-impl">implied ${dImpl}%</div>${dV?'<div class="value-badge">VALUE ✓</div>':''}</div> <div class="odds-pill"><div class="odds-label">2 ГОСТ</div><div class="odds-val">${a.toFixed(2)}</div><div class="odds-impl">implied ${aImpl}%</div>${aV?'<div class="value-badge">VALUE ✓</div>':''}</div> </div>`; } function extractOdds(m){try{const o=m.odds;if(!o)return null;return{homeWin:o.homeWin,draw:o.draw,awayWin:o.awayWin};}catch(e){return null;}} function buildPrediction(match,allMatches){ const hId=match.homeTeam?.id,aId=match.awayTeam?.id; if(!hId||!aId)return null; const hForm=calcForm(allMatches,hId),aForm=calcForm(allMatches,aId); function fScore(form){return form.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0);} function avgG(matches,teamId,side){ const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId)); if(!rel.length)return null; return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length; } function avgC(matches,teamId,side){ const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId)); if(!rel.length)return null; return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length; } const hAvgG=avgG(allMatches,hId,'home'); const hAvgC=avgC(allMatches,hId,'home'); const aAvgG=avgG(allMatches,aId,'away'); const aAvgC=avgC(allMatches,aId,'away'); const noData=hAvgG===null&&hAvgC===null&&aAvgG===null&&aAvgC===null; if(noData)return null; const expH=Math.max(0.3,((hAvgG??1.2)+(aAvgC??1.2))/2*1.1); const expA=Math.max(0.3,((aAvgG??1.2)+(hAvgC??1.2))/2*0.9); const expTotal=expH+expA; const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1; const hWinP=Math.round(((hFS/tot)*0.6+(expH/expTotal)*0.4)*100); const aWinP=Math.round(((aFS/tot)*0.6+(expA/expTotal)*0.4)*100); const drawP=Math.max(5,100-hWinP-aWinP); const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP)); const aWinAdj=100-drawP-hWinAdj; const over25P=Math.min(90,Math.max(10,Math.round((expTotal/3)*70))); const bttsP=Math.min(85,Math.max(15,Math.round(Math.min(expH,1)*Math.min(expA,1)*100+20))); let scores=[]; for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100}); scores.sort((a,b)=>b.p-a.p); let htS=[]; for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*0.45,h)*poissonProb(expA*0.45,a)*100}); htS.sort((a,b)=>b.p-a.p); const expCorners=Math.round(expTotal*2.8+4); const cornersOver=Math.min(85,Math.max(15,expCorners>=9?Math.round(55+(expCorners-9)*5):Math.round(55-(9-expCorners)*5))); const gm=calcGoalMarkets(expH,expA); return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:100-over25P,btts:bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm}; } function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){ const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—'; const an=m.awayTeam?.shortName||m.awayTeam?.name||'—'; const hf=getFlag(m.homeTeam?.name),af=getFlag(m.awayTeam?.name); const hg=m.score?.fullTime?.home,ag=m.score?.fullTime?.away; const hHT=m.score?.halfTime?.home,aHT=m.score?.halfTime?.away; const isLive=['IN_PLAY','PAUSED'].includes(m.status); const isFT=m.status==='FINISHED',isHT=m.status==='HALFTIME'; const statusClass=isLive?'live':isFT?'finished':''; const min=m.minute?m.minute+"'":(isHT?'ПОЧИВКА':''); const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan);letter-spacing:1px">${new Date(m.utcDate).toLocaleTimeString('bg-BG',{hour:'2-digit',minute:'2-digit'})}</div>`; const statusHtml=isLive?`<span class="ms live">● LIVE ${min}</span>`:isFT?`<span class="ms finished">КРАЙ · П/В ${hHT??'-'}:${aHT??'-'}</span>`:isHT?`<span class="ms live">⏸ ПОЧИВКА</span>`:`<span class="ms scheduled">ПРЕДСТОИ</span>`; let goalsHtml=''; if(m.goals?.length){goalsHtml='<div class="events">';[...m.goals].sort((x,y)=>x.minute-y.minute).forEach(g=>{const icon=g.type==='OWN'?'⚽🔴':g.type==='PENALTY'?'⚽🎯':'⚽';const side=g.team?.name===m.homeTeam?.name?hf:af;goalsHtml+=`<div class="event-item"><span class="event-min">${g.minute}'</span><span>${icon}</span><span class="event-player">${g.scorer?.name||'—'}</span><span class="event-team">${side}</span></div>`;});goalsHtml+='</div>';} let booksHtml=''; if(m.bookings?.length){booksHtml='<div class="events">';[...m.bookings].sort((x,y)=>x.minute-y.minute).forEach(b=>{const icon=b.card==='RED_CARD'?'🟥':b.card==='YELLOW_RED_CARD'?'🟥🟨':'🟨';const side=b.team?.name===m.homeTeam?.name?hf:af;booksHtml+=`<div class="event-item"><span class="event-min">${b.minute}'</span><span>${icon}</span><span class="event-player">${b.player?.name||'—'}</span><span class="event-team">${side}</span></div>`;});booksHtml+='</div>';} let betHtml=''; if(isFT&&hg!=null){const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅':'❌'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅':'❌'}</div></div><div class="bet-pill"><div class="bet-label">КР</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>`;} const liveStatsSection = isLive && liveStats ? liveStatsHtml(liveStats, hn, an) : ''; const nextGoalSection = isLive && liveStats ? nextGoalHtml(liveStats, m.minute||0, hn, an, hf, af) : ''; let predHtml=''; if(showPred&&allMatches){ const pred=buildPrediction(m,allMatches); const odds=extractOdds(m); const hId=m.homeTeam?.id,aId=m.awayTeam?.id; if(pred){ savePrediction(m,pred); predHtml=`<div class="pred-section"> <div class="pred-title">🔮 ПРОГНОЗА</div> <div class="pred-grid-3"> <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div></div> <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${pred.draw}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.draw}%;background:var(--yellow)"></div></div></div> <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${pred.aWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.aWin}%;background:var(--red)"></div></div></div> </div> <div class="pred-grid"> <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pred.over25>50?'good':'bad'}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div> <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${pred.btts>50?'good':'bad'}">${pred.btts}%</div><div class="pred-pct">ПОД 2.5: ${pred.under25}%</div></div> </div> <div class="pred-grid"> <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value info">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div> <div class="pred-pill"><div class="pred-label">ОЧ. ЖЪЛТИ</div><div class="pred-value neutral">~${pred.expYellow}</div><div class="pred-pct">картона в мача</div></div> </div> <div class="pred-grid"> <div class="pred-pill"><div class="pred-label">⚡ ГОЛ ДО 10'</div><div class="pred-value ${pred.g10>25?'good':'neutral'}">${pred.g10}%</div><div class="pred-pct">Poisson модел</div></div> <div class="pred-pill"><div class="pred-label">БЕЗ ГОЛ ДО 10'</div><div class="pred-value ${pred.g10<25?'good':'neutral'}">${100-pred.g10}%</div><div class="pred-pct">вероятност</div></div> </div> ${goalMarketsHtml(pred.gm,hn,an,hf,af)} <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div> <div class="pred-grid">${pred.topScores.map(s=>`<div class="pred-pill"><div class="pred-label">${s.h}:${s.a}</div><div class="pred-value info">${s.p.toFixed(1)}%</div></div>`).join('')}</div> <div class="pred-title" style="margin-top:8px">⏱ РЕЗУЛТАТ ПОЛУВРЕМЕ</div> <div class="pred-grid">${pred.htScores.map(s=>`<div class="pred-pill"><div class="pred-label">П/В ${s.h}:${s.a}</div><div class="pred-value purple">${s.p.toFixed(1)}%</div></div>`).join('')}</div> <div style="display:flex;gap:8px;margin-top:8px"> <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${hf}</div>${formDotsHtml(pred.hForm)}</div> <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${af}</div>${formDotsHtml(pred.aForm)}</div> </div> </div> ${oddsHtml(odds,pred)} ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)} ${form5Html(allMatches,hId,aId,hn,an,hf,af)} ${htTrendHtml(allMatches,hId,aId,hn,an,hf,af)} ${lineupHtml(m,hf,af)} ${refereeHtml(m)}`; } else { predHtml=` <div class="no-pred-box">⚠️ НЕДОСТАТЪЧНО ДАННИ ЗА ПРОГНОЗА</div> ${oddsHtml(odds,null)} ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)} ${lineupHtml(m,hf,af)} ${refereeHtml(m)}`; } } return `<div class="match-card ${statusClass}"> <div class="match-header"><span class="match-league">${m.competition?.name||''} · ${m.group||m.stage||''}</span>${statusHtml}</div> <div class="match-body"> <div class="teams-row"> <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div> <div class="score-box">${scoreHtml}</div> <div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div> </div> ${isLive&&min?`<div class="match-minute">⏱ ${min}</div>`:''} </div> ${goalsHtml}${booksHtml}${nextGoalSection}${liveStatsSection}${betHtml}${predHtml} </div>`; } async function loadLive(){ const c=document.getElementById('live-content'); c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>'; try{ const data=await apiFetch('/matches?status=IN_PLAY,PAUSED,HALFTIME'); const matches=data.matches||[]; if(!matches.length){c.innerHTML='<div class="no-data">⚽ Няма live мачове в момента</div>';return;} let liveStatsMap={}; try{ const asData=await apiFetchAS('/fixtures?live=all'); const fixtures=asData.response||[]; fixtures.forEach(f=>{ const stats={}; (f.statistics||[]).forEach(ts=>{ const isHome=ts.team?.id===f.teams?.home?.id; (ts.statistics||[]).forEach(s=>{ const key=s.type; const val=s.value; if(key==='Ball Possession'){isHome?stats.possession_h=parseInt(val)||50:stats.possession_a=parseInt(val)||50;} if(key==='Shots on Goal'){isHome?stats.shotsOn_h=val:stats.shotsOn_a=val;} if(key==='Total Shots'){isHome?stats.shots_h=val:stats.shots_a=val;} if(key==='Corner Kicks'){isHome?stats.corners_h=val:stats.corners_a=val;} if(key==='Fouls'){isHome?stats.fouls_h=val:stats.fouls_a=val;} if(key==='Yellow Cards'){isHome?stats.yellow_h=val:stats.yellow_a=val;} if(key==='Dangerous Attacks'){isHome?stats.dangerous_h=val:stats.dangerous_a=val;} if(key==='Attacks'){isHome?stats.attacks_h=val:stats.attacks_a=val;} }); }); const hn=(f.teams?.home?.name||'').toLowerCase(); const an=(f.teams?.away?.name||'').toLowerCase(); liveStatsMap[hn+'_'+an]=stats; }); }catch(e){} c.innerHTML=matches.map(m=>{ const hn=(m.homeTeam?.name||'').toLowerCase(); const an=(m.awayTeam?.name||'').toLowerCase(); const ls=liveStatsMap[hn+'_'+an]||null; return renderMatch(m,false,null,null,ls); }).join(''); }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;} } async function loadToday(){const c=document.getElementById('today-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';try{const data=await apiFetch(`/matches?date=${getToday()}`);const matches=data.matches||[];if(!matches.length){c.innerHTML='<div class="no-data">Няма мачове днес</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}} async function loadFinished(){const c=document.getElementById('finished-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';try{const[d1,d2]=await Promise.all([apiFetch(`/matches?date=${getYesterday()}&status=FINISHED`),apiFetch(`/matches?date=${getToday()}&status=FINISHED`)]);const matches=[...(d2.matches||[]),...(d1.matches||[])];if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}} async function loadUpcoming(){ const c=document.getElementById('upcoming-content'); c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ — ИЗЧИСЛЯВАНЕ ПРОГНОЗИ...</div>'; try{ const today=getToday(),day3=getDatePlus(3); const upData=await apiFetch(`/matches?dateFrom=${today}&dateTo=${day3}&status=SCHEDULED,TIMED`); const upcoming=upData.matches||[]; if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;} const past60=new Date();past60.setDate(past60.getDate()-60); const pastStr=past60.toISOString().split('T')[0]; let allMatches=[]; try{const[hist,wcM]=await Promise.all([apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`),apiFetch(`/competitions/2000/matches?status=FINISHED`)]);allMatches=[...(hist.matches||[]),...(wcM.matches||[])];}catch(e){} const groups={}; upcoming.forEach(m=>{const key=m.competition?.id;if(!groups[key])groups[key]={name:m.competition?.name||'',matches:[]};groups[key].matches.push(m);}); let html=''; for(const key in groups){ const g=groups[key];const comp=COMPS.find(c=>c.id==key); html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`; for(const m of g.matches){ let h2h=[]; try{const hId=m.homeTeam?.id,aId=m.awayTeam?.id;if(hId&&aId){const d=await apiFetch(`/matches?competitions=${m.competition?.id}&teams=${hId}&teams=${aId}&status=FINISHED`);h2h=d.matches||[];}}catch(e){} html+=renderMatch(m,true,allMatches,h2h,null); } } c.innerHTML=html; }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;} } async function loadStandings(){const c=document.getElementById('standings-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let html='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/standings`);const standings=data.standings||[];html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;standings.forEach(group=>{if(standings.length>1)html+=`<div class="section-title">${group.group||group.stage}</div>`;html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;(group.table||[]).forEach(row=>{html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.position}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.shortName||row.team?.name}</div><div class="num">${row.playedGames}</div><div class="num">${row.won}</div><div class="num">${row.lost}</div><div class="num">${row.goalsFor}:${row.goalsAgainst}</div><div class="pts">${row.points}</div></div>`;});html+='</div>';});}catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}}c.innerHTML=html||'<div class="no-data">Няма данни</div>';} async function loadScorers(){const c=document.getElementById('scorers-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let html='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=10`);const sc=data.scorers||[];if(!sc.length)continue;const cols='24px 1fr 50px 28px 28px 28px 28px';html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--green)">⚽</div><div style="color:var(--cyan)">🎯</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;sc.forEach((s,i)=>{html+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-goals">${s.goals||0}</div><div class="s-ast">${s.assists||0}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});html+='</div>';}catch(e){}}c.innerHTML=html||'<div class="no-data">Няма данни</div>';} async function loadCards(){const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let yHtml='',rHtml='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=50`);const sc=data.scorers||[];const yellows=[...sc].filter(s=>(s.yellowCards||0)>0).sort((a,b)=>(b.yellowCards||0)-(a.yellowCards||0)).slice(0,5);const reds=[...sc].filter(s=>(s.redCards||0)>0).sort((a,b)=>(b.redCards||0)-(a.redCards||0)).slice(0,3);const cols='24px 1fr 50px 30px 30px';if(yellows.length){yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;yellows.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});yHtml+='</div>';}if(reds.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;reds.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});rHtml+='</div>';}}catch(e){}}yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';} switchTab('live'); autoTimer=setInterval(()=>{if(currentTab==='live')loadCurrentTab();},60000); </script> </body> </html>  
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>⚽ ФУТБОЛ ДАШБОРД</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0e14; --card: #111820; --card2: #161e28; --border: #1e2d3d;
+    --green: #00e676; --yellow: #ffd600; --red: #ff1744; --cyan: #00e5ff;
+    --orange: #ff9100; --text: #e0e8f0; --muted: #5a7a8a; --purple: #c084fc;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; padding-bottom: 40px; }
+  .header { background: linear-gradient(135deg,#0a1628,#0d2137,#0a1628); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .header-title { font-family: 'Rajdhani',sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 2px; color: var(--green); text-shadow: 0 0 20px rgba(0,230,118,0.4); }
+  .header-sub { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .live-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; animation: pulse 1.5s infinite; box-shadow: 0 0 8px var(--green); }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+  .refresh-btn { background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.3); color: var(--green); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-family: 'Rajdhani',sans-serif; font-weight: 600; cursor: pointer; letter-spacing: 1px; }
+  .tabs { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-family: 'Rajdhani',sans-serif; font-weight: 600; letter-spacing: 1px; cursor: pointer; white-space: nowrap; border: 1px solid var(--border); background: var(--card); color: var(--muted); transition: all 0.2s; flex-shrink: 0; }
+  .tab.active { background: rgba(0,230,118,0.15); border-color: var(--green); color: var(--green); }
+  .section-title { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--muted); padding: 0 16px; margin-bottom: 8px; margin-top: 16px; }
+  .match-card { margin: 0 16px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .match-card.live { border-color: rgba(0,230,118,0.4); box-shadow: 0 0 15px rgba(0,230,118,0.08); }
+  .match-card.finished { border-color: rgba(90,122,138,0.3); }
+  .match-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--card2); border-bottom: 1px solid var(--border); }
+  .match-league { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .ms { font-size: 10px; font-family: 'Rajdhani',sans-serif; font-weight: 700; letter-spacing: 1px; }
+  .ms.live { color: var(--green); } .ms.finished { color: var(--muted); } .ms.scheduled { color: var(--cyan); }
+  .match-body { padding: 14px 12px; }
+  .teams-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .team { flex: 1; text-align: center; }
+  .team-flag { font-size: 28px; display: block; margin-bottom: 4px; }
+  .team-name { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 600; color: var(--text); }
+  .score-box { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
+  .score { font-family: 'Rajdhani',sans-serif; font-size: 36px; font-weight: 700; color: var(--text); min-width: 28px; text-align: center; line-height: 1; }
+  .score-sep { font-family: 'Rajdhani',sans-serif; font-size: 24px; color: var(--muted); }
+  .match-minute { text-align: center; font-size: 11px; color: var(--green); font-family: 'Rajdhani',sans-serif; font-weight: 700; margin-top: 6px; letter-spacing: 1px; }
+  .events { padding: 6px 12px; border-top: 1px solid var(--border); }
+  .event-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .event-min { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--muted); min-width: 28px; }
+  .event-player { color: var(--text); flex: 1; }
+  .event-team { font-size: 11px; color: var(--muted); }
+  .pred-section { padding: 8px 12px 12px; border-top: 1px solid var(--border); }
+  .pred-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+  .pred-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .pred-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .pred-grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .pred-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 6px; text-align: center; }
+  .pred-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 4px; }
+  .pred-value { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; }
+  .pred-pct { font-size: 9px; color: var(--muted); margin-top: 2px; }
+  .conf-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .conf-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+  .good { color: var(--green); } .bad { color: var(--red); } .neutral { color: var(--yellow); } .info { color: var(--cyan); } .purple { color: var(--purple); }
+  .mstats { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .mstat-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .mstat-name { font-size: 9px; color: var(--muted); letter-spacing: 1px; min-width: 90px; text-align: center; }
+  .mstat-num { font-family: 'Rajdhani',sans-serif; font-size: 12px; font-weight: 700; min-width: 22px; text-align: center; }
+  .mstat-num.h { color: var(--cyan); } .mstat-num.a { color: var(--orange); }
+  .bar-wrap { flex: 1; display: flex; gap: 2px; align-items: center; }
+  .bar-h { height: 4px; background: var(--cyan); border-radius: 2px; }
+  .bar-a { height: 4px; background: var(--orange); border-radius: 2px; }
+  .next-goal-section { padding: 10px 12px; border-top: 1px solid var(--border); background: rgba(0,230,118,0.03); }
+  .next-goal-title { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--green); letter-spacing: 2px; margin-bottom: 10px; text-align: center; }
+  .next-goal-bar-wrap { position: relative; height: 28px; background: var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 6px; }
+  .next-goal-bar-h { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, #00e676, #00b248); border-radius: 14px 0 0 14px; transition: width 0.8s; display: flex; align-items: center; padding-left: 8px; }
+  .next-goal-bar-a { position: absolute; right: 0; top: 0; height: 100%; background: linear-gradient(90deg, #ff6d00, #ff1744); border-radius: 0 14px 14px 0; transition: width 0.8s; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
+  .next-goal-pct { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; color: #000; }
+  .next-goal-teams { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+  .next-goal-no { text-align: center; font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .live-stats-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .live-stats-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; margin-bottom: 8px; }
+  .big-table { margin: 0 16px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .big-header { padding: 8px 12px; background: var(--card2); border-bottom: 1px solid var(--border); font-size: 9px; color: var(--muted); letter-spacing: 1px; display: grid; gap: 4px; }
+  .big-row { padding: 9px 12px; border-bottom: 1px solid rgba(30,45,61,0.5); font-size: 12px; display: grid; gap: 4px; align-items: center; }
+  .big-row:last-child { border-bottom: none; }
+  .s-pos { color: var(--muted); font-size: 11px; text-align: center; }
+  .s-name { font-family: 'Rajdhani',sans-serif; font-weight: 600; }
+  .s-team { font-size: 10px; color: var(--muted); }
+  .s-goals { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--green); text-align: center; font-size: 14px; }
+  .s-ast { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--cyan); text-align: center; }
+  .s-yel { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--yellow); text-align: center; }
+  .s-red { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--red); text-align: center; }
+  .pts { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--green); text-align: center; font-size: 13px; }
+  .num { text-align: center; color: var(--muted); font-size: 11px; }
+  .form-dots { display: flex; gap: 3px; margin-top: 3px; }
+  .fd { width: 7px; height: 7px; border-radius: 50%; }
+  .fd.W { background: var(--green); } .fd.D { background: var(--yellow); } .fd.L { background: var(--red); }
+  .loading { text-align: center; padding: 40px 20px; color: var(--muted); font-family: 'Rajdhani',sans-serif; font-size: 14px; letter-spacing: 2px; }
+  .spinner { width: 30px; height: 30px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-box { margin: 16px; background: rgba(255,23,68,0.08); border: 1px solid rgba(255,23,68,0.3); border-radius: 12px; padding: 16px; text-align: center; font-size: 13px; color: var(--red); }
+  .last-update { text-align: center; font-size: 10px; color: var(--muted); padding: 8px 16px 0; letter-spacing: 1px; }
+  .footer { text-align: center; padding: 16px; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .comp-header { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--card2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--yellow); letter-spacing: 1px; }
+  .no-data { text-align: center; padding: 30px; color: var(--muted); font-size: 13px; }
+  .bet-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .bet-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 4px; text-align: center; }
+  .bet-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; }
+  .bet-value { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; }
+  .odds-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); }
+  .odds-pill { background: var(--card2); border: 1px solid rgba(0,229,255,0.2); border-radius: 8px; padding: 7px 4px; text-align: center; }
+  .odds-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; }
+  .odds-val { font-family: 'Rajdhani',sans-serif; font-size: 15px; font-weight: 700; color: var(--cyan); }
+  .odds-impl { font-size: 9px; color: var(--muted); margin-top: 2px; }
+  .value-badge { display: inline-block; background: rgba(0,230,118,0.2); border: 1px solid var(--green); color: var(--green); font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; letter-spacing: 1px; }
+  .odds-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; padding: 6px 12px 4px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); }
+  .lineup-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .lineup-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+  .lineup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .lineup-team { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .lineup-team-name { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--yellow); margin-bottom: 6px; letter-spacing: 1px; }
+  .lineup-player { font-size: 10px; color: var(--text); padding: 2px 0; display: flex; align-items: center; gap: 4px; }
+  .lineup-num { font-family: 'Rajdhani',sans-serif; font-size: 10px; color: var(--muted); min-width: 18px; }
+  .lineup-pos { font-size: 9px; color: var(--muted); }
+  .h2h-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .h2h-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+  .h2h-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(30,45,61,0.4); font-size: 11px; }
+  .h2h-row:last-child { border-bottom: none; }
+  .h2h-date { color: var(--muted); font-size: 9px; min-width: 50px; }
+  .h2h-teams { flex: 1; text-align: center; color: var(--text); }
+  .h2h-score { font-family: 'Rajdhani',sans-serif; font-weight: 700; font-size: 13px; min-width: 36px; text-align: center; }
+  .h2h-summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .h2h-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 6px; text-align: center; }
+  .h2h-pill-label { font-size: 9px; color: var(--muted); margin-bottom: 3px; }
+  .h2h-pill-val { font-family: 'Rajdhani',sans-serif; font-size: 14px; font-weight: 700; }
+  .form5-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .form5-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+  .form5-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .form5-team { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .form5-team-name { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--yellow); margin-bottom: 6px; }
+  .form5-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px; }
+  .form5-stat { text-align: center; }
+  .form5-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 14px; font-weight: 700; }
+  .form5-stat-label { font-size: 8px; color: var(--muted); }
+  .ht-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
+  .ht-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
+  .ht-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ht-team { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .ht-team-name { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--yellow); margin-bottom: 6px; }
+  .ht-bars { display: flex; flex-direction: column; gap: 4px; }
+  .ht-bar-row { display: flex; align-items: center; gap: 6px; }
+  .ht-bar-label { font-size: 9px; color: var(--muted); min-width: 20px; }
+  .ht-bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .ht-bar-fill { height: 100%; border-radius: 3px; }
+  .ht-bar-val { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; min-width: 24px; text-align: right; }
+  .referee-section { padding: 6px 12px 8px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .referee-label { font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+  .referee-name { font-family: 'Rajdhani',sans-serif; font-size: 12px; font-weight: 600; color: var(--text); }
+  .referee-stats { font-size: 9px; color: var(--muted); }
+  .hist-card { margin: 0 16px 8px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+  .hist-match { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .hist-date { font-size: 9px; color: var(--muted); margin-bottom: 6px; }
+  .hist-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; margin-bottom: 4px; }
+  .hist-pill { background: var(--card2); border-radius: 6px; padding: 4px; text-align: center; }
+  .hist-pill-label { font-size: 8px; color: var(--muted); }
+  .hist-pill-val { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; }
+  .hist-result { font-size: 10px; color: var(--muted); }
+  .hist-stats { padding: 12px 16px; background: var(--card2); border-radius: 12px; margin: 0 16px 16px; }
+  .hist-stats-title { font-family: 'Rajdhani',sans-serif; font-size: 11px; font-weight: 700; color: var(--yellow); letter-spacing: 2px; margin-bottom: 10px; }
+  .hist-stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .hist-stat { text-align: center; }
+  .hist-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 20px; font-weight: 700; }
+  .hist-stat-label { font-size: 9px; color: var(--muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div>
+      <div class="header-title">⚽ ФУТБОЛ</div>
+      <div class="header-sub">LIVE ДАШБОРД</div>
+    </div>
+    <div class="live-dot"></div>
+  </div>
+  <button class="refresh-btn" onclick="loadCurrentTab()">↻ ОБНОВИ</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('live')">🔴 LIVE</div>
+  <div class="tab" onclick="switchTab('today')">📅 ДНЕС</div>
+  <div class="tab" onclick="switchTab('upcoming')">🔮 ПРОГНОЗИ</div>
+  <div class="tab" onclick="switchTab('finished')">✅ СВЪРШИЛИ</div>
+  <div class="tab" onclick="switchTab('history')">📈 ИСТОРИЯ</div>
+  <div class="tab" onclick="switchTab('standings')">📊 КЛАСАЦИЯ</div>
+  <div class="tab" onclick="switchTab('scorers')">⚽ ГОЛМАЙСТОРИ</div>
+  <div class="tab" onclick="switchTab('cards')">🟨 КАРТОНИ</div>
+</div>
+
+<div id="tab-live" class="tab-content active">
+  <div class="section-title" style="margin-top:12px">LIVE МАЧОВЕ</div>
+  <div id="live-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-today" class="tab-content">
+  <div class="section-title" style="margin-top:12px">МАЧОВЕ ДНЕС</div>
+  <div id="today-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-upcoming" class="tab-content">
+  <div class="section-title" style="margin-top:12px">ПРОГНОЗИ — ПРЕДСТОЯЩИ МАЧОВЕ</div>
+  <div id="upcoming-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-finished" class="tab-content">
+  <div class="section-title" style="margin-top:12px">ПРИКЛЮЧИЛИ МАЧОВЕ</div>
+  <div id="finished-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-history" class="tab-content">
+  <div class="section-title" style="margin-top:12px">📈 ИСТОРИЯ НА ПРОГНОЗИТЕ</div>
+  <div id="history-stats"></div>
+  <div id="history-content"><div class="no-data">Няма записани прогнози още</div></div>
+  <div style="text-align:center;padding:16px">
+    <button onclick="clearHistory()" style="background:rgba(255,23,68,0.1);border:1px solid rgba(255,23,68,0.3);color:var(--red);padding:6px 16px;border-radius:20px;font-size:11px;font-family:'Rajdhani',sans-serif;font-weight:600;cursor:pointer;letter-spacing:1px">🗑️ ИЗЧИСТИ ИСТОРИЯТА</button>
+  </div>
+</div>
+<div id="tab-standings" class="tab-content">
+  <div class="section-title" style="margin-top:12px">КЛАСАЦИИ</div>
+  <div id="standings-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-scorers" class="tab-content">
+  <div class="section-title" style="margin-top:12px">ТОП ГОЛМАЙСТОРИ</div>
+  <div id="scorers-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-cards" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🟨 НАЙ-МНОГО ЖЪЛТИ</div>
+  <div id="yellow-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+  <div class="section-title" style="margin-top:20px">🟥 НАЙ-МНОГО ЧЕРВЕНИ</div>
+  <div id="red-content"></div>
+</div>
+
+<div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.3</div>
+
+<script>
+const WORKER = 'https://orange-grass-d809.gabas82.workers.dev/football';
+const WORKER_AS = 'https://orange-grass-d809.gabas82.workers.dev/apisports';
+
+const COMPS = [
+  { id: 2000, code: 'WC',  name: 'World Cup 2026',   flag: '🏆' },
+  { id: 2021, code: 'PL',  name: 'Premier League',   flag: '🏴󐁧󐁢󐁥󐁮󐁧󐁿' },
+  { id: 2002, code: 'BL1', name: 'Bundesliga',        flag: '🇩🇪' },
+  { id: 2019, code: 'SA',  name: 'Serie A',           flag: '🇮🇹' },
+  { id: 2014, code: 'PD',  name: 'La Liga',           flag: '🇪🇸' },
+  { id: 2015, code: 'FL1', name: 'Ligue 1',           flag: '🇫🇷' },
+  { id: 2001, code: 'CL',  name: 'Champions League',  flag: '⭐' },
+  { id: 2018, code: 'EL',  name: 'Europa League',     flag: '🟠' },
+  { id: 2016, code: 'BG',  name: 'България',          flag: '🇧🇬' },
+  { id: 2003, code: 'DED', name: 'Eredivisie',        flag: '🇳🇱' },
+  { id: 2013, code: 'BSA', name: 'Бразилия Série A',  flag: '🇧🇷' },
+];
+
+const FLAGS = {
+  'Mexico':'🇲🇽','Brazil':'🇧🇷','Argentina':'🇦🇷','France':'🇫🇷','Germany':'🇩🇪',
+  'England':'🏴󐁧󐁢󐁥󐁮󐁧󐁿','Spain':'🇪🇸','Portugal':'🇵🇹','Netherlands':'🇳🇱','Italy':'🇮🇹',
+  'Belgium':'🇧🇪','Croatia':'🇭🇷','Uruguay':'🇺🇾','Colombia':'🇨🇴','USA':'🇺🇸',
+  'United States':'🇺🇸','Canada':'🇨🇦','Japan':'🇯🇵','South Korea':'🇰🇷','Korea Republic':'🇰🇷',
+  'Australia':'🇦🇺','Morocco':'🇲🇦','Senegal':'🇸🇳','Ecuador':'🇪🇨','Poland':'🇵🇱',
+  'Serbia':'🇷🇸','Switzerland':'🇨🇭','Denmark':'🇩🇰','Iran':'🇮🇷','IR Iran':'🇮🇷',
+  'Saudi Arabia':'🇸🇦','Tunisia':'🇹🇳','Panama':'🇵🇦','Honduras':'🇭🇳','Bolivia':'🇧🇴',
+  'Chile':'🇨🇱','Paraguay':'🇵🇾','Venezuela':'🇻🇪','Peru':'🇵🇪','Jamaica':'🇯🇲',
+  'Nigeria':'🇳🇬','Egypt':'🇪🇬','Algeria':'🇩🇿',"Côte d'Ivoire":'🇨🇮','Ghana':'🇬🇭',
+  'Cameroon':'🇨🇲','Slovakia':'🇸🇰','Austria':'🇦🇹','Czechia':'🇨🇿','Hungary':'🇭🇺',
+  'Turkey':'🇹🇷','Ukraine':'🇺🇦','Romania':'🇷🇴','Scotland':'🏴󐁧󐁢󐁳󐁣󐁴󐁿','New Zealand':'🇳🇿',
+  'Indonesia':'🇮🇩','Iraq':'🇮🇶','El Salvador':'🇸🇻','Guatemala':'🇬🇹',
+  'Bosnia-Herzegovina':'🇧🇦','Bosnia and Herzegovina':'🇧🇦','South Africa':'🇿🇦',
+  'Bulgaria':'🇧🇬','Ivory Coast':'🇨🇮','Cape Verde':'🇨🇻','Sweden':'🇸🇪',
+  'Norway':'🇳🇴','Curacao':'🇨🇼',
+};
+
+function getFlag(n){return FLAGS[n]||'🏟️';}
+let currentTab='live',autoTimer=null;
+
+async function apiFetch(path){
+  const r=await fetch(WORKER+path);
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+async function apiFetchAS(path){
+  const r=await fetch(WORKER_AS+path);
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+function switchTab(name){
+  currentTab=name;
+  const names=['live','today','upcoming','finished','history','standings','scorers','cards'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  clearInterval(autoTimer);
+  loadCurrentTab();
+  if(name==='live')autoTimer=setInterval(loadCurrentTab,60000);
+}
+
+function loadCurrentTab(){
+  updateTime();
+  if(currentTab==='live')loadLive();
+  else if(currentTab==='today')loadToday();
+  else if(currentTab==='upcoming')loadUpcoming();
+  else if(currentTab==='finished')loadFinished();
+  else if(currentTab==='history')loadHistory();
+  else if(currentTab==='standings')loadStandings();
+  else if(currentTab==='scorers')loadScorers();
+  else if(currentTab==='cards')loadCards();
+}
+
+function updateTime(){document.getElementById('update-time').textContent=new Date().toLocaleTimeString('bg-BG');}
+function getToday(){return new Date().toISOString().split('T')[0];}
+function getYesterday(){const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().split('T')[0];}
+function getDatePlus(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
+
+// ===== СЛЕДВАЩ ГОЛ ФОРМУЛА =====
+function calcNextGoal(stats, minute) {
+  if(!stats) return null;
+  const possession_h = parseFloat(stats.possession_h)||50;
+  const possession_a = parseFloat(stats.possession_a)||50;
+  const shots_h = parseInt(stats.shots_h)||0;
+  const shots_a = parseInt(stats.shots_a)||0;
+  const shotsOn_h = parseInt(stats.shotsOn_h)||0;
+  const shotsOn_a = parseInt(stats.shotsOn_a)||0;
+  const dangerous_h = parseInt(stats.dangerous_h)||0;
+  const dangerous_a = parseInt(stats.dangerous_a)||0;
+
+  // xG score per team
+  const xg_h = (possession_h/100)*0.2 + (shotsOn_h)*0.35 + (shots_h)*0.1 + (dangerous_h)*0.15;
+  const xg_a = (possession_a/100)*0.2 + (shotsOn_a)*0.35 + (shots_a)*0.1 + (dangerous_a)*0.15;
+
+  // Minute factor — more goals after 60'
+  const minFactor = minute > 60 ? 1.3 : minute > 45 ? 1.1 : 1.0;
+  const total = (xg_h + xg_a) * minFactor || 1;
+
+  const pctH = Math.round((xg_h * minFactor / total) * 100);
+  const pctA = 100 - pctH;
+  return { pctH, pctA };
+}
+
+function nextGoalHtml(stats, minute, hn, an, hf, af) {
+  if(!stats) return '';
+  const ng = calcNextGoal(stats, minute);
+  if(!ng) return '';
+  return `<div class="next-goal-section">
+    <div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ</div>
+    <div class="next-goal-bar-wrap">
+      <div class="next-goal-bar-h" style="width:${ng.pctH}%"><span class="next-goal-pct">${ng.pctH}%</span></div>
+      <div class="next-goal-bar-a" style="width:${ng.pctA}%"><span class="next-goal-pct">${ng.pctA}%</span></div>
+    </div>
+    <div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>
+  </div>`;
+}
+
+function liveStatsHtml(stats, hn, an) {
+  if(!stats) return '';
+  const rows = [
+    ['ПРИТЕЖАНИЕ', stats.possession_h+'%', stats.possession_a+'%', parseFloat(stats.possession_h)||50],
+    ['УДАРИ В РАМКАТА', stats.shotsOn_h, stats.shotsOn_a, calcPct(stats.shotsOn_h, stats.shotsOn_a)],
+    ['ОБЩО УДАРИ', stats.shots_h, stats.shots_a, calcPct(stats.shots_h, stats.shots_a)],
+    ['ОПАСНИ АТАКИ', stats.dangerous_h, stats.dangerous_a, calcPct(stats.dangerous_h, stats.dangerous_a)],
+    ['АТАКИ', stats.attacks_h, stats.attacks_a, calcPct(stats.attacks_h, stats.attacks_a)],
+    ['КОРНЕРИ', stats.corners_h, stats.corners_a, calcPct(stats.corners_h, stats.corners_a)],
+    ['ФАУЛИ', stats.fouls_h, stats.fouls_a, calcPct(stats.fouls_h, stats.fouls_a)],
+    ['ЖЪЛТИ', stats.yellow_h, stats.yellow_a, calcPct(stats.yellow_h, stats.yellow_a)],
+  ];
+  let html = `<div class="live-stats-section"><div class="live-stats-title">📊 LIVE СТАТИСТИКА</div>`;
+  rows.forEach(([name, hv, av, hw]) => {
+    if(hv==null||hv===undefined) return;
+    html += `<div class="mstat-row">
+      <span class="mstat-num h">${hv}</span>
+      <div class="bar-wrap">
+        <div class="bar-h" style="width:${Math.min(hw,50)}%"></div>
+        <div class="bar-a" style="width:${Math.min(100-hw,50)}%"></div>
+      </div>
+      <span class="mstat-num a">${av}</span>
+      <span class="mstat-name">${name}</span>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function calcPct(h,a){const hn=parseInt(h)||0,an=parseInt(a)||0,t=hn+an||1;return Math.round(hn/t*100);}
+
+// ===== ИСТОРИЯ =====
+const HIST_KEY = 'football_pred_history';
+function getHistory(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return[];}}
+function saveHistory(arr){try{localStorage.setItem(HIST_KEY,JSON.stringify(arr));}catch(e){}}
+
+function savePrediction(m, pred){
+  if(!pred)return;
+  const hist=getHistory();
+  const id=m.id||`${m.homeTeam?.id}_${m.awayTeam?.id}_${m.utcDate}`;
+  if(hist.find(h=>h.id===id))return;
+  hist.push({
+    id, date: m.utcDate,
+    home: m.homeTeam?.shortName||m.homeTeam?.name||'—',
+    away: m.awayTeam?.shortName||m.awayTeam?.name||'—',
+    comp: m.competition?.name||'',
+    pred: {hWin:pred.hWin, draw:pred.draw, aWin:pred.aWin, over25:pred.over25, btts:pred.btts, g10:pred.g10},
+    result: null
+  });
+  saveHistory(hist);
+}
+
+async function updateHistoryResults(){
+  const hist=getHistory();
+  if(!hist.length)return;
+  const toUpdate=hist.filter(h=>!h.result);
+  if(!toUpdate.length)return;
+  try{
+    const yesterday=getYesterday(),today=getToday();
+    const[d1,d2]=await Promise.all([
+      apiFetch(`/matches?date=${yesterday}&status=FINISHED`),
+      apiFetch(`/matches?date=${today}&status=FINISHED`)
+    ]);
+    const finished=[...(d1.matches||[]),...(d2.matches||[])];
+    toUpdate.forEach(h=>{
+      const m=finished.find(f=>f.id==h.id||(
+        (f.homeTeam?.shortName===h.home||f.homeTeam?.name===h.home)&&
+        (f.awayTeam?.shortName===h.away||f.awayTeam?.name===h.away)
+      ));
+      if(m&&m.score?.fullTime?.home!=null){
+        const hg=m.score.fullTime.home,ag=m.score.fullTime.away;
+        h.result={hg,ag,total:hg+ag,gg:hg>0&&ag>0,winner:hg>ag?'1':ag>hg?'2':'X'};
+      }
+    });
+    saveHistory(hist);
+  }catch(e){}
+}
+
+function loadHistory(){
+  updateHistoryResults();
+  const hist=getHistory().slice().reverse();
+  const sc=document.getElementById('history-stats');
+  const c=document.getElementById('history-content');
+  if(!hist.length){sc.innerHTML='';c.innerHTML='<div class="no-data">Няма записани прогнози още.<br><br>Отвори таб ПРОГНОЗИ за да се запазят автоматично.</div>';return;}
+  const withResult=hist.filter(h=>h.result);
+  let correct1X2=0,correctOver=0,correctBtts=0,total=withResult.length;
+  withResult.forEach(h=>{
+    const p=h.pred,r=h.result;
+    const predWinner=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
+    if(predWinner===r.winner)correct1X2++;
+    if((p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5))correctOver++;
+    if((p.btts>50&&r.gg)||(p.btts<=50&&!r.gg))correctBtts++;
+  });
+  sc.innerHTML=total?`<div class="hist-stats">
+    <div class="hist-stats-title">📊 СТАТИСТИКА (${total} завършени)</div>
+    <div class="hist-stats-grid">
+      <div class="hist-stat"><div class="hist-stat-val good">${Math.round(correct1X2/total*100)}%</div><div class="hist-stat-label">1/X/2 ТОЧНОСТ</div></div>
+      <div class="hist-stat"><div class="hist-stat-val info">${Math.round(correctOver/total*100)}%</div><div class="hist-stat-label">НАД/ПОД 2.5</div></div>
+      <div class="hist-stat"><div class="hist-stat-val purple">${Math.round(correctBtts/total*100)}%</div><div class="hist-stat-label">Г/Г ТОЧНОСТ</div></div>
+    </div>
+  </div>`:'';
+  c.innerHTML=hist.map(h=>{
+    const p=h.pred;
+    const date=new Date(h.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const predWinner=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
+    let resultHtml='<span style="color:var(--muted);font-size:10px">очаква се резултат...</span>';
+    if(h.result){
+      const r=h.result;
+      const w1=predWinner===r.winner?'✅':'❌';
+      const wO=(p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5)?'✅':'❌';
+      const wB=(p.btts>50&&r.gg)||(p.btts<=50&&!r.gg)?'✅':'❌';
+      resultHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <span style="font-size:10px;color:var(--text)">Резултат: <b>${r.hg}:${r.ag}</b></span>
+        <span style="font-size:10px">${w1} 1/X/2</span>
+        <span style="font-size:10px">${wO} Над/Под</span>
+        <span style="font-size:10px">${wB} Г/Г</span>
+      </div>`;
+    }
+    return `<div class="hist-card">
+      <div class="hist-match">${h.home} — ${h.away}</div>
+      <div class="hist-date">${h.comp} · ${date}</div>
+      <div class="hist-grid">
+        <div class="hist-pill"><div class="hist-pill-label">1</div><div class="hist-pill-val good">${p.hWin}%</div></div>
+        <div class="hist-pill"><div class="hist-pill-label">X</div><div class="hist-pill-val neutral">${p.draw}%</div></div>
+        <div class="hist-pill"><div class="hist-pill-label">2</div><div class="hist-pill-val bad">${p.aWin}%</div></div>
+        <div class="hist-pill"><div class="hist-pill-label">НАД 2.5</div><div class="hist-pill-val info">${p.over25}%</div></div>
+      </div>
+      ${resultHtml}
+    </div>`;
+  }).join('');
+}
+
+function clearHistory(){
+  if(confirm('Изчисти цялата история?')){localStorage.removeItem(HIST_KEY);loadHistory();}
+}
+
+function calcForm(matches,teamId){
+  const finished=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)).slice(-5);
+  return finished.map(m=>{
+    const isHome=m.homeTeam?.id===teamId;
+    const hg=m.score?.fullTime?.home??0,ag=m.score?.fullTime?.away??0;
+    if(isHome)return hg>ag?'W':hg===ag?'D':'L';
+    return ag>hg?'W':ag===hg?'D':'L';
+  });
+}
+
+function formDotsHtml(form){
+  if(!form.length)return '<div style="font-size:9px;color:var(--muted)">няма данни</div>';
+  return `<div class="form-dots">${form.map(f=>`<div class="fd ${f}"></div>`).join('')}</div>`;
+}
+
+function goalBefore10(expH,expA){
+  const exp10=(expH+expA)*(10/90);
+  return Math.min(45,Math.max(8,Math.round((1-Math.exp(-exp10))*100)));
+}
+
+function poissonProb(lambda,k){let r=Math.exp(-lambda);for(let i=1;i<=k;i++)r*=lambda/i;return r;}
+
+function calcGoalMarkets(expH,expA){
+  function pTotalOver(n){let p=0;for(let h=0;h<=10;h++)for(let a=0;a<=10;a++)if(h+a>n)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(97,Math.max(3,Math.round(p*100)));}
+  function pTeamOver(exp,n){let p=0;for(let g=0;g<=10;g++)if(g>n)p+=poissonProb(exp,g);return Math.min(97,Math.max(3,Math.round(p*100)));}
+  return {over05:pTotalOver(0.5),over15:pTotalOver(1.5),over25:pTotalOver(2.5),over35:pTotalOver(3.5),over45:pTotalOver(4.5),hOver05:pTeamOver(expH,0.5),hOver15:pTeamOver(expH,1.5),aOver05:pTeamOver(expA,0.5),aOver15:pTeamOver(expA,1.5)};
+}
+
+function goalMarketsHtml(gm,hn,an,hf,af){
+  return `<div class="pred-title" style="margin-top:8px">⚽ ГОЛОВЕ — ПАЗАРИ</div>
+  <div class="pred-grid-4">
+    <div class="pred-pill"><div class="pred-label">НАД 0.5</div><div class="pred-value ${gm.over05>70?'good':'neutral'}">${gm.over05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5</div><div class="pred-value ${gm.over15>60?'good':'neutral'}">${gm.over15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${gm.over35>40?'good':'bad'}">${gm.over35}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 4.5</div><div class="pred-value ${gm.over45>25?'neutral':'bad'}">${gm.over45}%</div></div>
+  </div>
+  <div class="pred-title" style="margin-top:4px">${hf} ${hn}</div>
+  <div class="pred-grid">
+    <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${gm.hOver05>65?'good':'neutral'}">${gm.hOver05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${gm.hOver15>40?'good':'neutral'}">${gm.hOver15}%</div></div>
+  </div>
+  <div class="pred-title" style="margin-top:4px">${af} ${an}</div>
+  <div class="pred-grid">
+    <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${gm.aOver05>65?'good':'neutral'}">${gm.aOver05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${gm.aOver15>40?'good':'neutral'}">${gm.aOver15}%</div></div>
+  </div>`;
+}
+
+function h2hHtml(h2hMatches,hName,aName){
+  if(!h2hMatches||!h2hMatches.length)return '';
+  const last5=h2hMatches.slice(-5);
+  let hW=0,aW=0,dr=0;
+  last5.forEach(m=>{const hg=m.score?.fullTime?.home??0,ag=m.score?.fullTime?.away??0;if(m.homeTeam?.name===hName){if(hg>ag)hW++;else if(hg===ag)dr++;else aW++;}else{if(ag>hg)hW++;else if(ag===hg)dr++;else aW++;}});
+  const rows=last5.slice().reverse().map(m=>{const hg=m.score?.fullTime?.home??'?',ag=m.score?.fullTime?.away??'?';const date=m.utcDate?new Date(m.utcDate).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit'}):'—';const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';const col=hg>ag?'var(--green)':hg<ag?'var(--red)':'var(--yellow)';return `<div class="h2h-row"><span class="h2h-date">${date}</span><span class="h2h-teams">${hn} — ${an}</span><span class="h2h-score" style="color:${col}">${hg}:${ag}</span></div>`;}).join('');
+  return `<div class="h2h-section"><div class="h2h-title">⚔️ HEAD-TO-HEAD</div><div class="h2h-summary"><div class="h2h-pill"><div class="h2h-pill-label">${hName.substring(0,8)}</div><div class="h2h-pill-val good">${hW}</div></div><div class="h2h-pill"><div class="h2h-pill-label">РАВНИ</div><div class="h2h-pill-val neutral">${dr}</div></div><div class="h2h-pill"><div class="h2h-pill-label">${aName.substring(0,8)}</div><div class="h2h-pill-val bad">${aW}</div></div></div>${rows}</div>`;
+}
+
+function form5Html(allMatches,hId,aId,hn,an,hf,af){
+  function getLast5(teamId,side){return allMatches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId)).slice(-5);}
+  function stats(matches,teamId){if(!matches.length)return null;let w=0,d=0,l=0,gf=0,ga=0;matches.forEach(m=>{const isH=m.homeTeam?.id===teamId;const mg=isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0);const og=isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0);gf+=mg;ga+=og;if(mg>og)w++;else if(mg===og)d++;else l++;});return{w,d,l,gf,ga,n:matches.length};}
+  const hS=stats(getLast5(hId,'home'),hId),aS=stats(getLast5(aId,'away'),aId);
+  if(!hS&&!aS)return '';
+  function block(s,name,flag,side){if(!s)return `<div class="form5-team"><div class="form5-team-name">${flag} ${name.substring(0,10)} (${side})</div><div style="font-size:9px;color:var(--muted)">няма данни</div></div>`;return `<div class="form5-team"><div class="form5-team-name">${flag} ${name.substring(0,10)} (${side})</div><div class="form5-stats"><div class="form5-stat"><div class="form5-stat-val good">${s.w}</div><div class="form5-stat-label">ПОБЕДИ</div></div><div class="form5-stat"><div class="form5-stat-val neutral">${s.d}</div><div class="form5-stat-label">РАВНИ</div></div><div class="form5-stat"><div class="form5-stat-val bad">${s.l}</div><div class="form5-stat-label">ЗАГУБИ</div></div></div><div style="font-size:9px;color:var(--muted)">Голове: <span style="color:var(--green)">${s.gf}</span> вкарани / <span style="color:var(--red)">${s.ga}</span> допуснати (${s.n} мача)</div></div>`;}
+  return `<div class="form5-section"><div class="form5-title">🏠/✈️ ФОРМА ПОСЛЕДНИТЕ 5</div><div class="form5-grid">${block(hS,hn,hf,'У дома')}${block(aS,an,af,'На гости')}</div></div>`;
+}
+
+function htTrendHtml(allMatches,hId,aId,hn,an,hf,af){
+  function htStats(teamId){const rel=allMatches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)&&m.score?.halfTime!=null).slice(-10);if(!rel.length)return null;let ht1=0,ht2=0;rel.forEach(m=>{const isH=m.homeTeam?.id===teamId;const htG=isH?(m.score?.halfTime?.home??0):(m.score?.halfTime?.away??0);const ftG=isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0);ht1+=htG;ht2+=(ftG-htG);});return{ht1:(ht1/rel.length).toFixed(1),ht2:(ht2/rel.length).toFixed(1),n:rel.length};}
+  const hT=htStats(hId),aT=htStats(aId);
+  if(!hT&&!aT)return '';
+  function teamHT(t,name,flag){if(!t)return `<div class="ht-team"><div class="ht-team-name">${flag} ${name.substring(0,10)}</div><div style="font-size:9px;color:var(--muted)">няма данни</div></div>`;const tot=(parseFloat(t.ht1)+parseFloat(t.ht2))||1;const p1=Math.round(parseFloat(t.ht1)/tot*100);return `<div class="ht-team"><div class="ht-team-name">${flag} ${name.substring(0,10)}</div><div class="ht-bars"><div class="ht-bar-row"><span class="ht-bar-label" style="color:var(--cyan)">1П</span><div class="ht-bar-bg"><div class="ht-bar-fill" style="width:${p1}%;background:var(--cyan)"></div></div><span class="ht-bar-val" style="color:var(--cyan)">${t.ht1}</span></div><div class="ht-bar-row"><span class="ht-bar-label" style="color:var(--orange)">2П</span><div class="ht-bar-bg"><div class="ht-bar-fill" style="width:${100-p1}%;background:var(--orange)"></div></div><span class="ht-bar-val" style="color:var(--orange)">${t.ht2}</span></div></div><div style="font-size:9px;color:var(--muted);margin-top:4px">avg голове/мач (${t.n} мача)</div></div>`;}
+  return `<div class="ht-section"><div class="ht-title">📈 ТРЕНД 1во/2ро ПОЛУВРЕМЕ</div><div class="ht-grid">${teamHT(hT,hn,hf)}${teamHT(aT,an,af)}</div></div>`;
+}
+
+function lineupHtml(m,hf,af){
+  const hl=m.homeTeam?.lineup||[],al=m.awayTeam?.lineup||[];
+  if(!hl.length&&!al.length)return '';
+  const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';
+  const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';
+  function pList(l){if(!l.length)return '<div style="font-size:9px;color:var(--muted)">очаква се...</div>';return l.map(p=>`<div class="lineup-player"><span class="lineup-num">${p.shirtNumber||''}</span><span>${p.name||'—'}</span><span class="lineup-pos"> ${p.position||''}</span></div>`).join('');}
+  return `<div class="lineup-section"><div class="lineup-title">👥 НАЧАЛЕН СЪСТАВ</div><div class="lineup-grid"><div class="lineup-team"><div class="lineup-team-name">${hf} ${hn}</div>${pList(hl)}</div><div class="lineup-team"><div class="lineup-team-name">${af} ${an}</div>${pList(al)}</div></div></div>`;
+}
+
+function refereeHtml(m){
+  const ref=m.referees?.[0];
+  if(!ref)return '';
+  return `<div class="referee-section"><span class="referee-label">🟨 СЪДИЯ:</span><span class="referee-name">${ref.name||'—'}</span>${ref.nationality?`<span class="referee-stats">(${ref.nationality})</span>`:''}</div>`;
+}
+
+function oddsHtml(odds,pred){
+  if(!odds)return '';
+  const h=odds.homeWin,d=odds.draw,a=odds.awayWin;
+  if(!h||!d||!a)return '';
+  const hImpl=Math.round(100/h),dImpl=Math.round(100/d),aImpl=Math.round(100/a);
+  const hV=pred&&pred.hWin>hImpl+5,dV=pred&&pred.draw>dImpl+5,aV=pred&&pred.aWin>aImpl+5;
+  return `<div class="odds-title">📊 БУКМЕЙКЪР КОЕФИЦИЕНТИ</div>
+  <div class="odds-row">
+    <div class="odds-pill"><div class="odds-label">1 ДОМАКИН</div><div class="odds-val">${h.toFixed(2)}</div><div class="odds-impl">implied ${hImpl}%</div>${hV?'<div class="value-badge">VALUE ✓</div>':''}</div>
+    <div class="odds-pill"><div class="odds-label">X РАВЕН</div><div class="odds-val">${d.toFixed(2)}</div><div class="odds-impl">implied ${dImpl}%</div>${dV?'<div class="value-badge">VALUE ✓</div>':''}</div>
+    <div class="odds-pill"><div class="odds-label">2 ГОСТ</div><div class="odds-val">${a.toFixed(2)}</div><div class="odds-impl">implied ${aImpl}%</div>${aV?'<div class="value-badge">VALUE ✓</div>':''}</div>
+  </div>`;
+}
+
+function extractOdds(m){try{const o=m.odds;if(!o)return null;return{homeWin:o.homeWin,draw:o.draw,awayWin:o.awayWin};}catch(e){return null;}}
+
+function buildPrediction(match,allMatches){
+  const hId=match.homeTeam?.id,aId=match.awayTeam?.id;
+  if(!hId||!aId)return null;
+  const hForm=calcForm(allMatches,hId),aForm=calcForm(allMatches,aId);
+  function fScore(form){return form.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0);}
+  function avgG(matches,teamId,side){const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));if(!rel.length)return 1.2;return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;}
+  function avgC(matches,teamId,side){const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));if(!rel.length)return 1.2;return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length;}
+  const expH=Math.max(0.3,(avgG(allMatches,hId,'home')+avgC(allMatches,aId,'away'))/2*1.1);
+  const expA=Math.max(0.3,(avgG(allMatches,aId,'away')+avgC(allMatches,hId,'home'))/2*0.9);
+  const expTotal=expH+expA;
+  const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1;
+  const hWinP=Math.round(((hFS/tot)*0.6+(expH/expTotal)*0.4)*100);
+  const aWinP=Math.round(((aFS/tot)*0.6+(expA/expTotal)*0.4)*100);
+  const drawP=Math.max(5,100-hWinP-aWinP);
+  const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP));
+  const aWinAdj=100-drawP-hWinAdj;
+  const over25P=Math.min(90,Math.max(10,Math.round((expTotal/3)*70)));
+  const bttsP=Math.min(85,Math.max(15,Math.round(Math.min(expH,1)*Math.min(expA,1)*100+20)));
+  let scores=[];
+  for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100});
+  scores.sort((a,b)=>b.p-a.p);
+  let htS=[];
+  for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*0.45,h)*poissonProb(expA*0.45,a)*100});
+  htS.sort((a,b)=>b.p-a.p);
+  const expCorners=Math.round(expTotal*2.8+4);
+  const cornersOver=Math.min(85,Math.max(15,expCorners>=9?Math.round(55+(expCorners-9)*5):Math.round(55-(9-expCorners)*5)));
+  const gm=calcGoalMarkets(expH,expA);
+  return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:100-over25P,btts:bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm};
+}
+
+function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
+  const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';
+  const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';
+  const hf=getFlag(m.homeTeam?.name),af=getFlag(m.awayTeam?.name);
+  const hg=m.score?.fullTime?.home,ag=m.score?.fullTime?.away;
+  const hHT=m.score?.halfTime?.home,aHT=m.score?.halfTime?.away;
+  const isLive=['IN_PLAY','PAUSED'].includes(m.status);
+  const isFT=m.status==='FINISHED',isHT=m.status==='HALFTIME';
+  const statusClass=isLive?'live':isFT?'finished':'';
+  const min=m.minute?m.minute+"'":(isHT?'ПОЧИВКА':'');
+  const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan);letter-spacing:1px">${new Date(m.utcDate).toLocaleTimeString('bg-BG',{hour:'2-digit',minute:'2-digit'})}</div>`;
+  const statusHtml=isLive?`<span class="ms live">● LIVE ${min}</span>`:isFT?`<span class="ms finished">КРАЙ · П/В ${hHT??'-'}:${aHT??'-'}</span>`:isHT?`<span class="ms live">⏸ ПОЧИВКА</span>`:`<span class="ms scheduled">ПРЕДСТОИ</span>`;
+
+  let goalsHtml='';
+  if(m.goals?.length){goalsHtml='<div class="events">';[...m.goals].sort((x,y)=>x.minute-y.minute).forEach(g=>{const icon=g.type==='OWN'?'⚽🔴':g.type==='PENALTY'?'⚽🎯':'⚽';const side=g.team?.name===m.homeTeam?.name?hf:af;goalsHtml+=`<div class="event-item"><span class="event-min">${g.minute}'</span><span>${icon}</span><span class="event-player">${g.scorer?.name||'—'}</span><span class="event-team">${side}</span></div>`;});goalsHtml+='</div>';}
+  let booksHtml='';
+  if(m.bookings?.length){booksHtml='<div class="events">';[...m.bookings].sort((x,y)=>x.minute-y.minute).forEach(b=>{const icon=b.card==='RED_CARD'?'🟥':b.card==='YELLOW_RED_CARD'?'🟥🟨':'🟨';const side=b.team?.name===m.homeTeam?.name?hf:af;booksHtml+=`<div class="event-item"><span class="event-min">${b.minute}'</span><span>${icon}</span><span class="event-player">${b.player?.name||'—'}</span><span class="event-team">${side}</span></div>`;});booksHtml+='</div>';}
+
+  let betHtml='';
+  if(isFT&&hg!=null){const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅':'❌'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅':'❌'}</div></div><div class="bet-pill"><div class="bet-label">КР</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>`;}
+
+  const liveStatsSection = isLive && liveStats ? liveStatsHtml(liveStats, hn, an) : '';
+  const nextGoalSection = isLive && liveStats ? nextGoalHtml(liveStats, m.minute||0, hn, an, hf, af) : '';
+
+  let predHtml='';
+  if(showPred&&allMatches){
+    const pred=buildPrediction(m,allMatches);
+    const odds=extractOdds(m);
+    const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
+    if(pred){
+      savePrediction(m,pred);
+      predHtml=`<div class="pred-section">
+        <div class="pred-title">🔮 ПРОГНОЗА</div>
+        <div class="pred-grid-3">
+          <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div></div>
+          <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${pred.draw}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.draw}%;background:var(--yellow)"></div></div></div>
+          <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${pred.aWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.aWin}%;background:var(--red)"></div></div></div>
+        </div>
+        <div class="pred-grid">
+          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pred.over25>50?'good':'bad'}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div>
+          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${pred.btts>50?'good':'bad'}">${pred.btts}%</div><div class="pred-pct">ПОД 2.5: ${pred.under25}%</div></div>
+        </div>
+        <div class="pred-grid">
+          <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value info">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div>
+          <div class="pred-pill"><div class="pred-label">ОЧ. ЖЪЛТИ</div><div class="pred-value neutral">~${pred.expYellow}</div><div class="pred-pct">картона в мача</div></div>
+        </div>
+        <div class="pred-grid">
+          <div class="pred-pill"><div class="pred-label">⚡ ГОЛ ДО 10'</div><div class="pred-value ${pred.g10>25?'good':'neutral'}">${pred.g10}%</div><div class="pred-pct">Poisson модел</div></div>
+          <div class="pred-pill"><div class="pred-label">БЕЗ ГОЛ ДО 10'</div><div class="pred-value ${pred.g10<25?'good':'neutral'}">${100-pred.g10}%</div><div class="pred-pct">вероятност</div></div>
+        </div>
+        ${goalMarketsHtml(pred.gm,hn,an,hf,af)}
+        <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div>
+        <div class="pred-grid">${pred.topScores.map(s=>`<div class="pred-pill"><div class="pred-label">${s.h}:${s.a}</div><div class="pred-value info">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
+        <div class="pred-title" style="margin-top:8px">⏱ РЕЗУЛТАТ ПОЛУВРЕМЕ</div>
+        <div class="pred-grid">${pred.htScores.map(s=>`<div class="pred-pill"><div class="pred-label">П/В ${s.h}:${s.a}</div><div class="pred-value purple">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${hf}</div>${formDotsHtml(pred.hForm)}</div>
+          <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${af}</div>${formDotsHtml(pred.aForm)}</div>
+        </div>
+      </div>
+      ${oddsHtml(odds,pred)}
+      ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
+      ${form5Html(allMatches,hId,aId,hn,an,hf,af)}
+      ${htTrendHtml(allMatches,hId,aId,hn,an,hf,af)}
+      ${lineupHtml(m,hf,af)}
+      ${refereeHtml(m)}`;
+    }
+  }
+
+  return `<div class="match-card ${statusClass}">
+    <div class="match-header"><span class="match-league">${m.competition?.name||''} · ${m.group||m.stage||''}</span>${statusHtml}</div>
+    <div class="match-body">
+      <div class="teams-row">
+        <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div>
+        <div class="score-box">${scoreHtml}</div>
+        <div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div>
+      </div>
+      ${isLive&&min?`<div class="match-minute">⏱ ${min}</div>`:''}
+    </div>
+    ${goalsHtml}${booksHtml}${nextGoalSection}${liveStatsSection}${betHtml}${predHtml}
+  </div>`;
+}
+
+// ===== LIVE с api-sports статистика =====
+async function loadLive(){
+  const c=document.getElementById('live-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  try{
+    const data=await apiFetch('/matches?status=IN_PLAY,PAUSED,HALFTIME');
+    const matches=data.matches||[];
+    if(!matches.length){c.innerHTML='<div class="no-data">⚽ Няма live мачове в момента</div>';return;}
+
+    // Вземи live статистика от api-sports
+    let liveStatsMap={};
+    try{
+      const asData=await apiFetchAS('/fixtures?live=all');
+      const fixtures=asData.response||[];
+      fixtures.forEach(f=>{
+        const stats={};
+        (f.statistics||[]).forEach(ts=>{
+          const isHome=ts.team?.id===f.teams?.home?.id;
+          (ts.statistics||[]).forEach(s=>{
+            const key=s.type;
+            const val=s.value;
+            if(key==='Ball Possession'){isHome?stats.possession_h=parseInt(val)||50:stats.possession_a=parseInt(val)||50;}
+            if(key==='Shots on Goal'){isHome?stats.shotsOn_h=val:stats.shotsOn_a=val;}
+            if(key==='Total Shots'){isHome?stats.shots_h=val:stats.shots_a=val;}
+            if(key==='Corner Kicks'){isHome?stats.corners_h=val:stats.corners_a=val;}
+            if(key==='Fouls'){isHome?stats.fouls_h=val:stats.fouls_a=val;}
+            if(key==='Yellow Cards'){isHome?stats.yellow_h=val:stats.yellow_a=val;}
+            if(key==='Dangerous Attacks'){isHome?stats.dangerous_h=val:stats.dangerous_a=val;}
+            if(key==='Attacks'){isHome?stats.attacks_h=val:stats.attacks_a=val;}
+          });
+        });
+        // Match by team names
+        const hn=(f.teams?.home?.name||'').toLowerCase();
+        const an=(f.teams?.away?.name||'').toLowerCase();
+        liveStatsMap[hn+'_'+an]=stats;
+      });
+    }catch(e){}
+
+    c.innerHTML=matches.map(m=>{
+      const hn=(m.homeTeam?.name||'').toLowerCase();
+      const an=(m.awayTeam?.name||'').toLowerCase();
+      const ls=liveStatsMap[hn+'_'+an]||null;
+      return renderMatch(m,false,null,null,ls);
+    }).join('');
+  }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
+}
+
+async function loadToday(){const c=document.getElementById('today-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';try{const data=await apiFetch(`/matches?date=${getToday()}`);const matches=data.matches||[];if(!matches.length){c.innerHTML='<div class="no-data">Няма мачове днес</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}}
+
+async function loadFinished(){const c=document.getElementById('finished-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';try{const[d1,d2]=await Promise.all([apiFetch(`/matches?date=${getYesterday()}&status=FINISHED`),apiFetch(`/matches?date=${getToday()}&status=FINISHED`)]);const matches=[...(d2.matches||[]),...(d1.matches||[])];if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}}
+
+async function loadUpcoming(){
+  const c=document.getElementById('upcoming-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ — ИЗЧИСЛЯВАНЕ ПРОГНОЗИ...</div>';
+  try{
+    const today=getToday(),day3=getDatePlus(3);
+    const upData=await apiFetch(`/matches?dateFrom=${today}&dateTo=${day3}&status=SCHEDULED,TIMED`);
+    const upcoming=upData.matches||[];
+    if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
+    const past60=new Date();past60.setDate(past60.getDate()-60);
+    const pastStr=past60.toISOString().split('T')[0];
+    let allMatches=[];
+    try{const[hist,wcM]=await Promise.all([apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`),apiFetch(`/competitions/2000/matches?status=FINISHED`)]);allMatches=[...(hist.matches||[]),...(wcM.matches||[])];}catch(e){}
+    const groups={};
+    upcoming.forEach(m=>{const key=m.competition?.id;if(!groups[key])groups[key]={name:m.competition?.name||'',matches:[]};groups[key].matches.push(m);});
+    let html='';
+    for(const key in groups){
+      const g=groups[key];const comp=COMPS.find(c=>c.id==key);
+      html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`;
+      for(const m of g.matches){
+        let h2h=[];
+        try{const hId=m.homeTeam?.id,aId=m.awayTeam?.id;if(hId&&aId){const d=await apiFetch(`/matches?competitions=${m.competition?.id}&teams=${hId}&teams=${aId}&status=FINISHED`);h2h=d.matches||[];}}catch(e){}
+        html+=renderMatch(m,true,allMatches,h2h,null);
+      }
+    }
+    c.innerHTML=html;
+  }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
+}
+
+async function loadStandings(){const c=document.getElementById('standings-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let html='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/standings`);const standings=data.standings||[];html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;standings.forEach(group=>{if(standings.length>1)html+=`<div class="section-title">${group.group||group.stage}</div>`;html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;(group.table||[]).forEach(row=>{html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.position}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.shortName||row.team?.name}</div><div class="num">${row.playedGames}</div><div class="num">${row.won}</div><div class="num">${row.lost}</div><div class="num">${row.goalsFor}:${row.goalsAgainst}</div><div class="pts">${row.points}</div></div>`;});html+='</div>';});}catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}}c.innerHTML=html||'<div class="no-data">Няма данни</div>';}
+
+async function loadScorers(){const c=document.getElementById('scorers-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let html='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=10`);const sc=data.scorers||[];if(!sc.length)continue;const cols='24px 1fr 50px 28px 28px 28px 28px';html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--green)">⚽</div><div style="color:var(--cyan)">🎯</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;sc.forEach((s,i)=>{html+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-goals">${s.goals||0}</div><div class="s-ast">${s.assists||0}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});html+='</div>';}catch(e){}}c.innerHTML=html||'<div class="no-data">Няма данни</div>';}
+
+async function loadCards(){const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let yHtml='',rHtml='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=50`);const sc=data.scorers||[];const yellows=[...sc].filter(s=>(s.yellowCards||0)>0).sort((a,b)=>(b.yellowCards||0)-(a.yellowCards||0)).slice(0,5);const reds=[...sc].filter(s=>(s.redCards||0)>0).sort((a,b)=>(b.redCards||0)-(a.redCards||0)).slice(0,3);const cols='24px 1fr 50px 30px 30px';if(yellows.length){yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;yellows.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});yHtml+='</div>';}if(reds.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;reds.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});rHtml+='</div>';}}catch(e){}}yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';}
+
+switchTab('live');
+autoTimer=setInterval(()=>{if(currentTab==='live')loadCurrentTab();},60000);
+</script>
+</body>
+</html> 
