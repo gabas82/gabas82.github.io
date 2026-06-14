@@ -73,7 +73,6 @@
   .next-goal-bar-a { position: absolute; right: 0; top: 0; height: 100%; background: linear-gradient(90deg, #ff6d00, #ff1744); border-radius: 0 14px 14px 0; transition: width 0.8s; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; }
   .next-goal-pct { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; color: #000; }
   .next-goal-teams { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
-  .next-goal-no { text-align: center; font-size: 10px; color: var(--muted); margin-top: 4px; }
   .live-stats-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
   .live-stats-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; margin-bottom: 8px; }
   .big-table { margin: 0 16px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
@@ -170,6 +169,7 @@
   .hist-stat { text-align: center; }
   .hist-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 20px; font-weight: 700; }
   .hist-stat-label { font-size: 9px; color: var(--muted); margin-top: 2px; }
+  .no-pred-box { margin: 8px 12px; padding: 10px; background: rgba(90,122,138,0.08); border: 1px solid rgba(90,122,138,0.2); border-radius: 8px; text-align: center; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
 </style>
 </head>
 <body>
@@ -236,7 +236,7 @@
 </div>
 
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.3</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.4</div>
 
 <script>
 const WORKER = 'https://orange-grass-d809.gabas82.workers.dev/football';
@@ -317,7 +317,6 @@ function getToday(){return new Date().toISOString().split('T')[0];}
 function getYesterday(){const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().split('T')[0];}
 function getDatePlus(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
 
-// ===== СЛЕДВАЩ ГОЛ ФОРМУЛА =====
 function calcNextGoal(stats, minute) {
   if(!stats) return null;
   const possession_h = parseFloat(stats.possession_h)||50;
@@ -328,15 +327,10 @@ function calcNextGoal(stats, minute) {
   const shotsOn_a = parseInt(stats.shotsOn_a)||0;
   const dangerous_h = parseInt(stats.dangerous_h)||0;
   const dangerous_a = parseInt(stats.dangerous_a)||0;
-
-  // xG score per team
   const xg_h = (possession_h/100)*0.2 + (shotsOn_h)*0.35 + (shots_h)*0.1 + (dangerous_h)*0.15;
   const xg_a = (possession_a/100)*0.2 + (shotsOn_a)*0.35 + (shots_a)*0.1 + (dangerous_a)*0.15;
-
-  // Minute factor — more goals after 60'
   const minFactor = minute > 60 ? 1.3 : minute > 45 ? 1.1 : 1.0;
   const total = (xg_h + xg_a) * minFactor || 1;
-
   const pctH = Math.round((xg_h * minFactor / total) * 100);
   const pctA = 100 - pctH;
   return { pctH, pctA };
@@ -387,7 +381,6 @@ function liveStatsHtml(stats, hn, an) {
 
 function calcPct(h,a){const hn=parseInt(h)||0,an=parseInt(a)||0,t=hn+an||1;return Math.round(hn/t*100);}
 
-// ===== ИСТОРИЯ =====
 const HIST_KEY = 'football_pred_history';
 function getHistory(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return[];}}
 function saveHistory(arr){try{localStorage.setItem(HIST_KEY,JSON.stringify(arr));}catch(e){}}
@@ -602,10 +595,24 @@ function buildPrediction(match,allMatches){
   if(!hId||!aId)return null;
   const hForm=calcForm(allMatches,hId),aForm=calcForm(allMatches,aId);
   function fScore(form){return form.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0);}
-  function avgG(matches,teamId,side){const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));if(!rel.length)return 1.2;return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;}
-  function avgC(matches,teamId,side){const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));if(!rel.length)return 1.2;return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length;}
-  const expH=Math.max(0.3,(avgG(allMatches,hId,'home')+avgC(allMatches,aId,'away'))/2*1.1);
-  const expA=Math.max(0.3,(avgG(allMatches,aId,'away')+avgC(allMatches,hId,'home'))/2*0.9);
+  function avgG(matches,teamId,side){
+    const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));
+    if(!rel.length)return null;
+    return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;
+  }
+  function avgC(matches,teamId,side){
+    const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));
+    if(!rel.length)return null;
+    return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length;
+  }
+  const hAvgG=avgG(allMatches,hId,'home');
+  const hAvgC=avgC(allMatches,hId,'home');
+  const aAvgG=avgG(allMatches,aId,'away');
+  const aAvgC=avgC(allMatches,aId,'away');
+  const noData=hAvgG===null&&hAvgC===null&&aAvgG===null&&aAvgC===null;
+  if(noData)return null;
+  const expH=Math.max(0.3,((hAvgG??1.2)+(aAvgC??1.2))/2*1.1);
+  const expA=Math.max(0.3,((aAvgG??1.2)+(hAvgC??1.2))/2*0.9);
   const expTotal=expH+expA;
   const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1;
   const hWinP=Math.round(((hFS/tot)*0.6+(expH/expTotal)*0.4)*100);
@@ -693,6 +700,13 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
       ${htTrendHtml(allMatches,hId,aId,hn,an,hf,af)}
       ${lineupHtml(m,hf,af)}
       ${refereeHtml(m)}`;
+    } else {
+      predHtml=`
+      <div class="no-pred-box">⚠️ НЕДОСТАТЪЧНО ДАННИ ЗА ПРОГНОЗА</div>
+      ${oddsHtml(odds,null)}
+      ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
+      ${lineupHtml(m,hf,af)}
+      ${refereeHtml(m)}`;
     }
   }
 
@@ -710,7 +724,6 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
   </div>`;
 }
 
-// ===== LIVE с api-sports статистика =====
 async function loadLive(){
   const c=document.getElementById('live-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
@@ -718,8 +731,6 @@ async function loadLive(){
     const data=await apiFetch('/matches?status=IN_PLAY,PAUSED,HALFTIME');
     const matches=data.matches||[];
     if(!matches.length){c.innerHTML='<div class="no-data">⚽ Няма live мачове в момента</div>';return;}
-
-    // Вземи live статистика от api-sports
     let liveStatsMap={};
     try{
       const asData=await apiFetchAS('/fixtures?live=all');
@@ -741,13 +752,11 @@ async function loadLive(){
             if(key==='Attacks'){isHome?stats.attacks_h=val:stats.attacks_a=val;}
           });
         });
-        // Match by team names
         const hn=(f.teams?.home?.name||'').toLowerCase();
         const an=(f.teams?.away?.name||'').toLowerCase();
         liveStatsMap[hn+'_'+an]=stats;
       });
     }catch(e){}
-
     c.innerHTML=matches.map(m=>{
       const hn=(m.homeTeam?.name||'').toLowerCase();
       const an=(m.awayTeam?.name||'').toLowerCase();
@@ -799,4 +808,4 @@ switchTab('live');
 autoTimer=setInterval(()=>{if(currentTab==='live')loadCurrentTab();},60000);
 </script>
 </body>
-</html> 
+</html>
