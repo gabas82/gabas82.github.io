@@ -821,12 +821,13 @@ async function loadScorers(){
   // WC2026 — изграждаме от мачовете за точност
   try{
     c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ WC 2026...</div>';
-    const wcData=await apiFetch('/competitions/2000/matches?status=FINISHED&_t='+ts);
+    const wcData=await apiFetch('/competitions/2000/matches?_t='+ts);
     const wcMatches=wcData.matches||[];
-    const wcScorers=buildScorersFromMatches(wcMatches);
+    const wcFinished=wcMatches.filter(m=>m.status==='FINISHED');
+    const wcScorers=buildScorersFromMatches(wcFinished);
     if(wcScorers.length){
       const cols='28px 1fr 60px 30px 30px 28px';
-      html+=`<div class="comp-header">🏆 World Cup 2026 <span style="font-size:9px;color:var(--muted);margin-left:8px">от ${wcMatches.length} мача · актуално</span></div>
+      html+=`<div class="comp-header">🏆 World Cup 2026 <span style="font-size:9px;color:var(--muted);margin-left:8px">от ${wcFinished.length} завършени мача · актуално</span></div>
       <div class="big-table">
         <div class="big-header" style="grid-template-columns:${cols}">
           <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
