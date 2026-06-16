@@ -818,35 +818,58 @@ async function loadScorers(){
   let html='';
   const ts=Date.now();
 
-  // WC2026 — изграждаме от мачовете за точност
+  // WC2026 — опитваме от мачовете, при грешка fallback към /scorers
   try{
     c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ WC 2026...</div>';
-    const wcData=await apiFetch('/competitions/2000/matches?_t='+ts);
-    const wcMatches=wcData.matches||[];
-    const wcFinished=wcMatches.filter(m=>m.status==='FINISHED');
-    const wcScorers=buildScorersFromMatches(wcFinished);
+    let wcScorers=[];
+    let wcSource='';
+    let wcCount=0;
+    try{
+      const wcData=await apiFetch('/competitions/2000/matches?_t='+ts);
+      const wcMatches=wcData.matches||[];
+      const wcFinished=wcMatches.filter(m=>m.status==='FINISHED');
+      if(wcFinished.length>0){
+        wcScorers=buildScorersFromMatches(wcFinished);
+        wcSource='от '+wcFinished.length+' мача · актуално';
+        wcCount=wcFinished.length;
+      }
+    }catch(e2){}
+    // Fallback към /scorers ако нямаме данни от мачове
+    if(!wcScorers.length){
+      const fallback=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
+      const fsc=fallback.scorers||[];
+      wcScorers=fsc.map(s=>({
+        name:s.player?.name||'—',
+        team:s.team?.shortName||s.team?.name||'—',
+        teamName:s.team?.name||'',
+        goals:s.goals||0,
+        assists:s.assists||0,
+        penGoals:0
+      })).filter(s=>s.goals>0);
+      wcSource='football-data.org';
+    }
     if(wcScorers.length){
-      const cols='28px 1fr 60px 30px 30px 28px';
-      html+=`<div class="comp-header">🏆 World Cup 2026 <span style="font-size:9px;color:var(--muted);margin-left:8px">от ${wcFinished.length} завършени мача · актуално</span></div>
+      const cols='28px 1fr 60px 28px 28px';
+      html+=`<div class="comp-header">🏆 World Cup 2026 <span style="font-size:9px;color:var(--muted);margin-left:8px">${wcSource}</span></div>
       <div class="big-table">
         <div class="big-header" style="grid-template-columns:${cols}">
           <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
-          <div style="color:var(--green)" title="Голове">⚽</div>
-          <div style="color:var(--cyan)" title="Асистенции">🎯</div>
-          <div style="color:var(--muted)" title="Дузпи">(П)</div>
+          <div style="color:var(--green)">⚽</div>
+          <div style="color:var(--cyan)">🎯</div>
         </div>`;
       wcScorers.forEach((s,i)=>{
-        const penStr=s.penGoals>0?`<span style="color:var(--muted);font-size:9px">(${s.penGoals})</span>`:'';
+        const penStr=s.penGoals>0?` <span style="color:var(--muted);font-size:9px">(П:${s.penGoals})</span>`:'';
         html+=`<div class="big-row" style="grid-template-columns:${cols}">
           <div class="s-pos">${i+1}</div>
-          <div class="s-name">${getFlag(s.teamName)} ${s.name}</div>
+          <div class="s-name">${getFlag(s.teamName)} ${s.name}${penStr}</div>
           <div class="s-team">${s.team}</div>
-          <div class="s-goals">${s.goals} ${penStr}</div>
+          <div class="s-goals">${s.goals}</div>
           <div class="s-ast">${s.assists||'—'}</div>
-          <div class="num" style="color:var(--muted)">${s.penGoals||''}</div>
         </div>`;
       });
       html+='</div>';
+    }else{
+      html+='<div class="comp-header">🏆 World Cup 2026</div><div class="no-data">Няма данни</div>';
     }
   }catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ WC2026: ${e.message}</div>`;}
 
