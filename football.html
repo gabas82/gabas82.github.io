@@ -229,9 +229,9 @@
   <div id="scorers-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div id="tab-cards" class="tab-content">
-  <div class="section-title" style="margin-top:12px">🟨 НАЙ-МНОГО ЖЪЛТИ</div>
+  <div class="section-title" style="margin-top:12px">🟨 НАЙ-МНОГО ЖЪЛТИ КАРТОНИ</div>
   <div id="yellow-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
-  <div class="section-title" style="margin-top:20px">🟥 НАЙ-МНОГО ЧЕРВЕНИ</div>
+  <div class="section-title" style="margin-top:20px">🟥 НАЙ-МНОГО ЧЕРВЕНИ КАРТОНИ</div>
   <div id="red-content"></div>
 </div>
 
@@ -271,11 +271,16 @@ const FLAGS = {
   'Indonesia':'🇮🇩','Iraq':'🇮🇶','El Salvador':'🇸🇻','Guatemala':'🇬🇹',
   'Bosnia-Herzegovina':'🇧🇦','Bosnia and Herzegovina':'🇧🇦','South Africa':'🇿🇦',
   'Bulgaria':'🇧🇬','Ivory Coast':'🇨🇮','Cape Verde':'🇨🇻','Sweden':'🇸🇪',
-  'Norway':'🇳🇴','Curacao':'🇨🇼',
+  'Norway':'🇳🇴','Curacao':'🇨🇼','Qatar':'🇶🇦','Uzbekistan':'🇺🇿',
 };
 
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
+
+// Кеш за голмайстори и картони — изчиства се при всяко зареждане на таба
+let scorersCache = null;
+let scorersCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 минути
 
 async function apiFetch(path){
   const r=await fetch(WORKER+path);
@@ -296,6 +301,11 @@ function switchTab(name){
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
   clearInterval(autoTimer);
+  // Изчисти кеша при смяна на таб
+  if(name==='scorers'||name==='cards'){
+    scorersCache=null;
+    scorersCacheTime=0;
+  }
   loadCurrentTab();
   if(name==='live')autoTimer=setInterval(loadCurrentTab,60000);
 }
@@ -580,12 +590,27 @@ function oddsHtml(odds,pred){
   if(!h||!d||!a)return '';
   const hImpl=Math.round(100/h),dImpl=Math.round(100/d),aImpl=Math.round(100/a);
   const hV=pred&&pred.hWin>hImpl+5,dV=pred&&pred.draw>dImpl+5,aV=pred&&pred.aWin>aImpl+5;
+
+  // Корнери VALUE
+  let cornersOddsHtml='';
+  if(pred&&pred.cornersOver&&pred.expCorners){
+    const cornersImpl=60; // типичен implied % за над 9.5 корнери при коеф ~1.67
+    const cornersV=pred.cornersOver>cornersImpl+8;
+    cornersOddsHtml=`<div style="padding:6px 12px 8px;border-top:1px solid var(--border)">
+      <div class="pred-title">⚽ КОРНЕРИ НАД 9.5</div>
+      <div class="pred-grid">
+        <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value info">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div>${cornersV?'<div class="value-badge">VALUE ✓</div>':''}</div>
+        <div class="pred-pill"><div class="pred-label">КОРНЕРИ ПОД 9.5</div><div class="pred-value ${pred.cornersOver<50?'good':'neutral'}">${100-pred.cornersOver}%</div><div class="pred-pct">базирано на Poisson</div></div>
+      </div>
+    </div>`;
+  }
+
   return `<div class="odds-title">📊 БУКМЕЙКЪР КОЕФИЦИЕНТИ</div>
   <div class="odds-row">
     <div class="odds-pill"><div class="odds-label">1 ДОМАКИН</div><div class="odds-val">${h.toFixed(2)}</div><div class="odds-impl">implied ${hImpl}%</div>${hV?'<div class="value-badge">VALUE ✓</div>':''}</div>
     <div class="odds-pill"><div class="odds-label">X РАВЕН</div><div class="odds-val">${d.toFixed(2)}</div><div class="odds-impl">implied ${dImpl}%</div>${dV?'<div class="value-badge">VALUE ✓</div>':''}</div>
     <div class="odds-pill"><div class="odds-label">2 ГОСТ</div><div class="odds-val">${a.toFixed(2)}</div><div class="odds-impl">implied ${aImpl}%</div>${aV?'<div class="value-badge">VALUE ✓</div>':''}</div>
-  </div>`;
+  </div>${cornersOddsHtml}`;
 }
 
 function extractOdds(m){try{const o=m.odds;if(!o)return null;return{homeWin:o.homeWin,draw:o.draw,awayWin:o.awayWin};}catch(e){return null;}}
@@ -620,8 +645,16 @@ function buildPrediction(match,allMatches){
   const drawP=Math.max(5,100-hWinP-aWinP);
   const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP));
   const aWinAdj=100-drawP-hWinAdj;
-  const over25P=Math.min(90,Math.max(10,Math.round((expTotal/3)*70)));
-  const bttsP=Math.min(85,Math.max(15,Math.round(Math.min(expH,1)*Math.min(expA,1)*100+20)));
+
+  // Над/под 2.5 — Poisson точен
+  const over25P=calcGoalMarkets(expH,expA).over25;
+  const under25P=100-over25P;
+
+  // Г/Г — отделен Poisson
+  function pBtts(){let p=0;for(let h=1;h<=10;h++)for(let a=1;a<=10;a++)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(85,Math.max(15,Math.round(p*100)));}
+  const bttsP=pBtts();
+  const noBttsP=100-bttsP;
+
   let scores=[];
   for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100});
   scores.sort((a,b)=>b.p-a.p);
@@ -631,7 +664,7 @@ function buildPrediction(match,allMatches){
   const expCorners=Math.round(expTotal*2.8+4);
   const cornersOver=Math.min(85,Math.max(15,expCorners>=9?Math.round(55+(expCorners-9)*5):Math.round(55-(9-expCorners)*5)));
   const gm=calcGoalMarkets(expH,expA);
-  return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:100-over25P,btts:bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm};
+  return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:noBttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm};
 }
 
 function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
@@ -652,8 +685,19 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
   let booksHtml='';
   if(m.bookings?.length){booksHtml='<div class="events">';[...m.bookings].sort((x,y)=>x.minute-y.minute).forEach(b=>{const icon=b.card==='RED_CARD'?'🟥':b.card==='YELLOW_RED_CARD'?'🟥🟨':'🟨';const side=b.team?.name===m.homeTeam?.name?hf:af;booksHtml+=`<div class="event-item"><span class="event-min">${b.minute}'</span><span>${icon}</span><span class="event-player">${b.player?.name||'—'}</span><span class="event-team">${side}</span></div>`;});booksHtml+='</div>';}
 
+  // СВЪРШИЛИ — Г/Г и ПОД 2.5 като отделни пазари
   let betHtml='';
-  if(isFT&&hg!=null){const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅':'❌'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅':'❌'}</div></div><div class="bet-pill"><div class="bet-label">КР</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>`;}
+  if(isFT&&hg!=null){
+    const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';
+    betHtml=`<div class="bet-grid">
+      <div class="bet-pill"><div class="bet-label">Г/Г (И ДВАТА)</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div>
+      <div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅ ДА':'❌ НЕ'}</div></div>
+      <div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅ ДА':'❌ НЕ'}</div></div>
+      <div class="bet-pill"><div class="bet-label">КР (ПОБЕДИТЕЛ)</div><div class="bet-value neutral">${winner}</div></div>
+      <div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div>
+      <div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div>
+    </div>`;
+  }
 
   const liveStatsSection = isLive && liveStats ? liveStatsHtml(liveStats, hn, an) : '';
   const nextGoalSection = isLive && liveStats ? nextGoalHtml(liveStats, m.minute||0, hn, an, hf, af) : '';
@@ -674,7 +718,11 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
         </div>
         <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pred.over25>50?'good':'bad'}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div>
-          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${pred.btts>50?'good':'bad'}">${pred.btts}%</div><div class="pred-pct">ПОД 2.5: ${pred.under25}%</div></div>
+          <div class="pred-pill"><div class="pred-label">ПОД 2.5 ГОЛА</div><div class="pred-value ${pred.under25>50?'good':'bad'}">${pred.under25}%</div><div class="pred-pct">Poisson модел</div></div>
+        </div>
+        <div class="pred-grid">
+          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${pred.btts>50?'good':'bad'}">${pred.btts}%</div><div class="pred-pct">и двата отбора вкарват</div></div>
+          <div class="pred-pill"><div class="pred-label">БЕЗ Г/Г</div><div class="pred-value ${pred.noBtts>50?'good':'bad'}">${pred.noBtts}%</div><div class="pred-pct">поне един не вкарва</div></div>
         </div>
         <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value info">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div>
@@ -708,13 +756,19 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
       const expH=h<1.5?2.5:h<2.5?1.5:1.0;
       const expA=a<1.5?2.5:a<2.5?1.5:1.0;
       const gm=calcGoalMarkets(expH,expA);
+      const over25P=gm.over25;
+      const under25P=100-over25P;
+      function pBtts2(){let p=0;for(let hg=1;hg<=10;hg++)for(let ag=1;ag<=10;ag++)p+=poissonProb(expH,hg)*poissonProb(expA,ag);return Math.min(85,Math.max(15,Math.round(p*100)));}
+      const bttsP=pBtts2();
       let scores=[];
       for(let hg=0;hg<=4;hg++)for(let ag=0;ag<=4;ag++)scores.push({h:hg,a:ag,p:poissonProb(expH,hg)*poissonProb(expA,ag)*100});
       scores.sort((x,y)=>y.p-x.p);
       let htS=[];
       for(let hg=0;hg<=2;hg++)for(let ag=0;ag<=2;ag++)htS.push({h:hg,a:ag,p:poissonProb(expH*0.45,hg)*poissonProb(expA*0.45,ag)*100});
       htS.sort((x,y)=>y.p-x.p);
-      const fakePred={hWin:hW,draw:dW,aWin:aW,over25:gm.over25,btts:Math.round(gm.over25*0.7),g10:goalBefore10(expH,expA)};
+      const expCorners=Math.round((expH+expA)*2.8+4);
+      const cornersOver=Math.min(85,Math.max(15,expCorners>=9?Math.round(55+(expCorners-9)*5):Math.round(55-(9-expCorners)*5)));
+      const fakePred={hWin:hW,draw:dW,aWin:aW,over25:over25P,btts:bttsP,g10:goalBefore10(expH,expA),cornersOver,expCorners};
       savePrediction(m,fakePred);
       predHtml=`<div class="pred-section">
         <div class="pred-title">🔮 ПРОГНОЗА (букмейкър)</div>
@@ -724,8 +778,12 @@ function renderMatch(m, showPred, allMatches, h2hMatches, liveStats){
           <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${aW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${aW}%;background:var(--red)"></div></div></div>
         </div>
         <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${gm.over25>50?'good':'bad'}">${gm.over25}%</div><div class="pred-pct">Оч. голове: ${expH.toFixed(1)} — ${expA.toFixed(1)}</div></div>
-          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value neutral">${Math.round(gm.over25*0.7)}%</div><div class="pred-pct">ПОД 2.5: ${100-gm.over25}%</div></div>
+          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${over25P>50?'good':'bad'}">${over25P}%</div><div class="pred-pct">Оч. голове: ${expH.toFixed(1)} — ${expA.toFixed(1)}</div></div>
+          <div class="pred-pill"><div class="pred-label">ПОД 2.5 ГОЛА</div><div class="pred-value ${under25P>50?'good':'bad'}">${under25P}%</div><div class="pred-pct">Poisson модел</div></div>
+        </div>
+        <div class="pred-grid">
+          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${bttsP>50?'good':'bad'}">${bttsP}%</div><div class="pred-pct">и двата отбора вкарват</div></div>
+          <div class="pred-pill"><div class="pred-label">БЕЗ Г/Г</div><div class="pred-value ${100-bttsP>50?'good':'bad'}">${100-bttsP}%</div><div class="pred-pct">поне един не вкарва</div></div>
         </div>
         ${goalMarketsHtml(gm,hn,an,hf,af)}
         <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div>
@@ -801,9 +859,30 @@ async function loadLive(){
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
-async function loadToday(){const c=document.getElementById('today-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';try{const data=await apiFetch(`/matches?date=${getToday()}`);const matches=data.matches||[];if(!matches.length){c.innerHTML='<div class="no-data">Няма мачове днес</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}}
+async function loadToday(){
+  const c=document.getElementById('today-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  try{
+    const data=await apiFetch(`/matches?date=${getToday()}`);
+    const matches=data.matches||[];
+    if(!matches.length){c.innerHTML='<div class="no-data">Няма мачове днес</div>';return;}
+    c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');
+  }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
+}
 
-async function loadFinished(){const c=document.getElementById('finished-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';try{const[d1,d2]=await Promise.all([apiFetch(`/matches?date=${getYesterday()}&status=FINISHED`),apiFetch(`/matches?date=${getToday()}&status=FINISHED`)]);const matches=[...(d2.matches||[]),...(d1.matches||[])];if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}}
+async function loadFinished(){
+  const c=document.getElementById('finished-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  try{
+    const[d1,d2]=await Promise.all([
+      apiFetch(`/matches?date=${getYesterday()}&status=FINISHED`),
+      apiFetch(`/matches?date=${getToday()}&status=FINISHED`)
+    ]);
+    const matches=[...(d2.matches||[]),...(d1.matches||[])];
+    if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}
+    c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');
+  }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
+}
 
 async function loadUpcoming(){
   const c=document.getElementById('upcoming-content');
@@ -816,7 +895,13 @@ async function loadUpcoming(){
     const past60=new Date();past60.setDate(past60.getDate()-180);
     const pastStr=past60.toISOString().split('T')[0];
     let allMatches=[];
-    try{const[hist,wcM]=await Promise.all([apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`),apiFetch(`/competitions/2000/matches?status=FINISHED`)]);allMatches=[...(hist.matches||[]),...(wcM.matches||[])];}catch(e){}
+    try{
+      const[hist,wcM]=await Promise.all([
+        apiFetch(`/matches?dateFrom=${pastStr}&dateTo=${today}&status=FINISHED`),
+        apiFetch(`/competitions/2000/matches?status=FINISHED`)
+      ]);
+      allMatches=[...(hist.matches||[]),...(wcM.matches||[])];
+    }catch(e){}
     const groups={};
     upcoming.forEach(m=>{const key=m.competition?.id;if(!groups[key])groups[key]={name:m.competition?.name||'',matches:[]};groups[key].matches.push(m);});
     let html='';
@@ -825,7 +910,13 @@ async function loadUpcoming(){
       html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`;
       for(const m of g.matches){
         let h2h=[];
-        try{const hId=m.homeTeam?.id,aId=m.awayTeam?.id;if(hId&&aId){const d=await apiFetch(`/matches?competitions=${m.competition?.id}&teams=${hId}&teams=${aId}&status=FINISHED`);h2h=d.matches||[];}}catch(e){}
+        try{
+          const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
+          if(hId&&aId){
+            const d=await apiFetch(`/matches?competitions=${m.competition?.id}&teams=${hId}&teams=${aId}&status=FINISHED`);
+            h2h=d.matches||[];
+          }
+        }catch(e){}
         html+=renderMatch(m,true,allMatches,h2h,null);
       }
     }
@@ -833,11 +924,125 @@ async function loadUpcoming(){
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
-async function loadStandings(){const c=document.getElementById('standings-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let html='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/standings`);const standings=data.standings||[];html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;standings.forEach(group=>{if(standings.length>1)html+=`<div class="section-title">${group.group||group.stage}</div>`;html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;(group.table||[]).forEach(row=>{html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.position}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.shortName||row.team?.name}</div><div class="num">${row.playedGames}</div><div class="num">${row.won}</div><div class="num">${row.lost}</div><div class="num">${row.goalsFor}:${row.goalsAgainst}</div><div class="pts">${row.points}</div></div>`;});html+='</div>';});}catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}}c.innerHTML=html||'<div class="no-data">Няма данни</div>';}
+async function loadStandings(){
+  const c=document.getElementById('standings-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  let html='';
+  for(const comp of COMPS){
+    try{
+      const data=await apiFetch(`/competitions/${comp.id}/standings`);
+      const standings=data.standings||[];
+      html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;
+      standings.forEach(group=>{
+        if(standings.length>1)html+=`<div class="section-title">${group.group||group.stage}</div>`;
+        html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;
+        (group.table||[]).forEach(row=>{
+          html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.position}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.shortName||row.team?.name}</div><div class="num">${row.playedGames}</div><div class="num">${row.won}</div><div class="num">${row.lost}</div><div class="num">${row.goalsFor}:${row.goalsAgainst}</div><div class="pts">${row.points}</div></div>`;
+        });
+        html+='</div>';
+      });
+    }catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}
+  }
+  c.innerHTML=html||'<div class="no-data">Няма данни</div>';
+}
 
-async function loadScorers(){const c=document.getElementById('scorers-content');c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let html='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=10`);const sc=data.scorers||[];if(!sc.length)continue;const cols='24px 1fr 50px 28px 28px 28px 28px';html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--green)">⚽</div><div style="color:var(--cyan)">🎯</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;sc.forEach((s,i)=>{html+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-goals">${s.goals||0}</div><div class="s-ast">${s.assists||0}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});html+='</div>';}catch(e){}}c.innerHTML=html||'<div class="no-data">Няма данни</div>';}
+// ГОЛМАЙСТОРИ — винаги зарежда свежи данни, без кеш
+async function loadScorers(){
+  const c=document.getElementById('scorers-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  let html='';
+  const timestamp=Date.now(); // force bypass cache
+  for(const comp of COMPS){
+    try{
+      const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=10&_t=${timestamp}`);
+      const sc=data.scorers||[];
+      if(!sc.length)continue;
+      const cols='24px 1fr 50px 28px 28px 28px 28px';
+      html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>
+      <div class="big-table">
+        <div class="big-header" style="grid-template-columns:${cols}">
+          <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+          <div style="color:var(--green)">⚽</div>
+          <div style="color:var(--cyan)">🎯</div>
+          <div style="color:var(--yellow)">🟨</div>
+          <div style="color:var(--red)">🟥</div>
+        </div>`;
+      sc.forEach((s,i)=>{
+        html+=`<div class="big-row" style="grid-template-columns:${cols}">
+          <div class="s-pos">${i+1}</div>
+          <div class="s-name">${s.player?.name||'—'}</div>
+          <div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div>
+          <div class="s-goals">${s.goals||0}</div>
+          <div class="s-ast">${s.assists||0}</div>
+          <div class="s-yel">${s.yellowCards||0}</div>
+          <div class="s-red">${s.redCards||0}</div>
+        </div>`;
+      });
+      html+='</div>';
+    }catch(e){}
+  }
+  c.innerHTML=html||'<div class="no-data">Няма данни</div>';
+}
 
-async function loadCards(){const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';let yHtml='',rHtml='';for(const comp of COMPS){try{const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=50`);const sc=data.scorers||[];const yellows=[...sc].filter(s=>(s.yellowCards||0)>0).sort((a,b)=>(b.yellowCards||0)-(a.yellowCards||0)).slice(0,5);const reds=[...sc].filter(s=>(s.redCards||0)>0).sort((a,b)=>(b.redCards||0)-(a.redCards||0)).slice(0,3);const cols='24px 1fr 50px 30px 30px';if(yellows.length){yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;yellows.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});yHtml+='</div>';}if(reds.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;reds.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});rHtml+='</div>';}}catch(e){}}yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';}
+// КАРТОНИ — показва играчи с жълти/червени картони (не голмайстори)
+async function loadCards(){
+  const yc=document.getElementById('yellow-content');
+  const rc=document.getElementById('red-content');
+  yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  let yHtml='',rHtml='';
+  const timestamp=Date.now();
+  for(const comp of COMPS){
+    try{
+      // Зареждаме топ 50 по картони — сортираме по жълти
+      const data=await apiFetch(`/competitions/${comp.id}/scorers?limit=50&_t=${timestamp}`);
+      const sc=data.scorers||[];
+      // Филтриране само на играчи с картони
+      const withYellow=[...sc].filter(s=>(s.yellowCards||0)>0).sort((a,b)=>(b.yellowCards||0)-(a.yellowCards||0)).slice(0,8);
+      const withRed=[...sc].filter(s=>(s.redCards||0)>0).sort((a,b)=>(b.redCards||0)-(a.redCards||0)).slice(0,5);
+      const cols='24px 1fr 50px 30px 30px';
+      if(withYellow.length){
+        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>
+        <div class="big-table">
+          <div class="big-header" style="grid-template-columns:${cols}">
+            <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+            <div style="color:var(--yellow)">🟨</div>
+            <div style="color:var(--red)">🟥</div>
+          </div>`;
+        withYellow.forEach((s,i)=>{
+          yHtml+=`<div class="big-row" style="grid-template-columns:${cols}">
+            <div class="s-pos">${i+1}</div>
+            <div class="s-name">${s.player?.name||'—'}</div>
+            <div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div>
+            <div class="s-yel">${s.yellowCards||0}</div>
+            <div class="s-red">${s.redCards||0}</div>
+          </div>`;
+        });
+        yHtml+='</div>';
+      }
+      if(withRed.length){
+        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>
+        <div class="big-table">
+          <div class="big-header" style="grid-template-columns:${cols}">
+            <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+            <div style="color:var(--yellow)">🟨</div>
+            <div style="color:var(--red)">🟥</div>
+          </div>`;
+        withRed.forEach((s,i)=>{
+          rHtml+=`<div class="big-row" style="grid-template-columns:${cols}">
+            <div class="s-pos">${i+1}</div>
+            <div class="s-name">${s.player?.name||'—'}</div>
+            <div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div>
+            <div class="s-yel">${s.yellowCards||0}</div>
+            <div class="s-red">${s.redCards||0}</div>
+          </div>`;
+        });
+        rHtml+='</div>';
+      }
+    }catch(e){}
+  }
+  yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';
+  rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
+}
 
 switchTab('live');
 autoTimer=setInterval(()=>{if(currentTab==='live')loadCurrentTab();},60000);
