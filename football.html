@@ -478,20 +478,54 @@ function liveStatsHtml(stats,hn,an){
   html+='</div>';return html;
 }
 
-function nextGoalHtml(stats,minute,hn,an,hf,af){
-  if(!stats)return '';
-  const sh=parseInt(stats.shotsOn_h)||0,sa=parseInt(stats.shotsOn_a)||0;
-  const th=parseInt(stats.shots_h)||0,ta=parseInt(stats.shots_a)||0;
-  const ch=parseInt(stats.corners_h)||0,ca=parseInt(stats.corners_a)||0;
-  const dh=parseInt(stats.dangerous_h)||parseInt(stats.attacks_h)||0;
-  const da=parseInt(stats.dangerous_a)||parseInt(stats.attacks_a)||0;
-  const ph=parseFloat(stats.possession_h)||0,pa=parseFloat(stats.possession_a)||0;
-  let xh=sh*0.5+th*0.2+ch*0.15+(dh>0?dh*0.1:0)+(ph>0?(ph/100)*0.05:0);
-  let xa=sa*0.5+ta*0.2+ca*0.15+(da>0?da*0.1:0)+(pa>0?(pa/100)*0.05:0);
-  if(xh+xa<0.1){xh=1;xa=1;}
+function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
+  // Статистики от api-sports
+  const sh=parseInt(stats&&stats.shotsOn_h)||0,sa=parseInt(stats&&stats.shotsOn_a)||0;
+  const th=parseInt(stats&&stats.shots_h)||0,ta=parseInt(stats&&stats.shots_a)||0;
+  const ch=parseInt(stats&&stats.corners_h)||0,ca=parseInt(stats&&stats.corners_a)||0;
+  const dh=parseInt(stats&&stats.dangerous_h)||parseInt(stats&&stats.attacks_h)||0;
+  const da=parseInt(stats&&stats.dangerous_a)||parseInt(stats&&stats.attacks_a)||0;
+  const ph=parseFloat(stats&&stats.possession_h)||0,pa=parseFloat(stats&&stats.possession_a)||0;
+  const hasStats=(sh+sa+th+ta+ch+ca+dh+da)>0;
+  let xh,xa;
+  if(hasStats){
+    // Имаме реални статистики
+    xh=sh*0.5+th*0.2+ch*0.15+(dh>0?dh*0.1:0)+(ph>0?(ph/100)*0.05:0);
+    xa=sa*0.5+ta*0.2+ca*0.15+(da>0?da*0.1:0)+(pa>0?(pa/100)*0.05:0);
+    if(xh+xa<0.1){xh=1;xa=1;}
+  } else {
+    // Нямаме статистики — изчисляваме от резултат и минута
+    const hg=hScore!=null?parseInt(hScore):null;
+    const ag=aScore!=null?parseInt(aScore):null;
+    const min=parseInt(minute)||45;
+    // База: домакинът има лек бонус
+    xh=1.1; xa=1.0;
+    if(hg!=null&&ag!=null){
+      const diff=hg-ag;
+      // Губещият отбор натиска повече
+      if(diff>0){
+        // Домакинът води — гостът атакува повече
+        const urgency=Math.min(diff*0.3,0.6);
+        const timeFactor=min>75?1.4:min>60?1.2:1.0;
+        xh=Math.max(0.4,1.1-urgency*0.5);
+        xa=Math.min(2.0,1.0+urgency*timeFactor);
+      } else if(diff<0){
+        // Гостът води — домакинът атакува повече
+        const urgency=Math.min(Math.abs(diff)*0.3,0.6);
+        const timeFactor=min>75?1.5:min>60?1.3:1.1;
+        xh=Math.min(2.2,1.1+urgency*timeFactor);
+        xa=Math.max(0.4,1.0-urgency*0.5);
+      } else {
+        // Равен резултат — леко по-висок натиск в края
+        const latePush=min>75?0.15:min>60?0.08:0;
+        xh=1.1+latePush; xa=1.0+latePush;
+      }
+    }
+  }
   const tot=xh+xa;
   const pH=Math.round(xh/tot*100),pA=100-pH;
-  return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div></div>`;
+  const src=hasStats?'':'*';
+  return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ${src}</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>${!hasStats?'<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:4px">*базирано на резултат и минута</div>':''}</div>`;
 }
 
 function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
@@ -513,7 +547,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   let betHtml='';
   if(isFT&&hg!=null){const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г (И ДВАТА)</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">КР (ПОБЕДИТЕЛ)</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>`;}
   const lSS=isLive&&liveStats?liveStatsHtml(liveStats,hn,an):'';
-  const nGS=isLive&&liveStats?nextGoalHtml(liveStats,m.minute||0,hn,an,hf,af):'';
+  const nGS=isLive?nextGoalHtml(liveStats,m.minute||0,hn,an,hf,af,hg,ag):'';
   let predHtml='';
   if(showPred&&allMatches){
     const pred=buildPrediction(m,allMatches);
@@ -649,7 +683,7 @@ async function loadLive(){
         const hf=getFlag(hn),af=getFlag(an);
         const ls=lsMap[(hn+'_'+an).toLowerCase()]||null;
         const sHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="color:var(--cyan);font-family:'Rajdhani',sans-serif;font-size:14px">LIVE</div>`;
-        return `<div class="match-card live"><div class="match-header"><span class="match-league">${f.league?.name||'FIFA World Cup'}</span><span class="ms live">● LIVE ${min?min+"'":''}  </span></div><div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${sHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${min?`<div class="match-minute">⏱ ${min}'</div>`:''}</div>${ls?liveStatsHtml(ls,hn,an):''}${ls?nextGoalHtml(ls,min||0,hn,an,hf,af):''}</div>`;
+        return `<div class="match-card live"><div class="match-header"><span class="match-league">${f.league?.name||'FIFA World Cup'}</span><span class="ms live">● LIVE ${min?min+"'":''}  </span></div><div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${sHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${min?`<div class="match-minute">⏱ ${min}'</div>`:''}</div>${ls?liveStatsHtml(ls,hn,an):''}${nextGoalHtml(ls,min||0,hn,an,hf,af,hg,ag)}</div>`;
       }).join('');
       c.innerHTML=html||'<div class="no-data">⚽ Няма live мачове в момента</div>';
       return;
