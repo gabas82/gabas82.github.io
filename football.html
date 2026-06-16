@@ -383,8 +383,8 @@ function buildPrediction(match,allMatches){
   const bttsP=pBtts();
   let scores=[];for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100});scores.sort((a,b)=>b.p-a.p);
   let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*0.45,h)*poissonProb(expA*0.45,a)*100});htS.sort((a,b)=>b.p-a.p);
-  const expCorners=Math.round(expTotal*2.8+4);
-  const cornersOver=Math.min(85,Math.max(15,expCorners>=9?Math.round(55+(expCorners-9)*5):Math.round(55-(9-expCorners)*5)));
+  const expCorners=Math.round(expTotal*1.8+5.5);
+  const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
   return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm};
 }
 
@@ -480,11 +480,17 @@ function liveStatsHtml(stats,hn,an){
 
 function nextGoalHtml(stats,minute,hn,an,hf,af){
   if(!stats)return '';
-  const ph=parseFloat(stats.possession_h)||50,pa=parseFloat(stats.possession_a)||50;
   const sh=parseInt(stats.shotsOn_h)||0,sa=parseInt(stats.shotsOn_a)||0;
-  const xh=(ph/100)*0.2+sh*0.35,xa=(pa/100)*0.2+sa*0.35;
-  const mf=minute>60?1.3:minute>45?1.1:1.0,tot=(xh+xa)*mf||1;
-  const pH=Math.round(xh*mf/tot*100),pA=100-pH;
+  const th=parseInt(stats.shots_h)||0,ta=parseInt(stats.shots_a)||0;
+  const ch=parseInt(stats.corners_h)||0,ca=parseInt(stats.corners_a)||0;
+  const dh=parseInt(stats.dangerous_h)||parseInt(stats.attacks_h)||0;
+  const da=parseInt(stats.dangerous_a)||parseInt(stats.attacks_a)||0;
+  const ph=parseFloat(stats.possession_h)||0,pa=parseFloat(stats.possession_a)||0;
+  let xh=sh*0.5+th*0.2+ch*0.15+(dh>0?dh*0.1:0)+(ph>0?(ph/100)*0.05:0);
+  let xa=sa*0.5+ta*0.2+ca*0.15+(da>0?da*0.1:0)+(pa>0?(pa/100)*0.05:0);
+  if(xh+xa<0.1){xh=1;xa=1;}
+  const tot=xh+xa;
+  const pH=Math.round(xh/tot*100),pA=100-pH;
   return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div></div>`;
 }
 
@@ -566,8 +572,8 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const bP=pB();
       let sc=[];for(let hg=0;hg<=4;hg++)for(let ag=0;ag<=4;ag++)sc.push({h:hg,a:ag,p:poissonProb(expH,hg)*poissonProb(expA,ag)*100});sc.sort((x,y)=>y.p-x.p);
       let htS2=[];for(let hg=0;hg<=2;hg++)for(let ag=0;ag<=2;ag++)htS2.push({h:hg,a:ag,p:poissonProb(expH*0.45,hg)*poissonProb(expA*0.45,ag)*100});htS2.sort((x,y)=>y.p-x.p);
-      const eC=Math.round((expH+expA)*2.8+4);
-      const cO=Math.min(85,Math.max(15,eC>=9?Math.round(55+(eC-9)*5):Math.round(55-(9-eC)*5)));
+      const eC=Math.round((expH+expA)*1.8+5.5);
+      const cO=Math.min(80,Math.max(20,eC>=10?Math.round(50+(eC-10)*8):Math.round(50-(10-eC)*8)));
       const fP={hWin:hW,draw:dW,aWin:aW,over25:o25,btts:bP,g10:goalBefore10(expH,expA),cornersOver:cO,expCorners:eC};
       savePrediction(m,fP);
       predHtml=`<div class="pred-section">
