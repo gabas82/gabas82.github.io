@@ -770,17 +770,108 @@ async function loadStandings(){
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
 
+// Изгражда голмайстори от event данните на всички завършили мачове
+function buildScorersFromMatches(matches){
+  const players={};
+  matches.forEach(m=>{
+    if(m.status!=='FINISHED')return;
+    const goals=m.goals||[];
+    goals.forEach(g=>{
+      if(!g.scorer?.id)return;
+      const id=g.scorer.id;
+      if(!players[id]){
+        players[id]={
+          id, name:g.scorer?.name||'—',
+          team:g.team?.shortName||g.team?.name||'—',
+          teamName:g.team?.name||'',
+          goals:0, assists:0, penGoals:0, ownGoals:0
+        };
+      }
+      if(g.type==='OWN'){players[id].ownGoals++;}
+      else{
+        players[id].goals++;
+        if(g.type==='PENALTY')players[id].penGoals++;
+      }
+      // Асистенция
+      if(g.assist?.id){
+        const aid=g.assist.id;
+        if(!players[aid]){
+          players[aid]={
+            id:aid, name:g.assist?.name||'—',
+            team:g.team?.shortName||g.team?.name||'—',
+            teamName:g.team?.name||'',
+            goals:0, assists:0, penGoals:0, ownGoals:0
+          };
+        }
+        players[aid].assists++;
+      }
+    });
+  });
+  return Object.values(players)
+    .filter(p=>p.goals>0||p.assists>0)
+    .sort((a,b)=>b.goals-a.goals||b.assists-a.assists);
+}
+
 async function loadScorers(){
   const c=document.getElementById('scorers-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  let html='';const ts=Date.now();
+  let html='';
+  const ts=Date.now();
+
+  // WC2026 — изграждаме от мачовете за точност
+  try{
+    c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ WC 2026...</div>';
+    const wcData=await apiFetch('/competitions/2000/matches?status=FINISHED&_t='+ts);
+    const wcMatches=wcData.matches||[];
+    const wcScorers=buildScorersFromMatches(wcMatches);
+    if(wcScorers.length){
+      const cols='28px 1fr 60px 30px 30px 28px';
+      html+=`<div class="comp-header">🏆 World Cup 2026 <span style="font-size:9px;color:var(--muted);margin-left:8px">от ${wcMatches.length} мача · актуално</span></div>
+      <div class="big-table">
+        <div class="big-header" style="grid-template-columns:${cols}">
+          <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+          <div style="color:var(--green)" title="Голове">⚽</div>
+          <div style="color:var(--cyan)" title="Асистенции">🎯</div>
+          <div style="color:var(--muted)" title="Дузпи">(П)</div>
+        </div>`;
+      wcScorers.forEach((s,i)=>{
+        const penStr=s.penGoals>0?`<span style="color:var(--muted);font-size:9px">(${s.penGoals})</span>`:'';
+        html+=`<div class="big-row" style="grid-template-columns:${cols}">
+          <div class="s-pos">${i+1}</div>
+          <div class="s-name">${getFlag(s.teamName)} ${s.name}</div>
+          <div class="s-team">${s.team}</div>
+          <div class="s-goals">${s.goals} ${penStr}</div>
+          <div class="s-ast">${s.assists||'—'}</div>
+          <div class="num" style="color:var(--muted)">${s.penGoals||''}</div>
+        </div>`;
+      });
+      html+='</div>';
+    }
+  }catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ WC2026: ${e.message}</div>`;}
+
+  // Останалите лиги — от /scorers endpoint с лимит 50
   for(const comp of COMPS){
+    if(comp.id===2000)continue; // вече заредено
     try{
-      const data=await apiFetch('/competitions/'+comp.id+'/scorers?limit=10&_t='+ts);
+      const data=await apiFetch('/competitions/'+comp.id+'/scorers?limit=50&_t='+ts);
       const sc=data.scorers||[];if(!sc.length)continue;
-      const cols='24px 1fr 50px 28px 28px 28px 28px';
-      html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--green)">⚽</div><div style="color:var(--cyan)">🎯</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
-      sc.forEach((s,i)=>{html+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-goals">${s.goals||0}</div><div class="s-ast">${s.assists!=null?s.assists:'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});
+      const cols='28px 1fr 60px 30px 30px';
+      html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>
+      <div class="big-table">
+        <div class="big-header" style="grid-template-columns:${cols}">
+          <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+          <div style="color:var(--green)">⚽</div>
+          <div style="color:var(--cyan)">🎯</div>
+        </div>`;
+      sc.forEach((s,i)=>{
+        html+=`<div class="big-row" style="grid-template-columns:${cols}">
+          <div class="s-pos">${i+1}</div>
+          <div class="s-name">${s.player?.name||'—'}</div>
+          <div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div>
+          <div class="s-goals">${s.goals||0}</div>
+          <div class="s-ast">${s.assists!=null?s.assists:'—'}</div>
+        </div>`;
+      });
       html+='</div>';
     }catch(e){}
   }
