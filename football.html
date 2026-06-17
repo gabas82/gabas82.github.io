@@ -249,6 +249,27 @@ const FLAGS={
 };
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
+let wcScorersCache=[]; // Кеш за WC голмайстори
+
+async function loadWCScorers(){
+  try{
+    const ts=Date.now();
+    const data=await apiFetch('/competitions/2000/matches?_t='+ts);
+    const matches=(data.matches||[]).filter(m=>m.status==='FINISHED');
+    const players={};
+    matches.forEach(m=>{
+      (m.goals||[]).forEach(g=>{
+        if(g.type==='OWN')return;
+        const pid=g.scorer?.id;
+        const tid=g.team?.id;
+        if(!pid||!tid)return;
+        if(!players[pid]){players[pid]={id:pid,name:g.scorer?.name||'—',teamId:tid,teamName:g.team?.name||'—',goals:0};}
+        players[pid].goals++;
+      });
+    });
+    wcScorersCache=Object.values(players).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals);
+  }catch(e){wcScorersCache=[];}
+}
 async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 async function apiFetchAS(p){const r=await fetch(WORKER_AS+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 function switchTab(name){
@@ -524,15 +545,18 @@ function calcTopScorers(match, allMatches, wcScorers){
   if(wcScorers&&wcScorers.length){
     wcScorers.forEach(s=>{
       if(!s.id)return;
-      if(!playerStats[s.id]&&(s.teamId===hId||s.teamId===aId)){
-        playerStats[s.id]={
-          id:s.id,
-          name:s.name,
-          teamId:s.teamId,
-          goals:s.goals||0,
-          recentGoals:s.goals||0
-        };
-      } else if(playerStats[s.id]){
+      // Проверяваме дали играчът е от един от двата отбора
+      const isHome=s.teamId===hId;
+      const isAway=s.teamId===aId;
+      // Също проверяваме по име на отбор
+      const hn2=match.homeTeam?.name||'';
+      const an2=match.awayTeam?.name||'';
+      const teamMatch=isHome||isAway||(s.teamName&&(s.teamName===hn2||s.teamName===an2));
+      if(!teamMatch)return;
+      const realTeamId=isHome||s.teamName===hn2?hId:aId;
+      if(!playerStats[s.id]){
+        playerStats[s.id]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0};
+      } else {
         playerStats[s.id].goals=Math.max(playerStats[s.id].goals,s.goals||0);
       }
     });
@@ -872,7 +896,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const conf=calcConfidence(pred,odds);
       const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af);
       const valueBets=valueBetsHtml(pred,odds,hn,an,hf,af);
-      const scorerPlayers=calcTopScorers(m,allMatches,[]);
+      const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const scorerHtml=topScorerHtml(scorerPlayers,m,hf,af);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(conf,hn,an)}
@@ -936,7 +960,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const fConf=calcConfidence(fP,odds);
       const fBetBuilder=buildBetBuilder(fP,odds,hn,an,hf,af);
       const fValueBets=valueBetsHtml(fP,odds,hn,an,hf,af);
-      const fScorerPlayers=calcTopScorers(m,allMatches,[]);
+      const fScorerPlayers=calcTopScorers(m,wcScorersCache.length?[]:allMatches,wcScorersCache);
       const fScorerHtml=topScorerHtml(fScorerPlayers,m,hf,af);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(fConf,hn,an)}
@@ -1253,7 +1277,9 @@ async function loadCards(){
   rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
 }
 
+loadWCScorers();
 switchTab('live');
 </script>
 </body>
 </html>
+ 
