@@ -305,15 +305,26 @@ async function updateHistoryResults(){
   const toUpdate=hist.filter(h=>!h.result);
   if(!toUpdate.length)return;
   try{
-    const[d1,d2]=await Promise.all([
-      apiFetch('/matches?dateFrom='+getDateMinus(10)+'&dateTo='+getToday()+'&status=FINISHED'),
-      apiFetch('/competitions/2000/matches?status=FINISHED')
+    // Широк диапазон — 60 дни назад + всички WC мачове
+    const[d1,d2]=await Promise.allSettled([
+      apiFetch('/matches?dateFrom='+getDateMinus(60)+'&dateTo='+getToday()+'&status=FINISHED'),
+      apiFetch('/competitions/2000/matches')
     ]);
-    const all=[...(d1.matches||[]),...(d2.matches||[])];
+    const general=d1.status==='fulfilled'?(d1.value.matches||[]):[];
+    const wcAll=d2.status==='fulfilled'?(d2.value.matches||[]).filter(m=>m.status==='FINISHED'):[];
+    const all=[...general,...wcAll];
     let changed=false;
     toUpdate.forEach(h=>{
-      const m=all.find(f=>String(f.id)===String(h.id)||((f.homeTeam?.shortName===h.home||f.homeTeam?.name===h.home)&&(f.awayTeam?.shortName===h.away||f.awayTeam?.name===h.away)));
-      if(m&&m.score?.fullTime?.home!=null){const hg=m.score.fullTime.home,ag=m.score.fullTime.away;h.result={hg,ag,total:hg+ag,gg:hg>0&&ag>0,winner:hg>ag?'1':ag>hg?'2':'X'};changed=true;}
+      const m=all.find(f=>
+        String(f.id)===String(h.id)||
+        ((f.homeTeam?.shortName===h.home||f.homeTeam?.name===h.home)&&
+         (f.awayTeam?.shortName===h.away||f.awayTeam?.name===h.away))
+      );
+      if(m&&m.score?.fullTime?.home!=null){
+        const hg=m.score.fullTime.home,ag=m.score.fullTime.away;
+        h.result={hg,ag,total:hg+ag,gg:hg>0&&ag>0,winner:hg>ag?'1':ag>hg?'2':'X'};
+        changed=true;
+      }
     });
     if(changed)saveHistory(hist);
   }catch(e){}
@@ -350,7 +361,7 @@ function loadHistory(){
     return `<div class="hist-card"><div class="hist-match">${h.home} — ${h.away}</div><div class="hist-date">${h.comp} · ${date}</div><div class="hist-grid"><div class="hist-pill"><div class="hist-pill-label">1</div><div class="hist-pill-val good">${p.hWin}%</div></div><div class="hist-pill"><div class="hist-pill-label">X</div><div class="hist-pill-val neutral">${p.draw}%</div></div><div class="hist-pill"><div class="hist-pill-label">2</div><div class="hist-pill-val bad">${p.aWin}%</div></div><div class="hist-pill"><div class="hist-pill-label">НАД 2.5</div><div class="hist-pill-val info">${p.over25}%</div></div></div>${rHtml}</div>`;
   }).join('');
 }
-function clearHistory(){if(confirm('Изчисти цялата история?')){localStorage.removeItem(HIST_KEY);localStorage.removeItem('football_pred_history');loadHistory();}}
+function clearHistory(){if(confirm('Изчисти цялата история?\nТова действие е необратимо!')){if(confirm('Сигурен ли си? Всички прогнози ще се загубят!')){localStorage.removeItem(HIST_KEY);localStorage.removeItem('football_pred_history');loadHistory();}}}
 
 function calcForm(matches,teamId){
   const fin=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)).slice(-5);
@@ -388,23 +399,145 @@ function buildPrediction(match,allMatches){
   return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm};
 }
 
+// CONFIDENCE SCORE — комбинира всички сигнали в 0-100
+function calcConfidence(pred, odds){
+  if(!pred)return null;
+  let score=0, factors=[];
+  // 1. Колко силен е фаворитът
+  const maxWin=Math.max(pred.hWin,pred.draw,pred.aWin);
+  if(maxWin>=65){score+=25;factors.push('Силен фаворит');}
+  else if(maxWin>=55){score+=15;factors.push('Умерен фаворит');}
+  else{score+=5;}
+  // 2. Over/Under сигнал
+  const overUnderConf=Math.abs(pred.over25-50);
+  if(overUnderConf>=25){score+=20;factors.push('Ясен над/под сигнал');}
+  else if(overUnderConf>=15){score+=12;}
+  else{score+=4;}
+  // 3. BTTS сигнал
+  const bttsConf=Math.abs(pred.btts-50);
+  if(bttsConf>=20){score+=15;factors.push('Ясен Г/Г сигнал');}
+  else if(bttsConf>=10){score+=8;}
+  else{score+=2;}
+  // 4. Value от букмейкър
+  if(odds&&odds.homeWin&&odds.draw&&odds.awayWin){
+    const hImpl=Math.round(100/odds.homeWin);
+    const aImpl=Math.round(100/odds.awayWin);
+    const dImpl=Math.round(100/odds.draw);
+    if(pred.hWin>hImpl+8||pred.aWin>aImpl+8||pred.draw>dImpl+8){score+=20;factors.push('VALUE засечен');}
+    else if(pred.hWin>hImpl+4||pred.aWin>aImpl+4){score+=10;}
+  } else {score+=5;}
+  // 5. Форма
+  const hFormScore=pred.hForm?pred.hForm.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0):0;
+  const aFormScore=pred.aForm?pred.aForm.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0):0;
+  const formDiff=Math.abs(hFormScore-aFormScore);
+  if(formDiff>=6){score+=20;factors.push('Голяма разлика във форма');}
+  else if(formDiff>=3){score+=12;}
+  else{score+=4;}
+  score=Math.min(98,Math.max(10,score));
+  return{score,factors};
+}
+
+function confidenceHtml(conf, hn, an){
+  if(!conf)return '';
+  const col=conf.score>=75?'var(--green)':conf.score>=55?'var(--yellow)':'var(--red)';
+  const label=conf.score>=75?'ВИСОКА':conf.score>=55?'СРЕДНА':'НИСКА';
+  const barW=conf.score;
+  return `<div style="margin:8px 0;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <span style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:2px">🎯 CONFIDENCE SCORE</span>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:18px;font-weight:700;color:${col}">${conf.score}/100 <span style="font-size:11px">${label}</span></span>
+    </div>
+    <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px">
+      <div style="height:100%;width:${barW}%;background:${col};border-radius:3px;transition:width 0.8s"></div>
+    </div>
+    ${conf.factors.length?`<div style="display:flex;gap:4px;flex-wrap:wrap">${conf.factors.map(f=>`<span style="font-size:9px;background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.2);color:var(--green);padding:2px 6px;border-radius:8px">${f}</span>`).join('')}</div>`:''}
+  </div>`;
+}
+
+// BET BUILDER — автоматично избира най-добрите пазари
+function buildBetBuilder(pred, odds, hn, an, hf, af){
+  if(!pred)return '';
+  const bets=[];
+  // Победител
+  if(pred.hWin>=60){bets.push({label:`${hf} ${hn} победа`,pct:pred.hWin,type:'1X2'});}
+  else if(pred.aWin>=60){bets.push({label:`${af} ${an} победа`,pct:pred.aWin,type:'1X2'});}
+  else if(pred.draw>=35){bets.push({label:'Равен резултат',pct:pred.draw,type:'1X2'});}
+  // Голове
+  if(pred.over25>=65){bets.push({label:'Над 2.5 гола',pct:pred.over25,type:'GOALS'});}
+  else if(pred.under25>=65){bets.push({label:'Под 2.5 гола',pct:pred.under25,type:'GOALS'});}
+  if(pred.gm&&pred.gm.over15>=75){bets.push({label:'Над 1.5 гола',pct:pred.gm.over15,type:'GOALS'});}
+  // BTTS
+  if(pred.btts>=65){bets.push({label:'И двата отбора вкарват',pct:pred.btts,type:'BTTS'});}
+  else if(pred.noBtts>=65){bets.push({label:'Не Г/Г',pct:pred.noBtts,type:'BTTS'});}
+  // Отборни голове
+  if(pred.gm&&pred.gm.hOver05>=75){bets.push({label:`${hf} ${hn} над 0.5 гола`,pct:pred.gm.hOver05,type:'TEAM'});}
+  if(pred.gm&&pred.gm.aOver05>=75){bets.push({label:`${af} ${an} над 0.5 гола`,pct:pred.gm.aOver05,type:'TEAM'});}
+  // Вземи топ 3 по вероятност
+  const top=bets.sort((a,b)=>b.pct-a.pct).slice(0,3);
+  if(!top.length)return '';
+  // Комбинирана вероятност (приблизителна)
+  const combPct=Math.round(top.reduce((p,b)=>p*(b.pct/100),1)*100);
+  return `<div style="margin:8px 0;background:rgba(0,230,118,0.05);border:1px solid rgba(0,230,118,0.25);border-radius:10px;padding:10px 12px;">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--green);letter-spacing:2px;margin-bottom:8px">🏗️ BET BUILDER — ПРЕПОРЪКА</div>
+    ${top.map((b,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
+      <span style="font-size:11px;color:var(--text)">✅ ${b.label}</span>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--green)">${b.pct}%</span>
+    </div>`).join('')}
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:6px">
+      <span style="font-size:10px;color:var(--muted)">Комбинирана вероятност</span>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;color:var(--yellow)">${combPct}%</span>
+    </div>
+  </div>`;
+}
+
+// VALUE BETS — маркира когато модел > букмейкър с 10%+
+function valueBetsHtml(pred, odds, hn, an, hf, af){
+  if(!pred||!odds||!odds.homeWin)return '';
+  const values=[];
+  const hImpl=Math.round(100/odds.homeWin);
+  const dImpl=Math.round(100/odds.draw);
+  const aImpl=Math.round(100/odds.awayWin);
+  if(pred.hWin>=65&&pred.hWin>hImpl+10) values.push({label:`${hf} ${hn} победа`,model:pred.hWin,impl:hImpl,edge:pred.hWin-hImpl,odds:odds.homeWin});
+  if(pred.draw>=35&&pred.draw>dImpl+10) values.push({label:'Равен',model:pred.draw,impl:dImpl,edge:pred.draw-dImpl,odds:odds.draw});
+  if(pred.aWin>=65&&pred.aWin>aImpl+10) values.push({label:`${af} ${an} победа`,model:pred.aWin,impl:aImpl,edge:pred.aWin-aImpl,odds:odds.awayWin});
+  if(!values.length)return '';
+  return `<div style="margin:8px 0;background:rgba(255,214,0,0.05);border:1px solid rgba(255,214,0,0.3);border-radius:10px;padding:10px 12px;">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--yellow);letter-spacing:2px;margin-bottom:8px">💰 VALUE BETS</div>
+    ${values.map(v=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.4)">
+      <div>
+        <div style="font-size:11px;color:var(--text);font-weight:600">${v.label}</div>
+        <div style="font-size:9px;color:var(--muted)">Модел: ${v.model}% | Букмейкър: ${v.impl}% | Edge: +${v.edge}%</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:var(--yellow)">${v.odds.toFixed(2)}</div>
+        <div class="value-badge">VALUE ✓</div>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// Цвят по вероятност — зелено≥65, жълто≥50, червено<50
+function pCol(pct){return pct>=65?'good':pct>=50?'neutral':'bad';}
+// За обратни пазари (под X, без Г/Г) — зелено когато е вероятно
+function pColInv(pct){return pct>=65?'good':pct>=50?'neutral':'bad';}
+
 function goalMarketsHtml(gm,hn,an,hf,af){
   return `<div class="pred-title" style="margin-top:8px">⚽ ГОЛОВЕ — ПАЗАРИ</div>
   <div class="pred-grid-4">
-    <div class="pred-pill"><div class="pred-label">НАД 0.5</div><div class="pred-value ${gm.over05>70?'good':'neutral'}">${gm.over05}%</div></div>
-    <div class="pred-pill"><div class="pred-label">НАД 1.5</div><div class="pred-value ${gm.over15>60?'good':'neutral'}">${gm.over15}%</div></div>
-    <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${gm.over35>40?'good':'bad'}">${gm.over35}%</div></div>
-    <div class="pred-pill"><div class="pred-label">НАД 4.5</div><div class="pred-value ${gm.over45>25?'neutral':'bad'}">${gm.over45}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 0.5</div><div class="pred-value ${pCol(gm.over05)}">${gm.over05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5</div><div class="pred-value ${pCol(gm.over15)}">${gm.over15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${pCol(gm.over35)}">${gm.over35}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 4.5</div><div class="pred-value ${pCol(gm.over45)}">${gm.over45}%</div></div>
   </div>
   <div class="pred-title" style="margin-top:4px">${hf} ${hn}</div>
   <div class="pred-grid">
-    <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${gm.hOver05>65?'good':'neutral'}">${gm.hOver05}%</div></div>
-    <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${gm.hOver15>40?'good':'neutral'}">${gm.hOver15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${pCol(gm.hOver05)}">${gm.hOver05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${pCol(gm.hOver15)}">${gm.hOver15}%</div></div>
   </div>
   <div class="pred-title" style="margin-top:4px">${af} ${an}</div>
   <div class="pred-grid">
-    <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${gm.aOver05>65?'good':'neutral'}">${gm.aOver05}%</div></div>
-    <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${gm.aOver15>40?'good':'neutral'}">${gm.aOver15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${pCol(gm.aOver05)}">${gm.aOver05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${pCol(gm.aOver15)}">${gm.aOver15}%</div></div>
   </div>`;
 }
 
@@ -545,7 +678,42 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   let booksHtml='';
   if(m.bookings?.length){booksHtml='<div class="events">';[...m.bookings].sort((x,y)=>x.minute-y.minute).forEach(b=>{const icon=b.card==='RED_CARD'?'🟥':b.card==='YELLOW_RED_CARD'?'🟥🟨':'🟨';const side=b.team?.name===m.homeTeam?.name?hf:af;booksHtml+=`<div class="event-item"><span class="event-min">${b.minute}'</span><span>${icon}</span><span class="event-player">${b.player?.name||'—'}</span><span class="event-team">${side}</span></div>`;});booksHtml+='</div>';}
   let betHtml='';
-  if(isFT&&hg!=null){const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г (И ДВАТА)</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">КР (ПОБЕДИТЕЛ)</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>`;}
+  if(isFT&&hg!=null){
+    const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';
+    // Търсим дали имаме прогноза в историята за този мач
+    const histEntry=getHistory().find(h=>String(h.id)===String(m.id)||
+      ((h.home===hn||h.home===(m.homeTeam?.name))&&(h.away===an||h.away===(m.awayTeam?.name))));
+    let histPredHtml='';
+    if(histEntry&&histEntry.pred){
+      const p=histEntry.pred;
+      const predW=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
+      const w1=predW===winner?'✅':'❌';
+      const wO=(p.over25>50&&over)||(p.over25<=50&&!over)?'✅':'❌';
+      const wB=(p.btts>50&&gg)||(p.btts<=50&&!gg)?'✅':'❌';
+      const conf=calcConfidence(p,null);
+      histPredHtml=`<div style="margin:6px 12px 0;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:8px 10px;">
+        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:6px">📊 ПРОГНОЗА VS РЕАЛНОСТ ${conf?`<span style="color:var(--muted)">· Conf: ${conf.score}/100</span>`:''}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+          <div style="text-align:center;background:var(--card2);border-radius:6px;padding:5px">
+            <div style="font-size:8px;color:var(--muted)">1/X/2</div>
+            <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700">${w1} ${predW}</div>
+            <div style="font-size:8px;color:var(--muted)">${p.hWin}/${p.draw}/${p.aWin}%</div>
+          </div>
+          <div style="text-align:center;background:var(--card2);border-radius:6px;padding:5px">
+            <div style="font-size:8px;color:var(--muted)">НАД 2.5</div>
+            <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700">${wO}</div>
+            <div style="font-size:8px;color:var(--muted)">${p.over25}%</div>
+          </div>
+          <div style="text-align:center;background:var(--card2);border-radius:6px;padding:5px">
+            <div style="font-size:8px;color:var(--muted)">Г/Г</div>
+            <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700">${wB}</div>
+            <div style="font-size:8px;color:var(--muted)">${p.btts}%</div>
+          </div>
+        </div>
+      </div>`;
+    }
+    betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г (И ДВАТА)</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">КР (ПОБЕДИТЕЛ)</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>${histPredHtml}`;
+  }
   const lSS=isLive&&liveStats?liveStatsHtml(liveStats,hn,an):'';
   const nGS=isLive?nextGoalHtml(liveStats,m.minute||0,hn,an,hf,af,hg,ag):'';
   let predHtml='';
@@ -555,28 +723,34 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
     if(pred){
       savePrediction(m,pred);
+      const conf=calcConfidence(pred,odds);
+      const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af);
+      const valueBets=valueBetsHtml(pred,odds,hn,an,hf,af);
       predHtml=`<div class="pred-section">
-        <div class="pred-title">🔮 ПРОГНОЗА</div>
+        ${confidenceHtml(conf,hn,an)}
+        ${betBuilder}
+        ${valueBets}
+        <div class="pred-title" style="margin-top:8px">🔮 ПРОГНОЗА</div>
         <div class="pred-grid-3">
           <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div></div>
           <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${pred.draw}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.draw}%;background:var(--yellow)"></div></div></div>
           <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${pred.aWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.aWin}%;background:var(--red)"></div></div></div>
         </div>
         <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pred.over25>50?'good':'bad'}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div>
-          <div class="pred-pill"><div class="pred-label">ПОД 2.5 ГОЛА</div><div class="pred-value ${pred.under25>50?'good':'bad'}">${pred.under25}%</div><div class="pred-pct">Poisson модел</div></div>
+          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pCol(pred.over25)}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div>
+          <div class="pred-pill"><div class="pred-label">ПОД 2.5 ГОЛА</div><div class="pred-value ${pCol(pred.under25)}">${pred.under25}%</div><div class="pred-pct">Poisson модел</div></div>
         </div>
         <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${pred.btts>50?'good':'bad'}">${pred.btts}%</div><div class="pred-pct">и двата отбора вкарват</div></div>
-          <div class="pred-pill"><div class="pred-label">БЕЗ Г/Г</div><div class="pred-value ${pred.noBtts>50?'good':'bad'}">${pred.noBtts}%</div><div class="pred-pct">поне един не вкарва</div></div>
+          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${pCol(pred.btts)}">${pred.btts}%</div><div class="pred-pct">и двата отбора вкарват</div></div>
+          <div class="pred-pill"><div class="pred-label">БЕЗ Г/Г</div><div class="pred-value ${pCol(pred.noBtts)}">${pred.noBtts}%</div><div class="pred-pct">поне един не вкарва</div></div>
         </div>
         <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value info">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div>
+          <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value ${pCol(pred.cornersOver)}">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div>
           <div class="pred-pill"><div class="pred-label">ОЧ. ЖЪЛТИ</div><div class="pred-value neutral">~${pred.expYellow}</div><div class="pred-pct">картона в мача</div></div>
         </div>
         <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">⚡ ГОЛ ДО 10'</div><div class="pred-value ${pred.g10>25?'good':'neutral'}">${pred.g10}%</div><div class="pred-pct">Poisson модел</div></div>
-          <div class="pred-pill"><div class="pred-label">БЕЗ ГОЛ ДО 10'</div><div class="pred-value ${pred.g10<25?'good':'neutral'}">${100-pred.g10}%</div><div class="pred-pct">вероятност</div></div>
+          <div class="pred-pill"><div class="pred-label">⚡ ГОЛ ДО 10'</div><div class="pred-value ${pCol(pred.g10)}">${pred.g10}%</div><div class="pred-pct">Poisson модел</div></div>
+          <div class="pred-pill"><div class="pred-label">БЕЗ ГОЛ ДО 10'</div><div class="pred-value ${pCol(100-pred.g10)}">${100-pred.g10}%</div><div class="pred-pct">вероятност</div></div>
         </div>
         ${goalMarketsHtml(pred.gm,hn,an,hf,af)}
         <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div>
