@@ -612,53 +612,75 @@ function liveStatsHtml(stats,hn,an){
 }
 
 function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
+  const min=parseInt(minute)||45;
+  const hg=hScore!=null?parseInt(hScore):null;
+  const ag=aScore!=null?parseInt(aScore):null;
+
   // Статистики от api-sports
   const sh=parseInt(stats&&stats.shotsOn_h)||0,sa=parseInt(stats&&stats.shotsOn_a)||0;
   const th=parseInt(stats&&stats.shots_h)||0,ta=parseInt(stats&&stats.shots_a)||0;
   const ch=parseInt(stats&&stats.corners_h)||0,ca=parseInt(stats&&stats.corners_a)||0;
-  const dh=parseInt(stats&&stats.dangerous_h)||parseInt(stats&&stats.attacks_h)||0;
-  const da=parseInt(stats&&stats.dangerous_a)||parseInt(stats&&stats.attacks_a)||0;
+  // Атаки и опасни атаки — най-важният индикатор
+  const ath=parseInt(stats&&stats.attacks_h)||0,ata=parseInt(stats&&stats.attacks_a)||0;
+  const dh=parseInt(stats&&stats.dangerous_h)||0,da=parseInt(stats&&stats.dangerous_a)||0;
+  // Притежание
   const ph=parseFloat(stats&&stats.possession_h)||0,pa=parseFloat(stats&&stats.possession_a)||0;
-  const hasStats=(sh+sa+th+ta+ch+ca+dh+da)>0;
+
+  const hasStats=(sh+sa+th+ta+ch+ca+ath+ata+dh+da)>0;
   let xh,xa;
+
   if(hasStats){
-    // Имаме реални статистики
-    xh=sh*0.5+th*0.2+ch*0.15+(dh>0?dh*0.1:0)+(ph>0?(ph/100)*0.05:0);
-    xa=sa*0.5+ta*0.2+ca*0.15+(da>0?da*0.1:0)+(pa>0?(pa/100)*0.05:0);
-    if(xh+xa<0.1){xh=1;xa=1;}
+    // РЕАЛНИ СТАТИСТИКИ — претеглено по важност
+    // Опасни атаки = най-силен сигнал (40%)
+    // Общи атаки = втори (25%)
+    // Удари в рамката = трети (20%)
+    // Притежание = четвърти (10%)
+    // Корнери = пети (5%)
+    const dangerH=dh>0?dh:ath*0.3;
+    const dangerA=da>0?da:ata*0.3;
+    xh = dangerH*0.40 + ath*0.25 + sh*0.20 + (ph>0?(ph/100)*10:0)*0.10 + ch*0.05;
+    xa = dangerA*0.40 + ata*0.25 + sa*0.20 + (pa>0?(pa/100)*10:0)*0.10 + ca*0.05;
+    // Минимум за да не е 0
+    if(xh+xa<0.5){xh=1;xa=1;}
+
+    // Фактор на резултата — губещият натиска повече
+    if(hg!=null&&ag!=null){
+      const diff=hg-ag;
+      const timeFactor=min>75?1.5:min>60?1.25:min>45?1.1:1.0;
+      if(diff>0){
+        // Домакинът води — гостът с допълнителен натиск
+        xa=xa*(1+Math.min(diff,2)*0.15*timeFactor);
+      } else if(diff<0){
+        // Гостът води — домакинът с допълнителен натиск
+        xh=xh*(1+Math.min(Math.abs(diff),2)*0.15*timeFactor);
+      }
+    }
   } else {
-    // Нямаме статистики — изчисляваме от резултат и минута
-    const hg=hScore!=null?parseInt(hScore):null;
-    const ag=aScore!=null?parseInt(aScore):null;
-    const min=parseInt(minute)||45;
-    // База: домакинът има лек бонус
+    // НЯМА СТАТИСТИКИ — само от резултат и минута
     xh=1.1; xa=1.0;
     if(hg!=null&&ag!=null){
       const diff=hg-ag;
-      // Губещият отбор натиска повече
+      const timeFactor=min>75?1.5:min>60?1.3:min>45?1.1:1.0;
       if(diff>0){
-        // Домакинът води — гостът атакува повече
-        const urgency=Math.min(diff*0.3,0.6);
-        const timeFactor=min>75?1.4:min>60?1.2:1.0;
-        xh=Math.max(0.4,1.1-urgency*0.5);
-        xa=Math.min(2.0,1.0+urgency*timeFactor);
+        xh=Math.max(0.4,1.1-Math.min(diff,2)*0.25);
+        xa=Math.min(2.5,1.0+Math.min(diff,2)*0.35*timeFactor);
       } else if(diff<0){
-        // Гостът води — домакинът атакува повече
-        const urgency=Math.min(Math.abs(diff)*0.3,0.6);
-        const timeFactor=min>75?1.5:min>60?1.3:1.1;
-        xh=Math.min(2.2,1.1+urgency*timeFactor);
-        xa=Math.max(0.4,1.0-urgency*0.5);
+        xh=Math.min(2.5,1.1+Math.min(Math.abs(diff),2)*0.35*timeFactor);
+        xa=Math.max(0.4,1.0-Math.min(Math.abs(diff),2)*0.25);
       } else {
-        // Равен резултат — леко по-висок натиск в края
-        const latePush=min>75?0.15:min>60?0.08:0;
+        const latePush=min>75?0.2:min>60?0.1:0;
         xh=1.1+latePush; xa=1.0+latePush;
       }
     }
   }
+
   const tot=xh+xa;
   const pH=Math.round(xh/tot*100),pA=100-pH;
   const src=hasStats?'':'*';
-  return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ${src}</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>${!hasStats?'<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:4px">*базирано на резултат и минута</div>':''}</div>`;
+  const srcLabel=hasStats
+    ?`<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:2px">атаки · притежание · удари</div>`
+    :`<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:2px">*базирано на резултат и минута</div>`;
+  return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ${src}</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>${srcLabel}</div>`;
 }
 
 function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
@@ -1100,3 +1122,4 @@ autoTimer=setInterval(()=>{if(currentTab==='live')loadCurrentTab();},60000);
 </script>
 </body>
 </html>
+ 
