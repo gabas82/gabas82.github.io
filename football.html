@@ -804,13 +804,19 @@ function h2hHtml(matches,hName,aName){
   return `<div class="h2h-section"><div class="h2h-title">⚔️ HEAD-TO-HEAD</div><div class="h2h-summary"><div class="h2h-pill"><div class="h2h-pill-label">${hName.substring(0,8)}</div><div class="h2h-pill-val good">${hW}</div></div><div class="h2h-pill"><div class="h2h-pill-label">РАВНИ</div><div class="h2h-pill-val neutral">${dr}</div></div><div class="h2h-pill"><div class="h2h-pill-label">${aName.substring(0,8)}</div><div class="h2h-pill-val bad">${aW}</div></div></div>${rows}</div>`;
 }
 
-function form5Html(allMatches,hId,aId,hn,an,hf,af){
-  function getLast5(teamId,side){return allMatches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId)).slice(-5);}
+function form5Html(allMatches,hId,aId,hn,an,hf,af,compId){
+  const isNeutral=compId===2000; // WC неутрален терен
+  function getLast5All(teamId){return allMatches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)).slice(-5);}
+  function getLast5Side(teamId,side){return allMatches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId)).slice(-5);}
   function stats(matches,teamId){if(!matches.length)return null;let w=0,d=0,l=0,gf=0,ga=0;matches.forEach(m=>{const isH=m.homeTeam?.id===teamId;const mg=isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0);const og=isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0);gf+=mg;ga+=og;if(mg>og)w++;else if(mg===og)d++;else l++;});return{w,d,l,gf,ga,n:matches.length};}
-  const hS=stats(getLast5(hId,'home'),hId),aS=stats(getLast5(aId,'away'),aId);
+  const hMatches=isNeutral?getLast5All(hId):(getLast5Side(hId,'home').length>=1?getLast5Side(hId,'home'):getLast5All(hId));
+  const aMatches=isNeutral?getLast5All(aId):(getLast5Side(aId,'away').length>=1?getLast5Side(aId,'away'):getLast5All(aId));
+  const hLabel=isNeutral?'Последни мачове':'У дома';
+  const aLabel=isNeutral?'Последни мачове':'На гости';
+  const hS=stats(hMatches,hId),aS=stats(aMatches,aId);
   if(!hS&&!aS)return '';
   function block(s,name,flag,side){if(!s)return `<div class="form5-team"><div class="form5-team-name">${flag} ${name.substring(0,10)} (${side})</div><div style="font-size:9px;color:var(--muted)">няма данни</div></div>`;return `<div class="form5-team"><div class="form5-team-name">${flag} ${name.substring(0,10)} (${side})</div><div class="form5-stats"><div class="form5-stat"><div class="form5-stat-val good">${s.w}</div><div class="form5-stat-label">ПОБЕДИ</div></div><div class="form5-stat"><div class="form5-stat-val neutral">${s.d}</div><div class="form5-stat-label">РАВНИ</div></div><div class="form5-stat"><div class="form5-stat-val bad">${s.l}</div><div class="form5-stat-label">ЗАГУБИ</div></div></div><div style="font-size:9px;color:var(--muted)">Голове: <span style="color:var(--green)">${s.gf}</span> вкарани / <span style="color:var(--red)">${s.ga}</span> допуснати (${s.n} мача)</div></div>`;}
-  return `<div class="form5-section"><div class="form5-title">🏠/✈️ ФОРМА ПОСЛЕДНИТЕ 5</div><div class="form5-grid">${block(hS,hn,hf,'У дома')}${block(aS,an,af,'На гости')}</div></div>`;
+  return `<div class="form5-section"><div class="form5-title">⚽ ФОРМА ПОСЛЕДНИТЕ 5</div><div class="form5-grid">${block(hS,hn,hf,hLabel)}${block(aS,an,af,aLabel)}</div></div>`;
 }
 
 function htTrendHtml(allMatches,hId,aId,hn,an,hf,af){
@@ -1056,7 +1062,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       </div>
       ${oddsHtml(odds,pred)}
       ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
-      ${form5Html(allMatches,hId,aId,hn,an,hf,af)}
+      ${form5Html(allMatches,hId,aId,hn,an,hf,af,m.competition?.id)}
       ${htTrendHtml(allMatches,hId,aId,hn,an,hf,af)}
       ${lineupHtml(m,hf,af)}
       ${refereeHtml(m)}`;
