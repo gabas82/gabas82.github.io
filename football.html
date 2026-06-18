@@ -211,7 +211,7 @@
   <div id="red-content"></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.9</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.0</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -943,6 +943,114 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
   return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ${src}</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>${srcLabel}</div>`;
 }
 
+// LIVE ГОЛ КАЛКУЛАТОР — вероятност за НАД X гола в оставащото време
+function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
+  const min=parseInt(minute)||0;
+  const hg=parseInt(hScore)||0;
+  const ag=parseInt(aScore)||0;
+  const total=hg+ag;
+  const remaining=Math.max(0,90-min);
+
+  if(remaining<=0)return '';
+
+  // Базова честота на голове в минута (средно 2.5 гола/мач = 0.0278/мин)
+  let baseRate=0.028;
+
+  // ИНТЕНЗИВНОСТ от статистики
+  const sh=parseInt(stats&&stats.shotsOn_h)||0,sa=parseInt(stats&&stats.shotsOn_a)||0;
+  const dh=parseInt(stats&&stats.dangerous_h)||0,da=parseInt(stats&&stats.dangerous_a)||0;
+  const ath=parseInt(stats&&stats.attacks_h)||0,ata=parseInt(stats&&stats.attacks_a)||0;
+  const hasStats=(sh+sa+dh+da+ath+ata)>0;
+
+  let intensityFactor=1.0;
+  if(hasStats){
+    const totalDanger=dh+da;
+    const totalAttacks=ath+ata;
+    const totalShots=sh+sa;
+    // Нормализираме спрямо минутите изиграни
+    const minsPlayed=Math.max(min,1);
+    const dangerPerMin=totalDanger/minsPlayed;
+    const attacksPerMin=totalAttacks/minsPlayed;
+    const shotsPerMin=totalShots/minsPlayed;
+    // Очакван интензитет: >0.5 опасни атаки/мин = висок
+    intensityFactor=Math.min(2.5,Math.max(0.5,
+      dangerPerMin*1.5 + attacksPerMin*0.3 + shotsPerMin*0.8
+    ));
+  }
+
+  // СИТУАЦИОННИ БОНУСИ
+  let situationBonus=1.0;
+  const diff=Math.abs(hg-ag);
+
+  // Губещ отбор натиска
+  if(diff>=1) situationBonus+=0.15*Math.min(diff,2);
+  // Много голове вече — по-отворен мач
+  if(total>=3) situationBonus+=0.10;
+  if(total>=5) situationBonus+=0.15;
+  // Последните 15 минути — по-голямо темпо
+  if(min>=75) situationBonus+=0.20;
+  else if(min>=60) situationBonus+=0.10;
+
+  // Червен картон (ако имаме данни)
+  const redH=parseInt(stats&&stats.red_h)||0,redA=parseInt(stats&&stats.red_a)||0;
+  if(redH>0||redA>0) situationBonus+=0.25;
+
+  // Добавено време >3 мин
+  const addedTime=Math.max(0,min-90);
+  if(addedTime>=3) situationBonus+=0.20;
+
+  // Очаквани голове в оставащото време
+  const expGoals=baseRate*remaining*intensityFactor*situationBonus;
+
+  // Poisson вероятности за НАД X гола
+  function pAtLeastN(n){
+    let p=0;
+    for(let k=n;k<=10;k++){
+      let prob=Math.exp(-expGoals);
+      for(let i=1;i<=k;i++) prob*=expGoals/i;
+      p+=prob;
+    }
+    return Math.min(97,Math.max(3,Math.round(p*100)));
+  }
+
+  // Кои пазари са релевантни сега
+  const markets=[];
+  if(total<2) markets.push({label:`НАД ${total+0.5} ГОЛА`,need:1,pct:pAtLeastN(1)});
+  if(total<3) markets.push({label:`НАД ${Math.max(total,2)+0.5} ГОЛА`,need:Math.max(total,2)+1-total,pct:pAtLeastN(Math.max(1,3-total))});
+  if(total<4) markets.push({label:`НАД ${Math.max(total,3)+0.5} ГОЛА`,need:Math.max(total,3)+1-total,pct:pAtLeastN(Math.max(1,4-total))});
+
+  // Препоръка
+  const best=markets.filter(m=>m.pct>=55).sort((a,b)=>b.pct-a.pct)[0];
+  const recHtml=best?`<div style="margin-top:6px;padding:6px 8px;background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);border-radius:8px;text-align:center">
+    <span style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--green)">💡 ПРЕПОРЪКА: ${best.label}</span>
+    <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--green);margin-left:8px">${best.pct}%</span>
+  </div>`:'';
+
+  const intensityLabel=intensityFactor>1.8?'🔥 ВИСОК':intensityFactor>1.2?'⚡ СРЕДЕН':'😴 НИСsuperset';
+
+  return `<div style="padding:10px 12px;border-top:1px solid var(--border);background:rgba(0,229,255,0.03)">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:2px;margin-bottom:8px;text-align:center">📊 LIVE ГОЛ КАЛКУЛАТОР</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:9px;color:var(--muted)">
+      <span>Оставащо: <b style="color:var(--text)">${remaining}'</b></span>
+      <span>Текущо: <b style="color:var(--text)">${total} гола</b></span>
+      <span>Интензивност: <b style="color:var(--cyan)">${intensityFactor.toFixed(1)}x</b></span>
+    </div>
+    <div style="display:grid;grid-template-columns:${markets.map(()=>'1fr').join(' ')};gap:6px;margin-bottom:6px">
+      ${markets.map(m=>{
+        const col=m.pct>=70?'var(--green)':m.pct>=50?'var(--yellow)':'var(--red)';
+        const already=total>=(parseInt(m.label.match(/\d+\.?\d*/)?.[0])||99);
+        return `<div style="background:var(--card2);border:1px solid ${col};border-radius:8px;padding:8px 6px;text-align:center">
+          <div style="font-size:9px;color:var(--muted);margin-bottom:4px">${m.label}</div>
+          <div style="font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:${col}">${already?'✅':m.pct+'%'}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">${already?'МИНАТО':'нужен '+m.need+' гол'+(m.need>1?'а':'')}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${recHtml}
+    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">Poisson · атаки · резултат · оставащо време</div>
+  </div>`;
+}
+
 function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';
   const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';
@@ -1011,6 +1119,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   }
   const lSS=isLive&&liveStats?liveStatsHtml(liveStats,hn,an):'';
   const nGS=isLive?nextGoalHtml(liveStats,m.minute||0,hn,an,hf,af,hg,ag):'';
+  const lGC=isLive?liveGoalCalcHtml(liveStats,m.minute||0,hg,ag,hn,an,hf,af):'';
   let predHtml='';
   if(showPred&&allMatches){
     const pred=buildPrediction(m,allMatches);
@@ -1123,7 +1232,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   return `<div class="match-card ${statusClass}">
     <div class="match-header"><span class="match-league">${m.competition?.name||''} · ${m.group||m.stage||''}</span>${statusHtml}</div>
     <div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${scoreHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${isLive&&min?`<div class="match-minute">⏱ ${min}</div>`:''}</div>
-    ${goalsHtml}${booksHtml}${nGS}${lSS}${betHtml}${predHtml}
+    ${goalsHtml}${booksHtml}${nGS}${lGC}${lSS}${betHtml}${predHtml}
   </div>`;
 }
 
