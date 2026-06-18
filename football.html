@@ -211,7 +211,7 @@
   <div id="red-content"></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.8</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.9</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -1188,8 +1188,53 @@ async function loadToday(){
 async function loadFinished(){
   const c=document.getElementById('finished-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  try{const[d1,d2]=await Promise.all([apiFetch('/matches?date='+getDateMinus(1)+'&status=FINISHED'),apiFetch('/matches?date='+getToday()+'&status=FINISHED')]);const matches=[...(d2.matches||[]),...(d1.matches||[])];if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');}
-  catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
+  try{
+    const[d1,d2]=await Promise.all([
+      apiFetch('/matches?date='+getDateMinus(1)+'&status=FINISHED'),
+      apiFetch('/matches?date='+getToday()+'&status=FINISHED')
+    ]);
+    const matches=[...(d2.matches||[]),...(d1.matches||[])];
+    if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}
+    // Зареждаме историята за да показваме тикове
+    const hist=getHistory();
+    const html=matches.map(m=>{
+      const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';
+      const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';
+      const hg=m.score?.fullTime?.home,ag=m.score?.fullTime?.away;
+      const histEntry=hist.find(h=>String(h.id)===String(m.id)||
+        ((h.home===hn||h.home===m.homeTeam?.name)&&(h.away===an||h.away===m.awayTeam?.name)));
+      // Показваме compact ред с тикове ако имаме прогноза
+      const hf=getFlag(m.homeTeam?.name),af=getFlag(m.awayTeam?.name);
+      const hHT=m.score?.halfTime?.home,aHT=m.score?.halfTime?.away;
+      let ticksHtml='';
+      if(histEntry&&histEntry.pred&&hg!=null){
+        const p=histEntry.pred;
+        const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';
+        const predW=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
+        const w1=predW===winner;
+        const wO=(p.over25>50&&over)||(p.over25<=50&&!over);
+        const wB=(p.btts>50&&gg)||(p.btts<=50&&!gg);
+        const conf=calcConfidence(p,null);
+        ticksHtml=`<div style="display:flex;align-items:center;gap:6px;padding:5px 12px;border-top:1px solid var(--border);flex-wrap:wrap">
+          <span style="font-size:9px;color:var(--muted)">ПРОГНОЗА:</span>
+          <span style="font-size:11px">${w1?'✅':'❌'} 1/X/2</span>
+          <span style="font-size:11px">${wO?'✅':'❌'} Над/Под</span>
+          <span style="font-size:11px">${wB?'✅':'❌'} Г/Г</span>
+          ${conf?`<span style="font-size:9px;color:var(--muted);margin-left:auto">Conf: ${conf.score}/100</span>`:''}
+        </div>`;
+      }
+      return `<div class="match-card finished">
+        <div class="match-header"><span class="match-league">${m.competition?.name||''}</span><span class="ms finished">КРАЙ · П/В ${hHT??'-'}:${aHT??'-'}</span></div>
+        <div class="match-body"><div class="teams-row">
+          <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div>
+          <div class="score-box"><div class="score">${hg??'-'}</div><div class="score-sep">:</div><div class="score">${ag??'-'}</div></div>
+          <div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div>
+        </div></div>
+        ${ticksHtml}
+      </div>`;
+    }).join('');
+    c.innerHTML=html;
+  }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
 async function loadUpcoming(){
@@ -1395,15 +1440,4 @@ async function loadCards(){
       const rArr=[...sc].filter(s=>(s.redCards||0)>0).sort((a,b)=>(b.redCards||0)-(a.redCards||0)).slice(0,5);
       const cols='24px 1fr 50px 30px 30px';
       if(yArr.length){yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;yArr.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});yHtml+='</div>';}
-      if(rArr.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;rArr.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});rHtml+='</div>';}
-    }catch(e){}
-  }
-  yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';
-  rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
-}
-
-loadWCScorers();
-switchTab('live');
-</script>
-</body>
-</html>
+      if(rArr.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"> 
