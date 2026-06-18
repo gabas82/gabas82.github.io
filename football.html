@@ -1440,4 +1440,16 @@ async function loadCards(){
       const rArr=[...sc].filter(s=>(s.redCards||0)>0).sort((a,b)=>(b.redCards||0)-(a.redCards||0)).slice(0,5);
       const cols='24px 1fr 50px 30px 30px';
       if(yArr.length){yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;yArr.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});yHtml+='</div>';}
-      if(rArr.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"> 
+      if(rArr.length){rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;rArr.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.player?.name||'—'}</div><div class="s-team">${getFlag(s.team?.name)} ${s.team?.shortName||'—'}</div><div class="s-yel">${s.yellowCards||0}</div><div class="s-red">${s.redCards||0}</div></div>`;});rHtml+='</div>';}
+    }catch(e){}
+  }
+  yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';
+  rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
+}
+
+loadWCScorers();
+switchTab('live');
+</script>
+</body>
+</html>
+ 
