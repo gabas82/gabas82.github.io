@@ -211,7 +211,7 @@
   <div id="red-content"></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.5</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.6</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -514,60 +514,48 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
-// ВЕРОЯТЕН ГОЛМАЙСТОР — базиран на WC голове + форма
+// ВЕРОЯТЕН ГОЛМАЙСТОР — базиран на wcScorersCache + мачове
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
-
-  // Събираме статистика за играчите от мачовете
+  const hn2=match.homeTeam?.name||'';
+  const an2=match.awayTeam?.name||'';
   const playerStats={};
-  allMatches.filter(m=>m.status==='FINISHED').forEach(m=>{
-    (m.goals||[]).forEach(g=>{
-      if(g.type==='OWN')return;
-      const pid=g.scorer?.id;
-      const tid=g.team?.id;
-      if(!pid||!tid)return;
-      if(tid!==hId&&tid!==aId)return;
-      if(!playerStats[pid]){
-        playerStats[pid]={
-          id:pid,
-          name:g.scorer?.name||'—',
-          teamId:tid,
-          goals:0,
-          recentGoals:0
-        };
-      }
-      playerStats[pid].goals++;
-    });
-  });
-
-  // Добавяме WC голмайстори ако има
+  // 1. От wcScorersCache — приоритет
   if(wcScorers&&wcScorers.length){
     wcScorers.forEach(s=>{
-      if(!s.id)return;
-      // Проверяваме дали играчът е от един от двата отбора
-      const isHome=s.teamId===hId;
-      const isAway=s.teamId===aId;
-      // Също проверяваме по име на отбор
-      const hn2=match.homeTeam?.name||'';
-      const an2=match.awayTeam?.name||'';
-      const teamMatch=isHome||isAway||(s.teamName&&(s.teamName===hn2||s.teamName===an2));
-      if(!teamMatch)return;
-      const realTeamId=isHome||s.teamName===hn2?hId:aId;
-      if(!playerStats[s.id]){
-        playerStats[s.id]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0};
-      } else {
-        playerStats[s.id].goals=Math.max(playerStats[s.id].goals,s.goals||0);
-      }
+      if(!s.name)return;
+      const isHomeById=s.teamId===hId;
+      const isAwayById=s.teamId===aId;
+      const isHomeByName=s.teamName&&(s.teamName===hn2||hn2.includes(s.teamName)||s.teamName.includes(hn2));
+      const isAwayByName=s.teamName&&(s.teamName===an2||an2.includes(s.teamName)||s.teamName.includes(an2));
+      const isHome=isHomeById||isHomeByName;
+      const isAway=isAwayById||isAwayByName;
+      if(!isHome&&!isAway)return;
+      const realTeamId=isHome?hId:aId;
+      const key=s.id||s.name;
+      if(!playerStats[key]){playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0};}
+      else{playerStats[key].goals=Math.max(playerStats[key].goals,s.goals||0);}
     });
   }
-
-  const players=Object.values(playerStats)
-    .filter(p=>p.teamId===hId||p.teamId===aId)
-    .sort((a,b)=>b.goals-a.goals)
-    .slice(0,6);
-
-  return players;
+  // 2. Допълваме от мачове ако няма данни за някой от отборите
+  const hasHome=Object.values(playerStats).some(p=>p.teamId===hId);
+  const hasAway=Object.values(playerStats).some(p=>p.teamId===aId);
+  if(!hasHome||!hasAway){
+    allMatches.filter(m=>m.status==='FINISHED').forEach(m=>{
+      (m.goals||[]).forEach(g=>{
+        if(g.type==='OWN')return;
+        const pid=g.scorer?.id;const tid=g.team?.id;
+        if(!pid||!tid)return;
+        if(tid!==hId&&tid!==aId)return;
+        if(tid===hId&&hasHome)return;
+        if(tid===aId&&hasAway)return;
+        if(!playerStats[pid]){playerStats[pid]={id:pid,name:g.scorer?.name||'—',teamId:tid,goals:0};}
+        playerStats[pid].goals++;
+      });
+    });
+  }
+  return Object.values(playerStats).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals).slice(0,6);
 }
 
 function topScorerHtml(players, match, hf, af){
@@ -882,7 +870,20 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
         </div>
       </div>`;
     }
-    betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г (И ДВАТА)</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">КР (ПОБЕДИТЕЛ)</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ТОЧЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div><div class="bet-pill"><div class="bet-label">ОБЩО ГОЛА</div><div class="bet-value info">${total}</div></div></div>${histPredHtml}`;
+    // Поisson прогноза за точен резултат (от историята ако има)
+    let predScoreHtml='—';
+    if(histEntry&&histEntry.pred){
+      // Изчисляваме най-вероятен резултат от Poisson използвайки запазената прогноза
+      const p=histEntry.pred;
+      const expHP=p.expH||1.2,expAP=p.expA||1.0;
+      let topSc=[];
+      for(let sh=0;sh<=4;sh++)for(let sa=0;sa<=4;sa++)topSc.push({h:sh,a:sa,prob:poissonProb(parseFloat(expHP),sh)*poissonProb(parseFloat(expAP),sa)});
+      topSc.sort((a,b)=>b.prob-a.prob);
+      const ts2=topSc[0];
+      const correct=ts2&&ts2.h===hg&&ts2.a===ag;
+      predScoreHtml=`${ts2?ts2.h+':'+ts2.a:'—'} ${correct?'✅':''}`;
+    }
+    betHtml=`<div class="bet-grid"><div class="bet-pill"><div class="bet-label">Г/Г (И ДВАТА)</div><div class="bet-value ${gg?'good':'bad'}">${gg?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">НАД 2.5</div><div class="bet-value ${over?'good':'bad'}">${over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">ПОД 2.5</div><div class="bet-value ${!over?'good':'bad'}">${!over?'✅ ДА':'❌ НЕ'}</div></div><div class="bet-pill"><div class="bet-label">КР (ПОБЕДИТЕЛ)</div><div class="bet-value neutral">${winner}</div></div><div class="bet-pill"><div class="bet-label">ПРОГН. РЕЗ.</div><div class="bet-value info">${predScoreHtml}</div></div><div class="bet-pill"><div class="bet-label">РЕАЛЕН РЕЗ.</div><div class="bet-value neutral">${hg}:${ag}</div></div></div>${histPredHtml}`;
   }
   const lSS=isLive&&liveStats?liveStatsHtml(liveStats,hn,an):'';
   const nGS=isLive?nextGoalHtml(liveStats,m.minute||0,hn,an,hf,af,hg,ag):'';
@@ -1282,4 +1283,3 @@ switchTab('live');
 </script>
 </body>
 </html>
- 
