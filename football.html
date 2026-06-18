@@ -211,7 +211,7 @@
   <div id="red-content"></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.6</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.7</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -590,32 +590,86 @@ function topScorerHtml(players, match, hf, af){
   </div>`;
 }
 
-// BET BUILDER — автоматично избира най-добрите пазари
+// BET BUILDER — съвместими пазари, логически проверени
 function buildBetBuilder(pred, odds, hn, an, hf, af){
   if(!pred)return '';
-  const bets=[];
-  // Победител
-  if(pred.hWin>=60){bets.push({label:`${hf} ${hn} победа`,pct:pred.hWin,type:'1X2'});}
-  else if(pred.aWin>=60){bets.push({label:`${af} ${an} победа`,pct:pred.aWin,type:'1X2'});}
-  else if(pred.draw>=35){bets.push({label:'Равен резултат',pct:pred.draw,type:'1X2'});}
-  // Голове
-  if(pred.over25>=65){bets.push({label:'Над 2.5 гола',pct:pred.over25,type:'GOALS'});}
-  else if(pred.under25>=65){bets.push({label:'Под 2.5 гола',pct:pred.under25,type:'GOALS'});}
-  if(pred.gm&&pred.gm.over15>=75){bets.push({label:'Над 1.5 гола',pct:pred.gm.over15,type:'GOALS'});}
-  // BTTS
-  if(pred.btts>=65){bets.push({label:'И двата отбора вкарват',pct:pred.btts,type:'BTTS'});}
-  else if(pred.noBtts>=65){bets.push({label:'Не Г/Г',pct:pred.noBtts,type:'BTTS'});}
-  // Отборни голове
-  if(pred.gm&&pred.gm.hOver05>=75){bets.push({label:`${hf} ${hn} над 0.5 гола`,pct:pred.gm.hOver05,type:'TEAM'});}
-  if(pred.gm&&pred.gm.aOver05>=75){bets.push({label:`${af} ${an} над 0.5 гола`,pct:pred.gm.aOver05,type:'TEAM'});}
-  // Вземи топ 3 по вероятност
-  const top=bets.sort((a,b)=>b.pct-a.pct).slice(0,3);
+
+  // Определяме основния сценарий
+  const favorH=pred.hWin>=60;
+  const favorA=pred.aWin>=60;
+  const favorDraw=!favorH&&!favorA&&pred.draw>=30;
+  const expectGoals=pred.over25>=55; // очакваме голове
+  const expectFewGoals=pred.under25>=60; // очакваме малко голове
+  const bttsYes=pred.btts>=60;
+  const bttsNo=pred.noBtts>=60;
+
+  // ПРАВИЛА ЗА СЪВМЕСТИМОСТ:
+  // Равен + Не Г/Г → съвместими само ако очакваме 0:0 (малко голове)
+  // Равен + Над 1.5 гола → несъвместими (равен обикновено 1:1, може но рисковано)
+  // Победа + Не Г/Г → съвместими (1:0 например)
+  // Победа + Над 1.5 гола → съвместими (2:0, 2:1)
+  // Отборни голове + Не Г/Г → НЕСЪВМЕСТИМИ ако и двата отбора
+  // Над 0.5 гола на отбор + Не Г/Г → НЕСЪВМЕСТИМИ ако е за двата отбора
+
+  const selected=[];
+
+  // СТЪПКА 1: Избираме 1X2
+  let outcomeType=null;
+  if(favorH){selected.push({label:`${hf} ${hn} победа`,pct:pred.hWin,type:'1X2',outcome:'H'});outcomeType='H';}
+  else if(favorA){selected.push({label:`${af} ${an} победа`,pct:pred.aWin,type:'1X2',outcome:'A'});outcomeType='A';}
+  else if(favorDraw){selected.push({label:'Равен резултат',pct:pred.draw,type:'1X2',outcome:'D'});outcomeType='D';}
+
+  // СТЪПКА 2: Избираме BTTS — съвместимо с outcome
+  if(outcomeType==='D'){
+    // При равен: Не Г/Г е несъвместимо (равен 0:0 е рядкост, но не изключваме)
+    // Ако очакваме малко голове → Не Г/Г + равен = 0:0 → рисковано, пропускаме
+    // По-добре да не добавяме BTTS при равен
+  } else if(outcomeType==='H'||outcomeType==='A'){
+    if(bttsNo&&pred.noBtts>=65){
+      selected.push({label:'Не Г/Г',pct:pred.noBtts,type:'BTTS',outcome:'BTTS_NO'});
+    } else if(bttsYes&&pred.btts>=65){
+      selected.push({label:'И двата отбора вкарват',pct:pred.btts,type:'BTTS',outcome:'BTTS_YES'});
+    }
+  } else {
+    // Няма ясен фаворит — само BTTS ако е много ясно
+    if(bttsNo&&pred.noBtts>=70){selected.push({label:'Не Г/Г',pct:pred.noBtts,type:'BTTS',outcome:'BTTS_NO'});}
+    else if(bttsYes&&pred.btts>=70){selected.push({label:'И двата отбора вкарват',pct:pred.btts,type:'BTTS',outcome:'BTTS_YES'});}
+  }
+
+  const hasBttsNo=selected.some(s=>s.outcome==='BTTS_NO');
+  const hasBttsYes=selected.some(s=>s.outcome==='BTTS_YES');
+
+  // СТЪПКА 3: Голове — съвместимо с BTTS и outcome
+  if(!hasBttsNo){
+    // Нямаме Не Г/Г → можем да добавяме над X голове
+    if(pred.over25>=65){selected.push({label:'Над 2.5 гола',pct:pred.over25,type:'GOALS'});}
+    else if(pred.gm&&pred.gm.over15>=75){selected.push({label:'Над 1.5 гола',pct:pred.gm.over15,type:'GOALS'});}
+  } else {
+    // Имаме Не Г/Г → само под 2.5 е съвместимо
+    if(pred.under25>=65){selected.push({label:'Под 2.5 гола',pct:pred.under25,type:'GOALS'});}
+  }
+
+  // СТЪПКА 4: Отборни голове — само ако са съвместими
+  if(!hasBttsNo&&pred.gm){
+    // При победа на H → добавяме H над 0.5
+    if(outcomeType==='H'&&pred.gm.hOver05>=75){
+      selected.push({label:`${hf} ${hn} над 0.5 гола`,pct:pred.gm.hOver05,type:'TEAM'});
+    }
+    // При победа на A → добавяме A над 0.5
+    if(outcomeType==='A'&&pred.gm.aOver05>=75){
+      selected.push({label:`${af} ${an} над 0.5 гола`,pct:pred.gm.aOver05,type:'TEAM'});
+    }
+    // При BTTS YES → и двата над 0.5 са излишни (вече покрити от BTTS)
+  }
+
+  // Вземаме топ 3 по вероятност
+  const top=selected.sort((a,b)=>b.pct-a.pct).slice(0,3);
   if(!top.length)return '';
-  // Комбинирана вероятност (приблизителна)
+
   const combPct=Math.round(top.reduce((p,b)=>p*(b.pct/100),1)*100);
   return `<div style="margin:8px 0;background:rgba(0,230,118,0.05);border:1px solid rgba(0,230,118,0.25);border-radius:10px;padding:10px 12px;">
     <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--green);letter-spacing:2px;margin-bottom:8px">🏗️ BET BUILDER — ПРЕПОРЪКА</div>
-    ${top.map((b,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
+    ${top.map(b=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
       <span style="font-size:11px;color:var(--text)">✅ ${b.label}</span>
       <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--green)">${b.pct}%</span>
     </div>`).join('')}
