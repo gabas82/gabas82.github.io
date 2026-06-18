@@ -828,6 +828,9 @@ function surpriseDetectorHtml(pred, odds, hn, an, hf, af){
     <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">базирано на коефициент · форма · модел · Г/Г потенциал</div>
   </div>`;
 }
+
+// VALUE BETS — маркира когато модел > букмейкър с 10%+
+function valueBetsHtml(pred, odds, hn, an, hf, af){
   if(!pred||!odds||!odds.homeWin)return '';
   const values=[];
   const hImpl=Math.round(100/odds.homeWin);
