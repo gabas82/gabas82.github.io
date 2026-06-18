@@ -211,7 +211,7 @@
   <div id="red-content"></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.7</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v2.8</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -434,14 +434,42 @@ function buildPrediction(match,allMatches){
   if(!hId||!aId)return null;
   const hForm=calcForm(allMatches,hId),aForm=calcForm(allMatches,aId);
   function fScore(f){return f.reduce((s,x)=>s+(x==='W'?3:x==='D'?1:0),0);}
-  function avgG(matches,teamId,side){const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));if(!rel.length)return null;return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;}
-  function avgC(matches,teamId,side){const rel=matches.filter(m=>m.status==='FINISHED'&&(side==='home'?m.homeTeam?.id===teamId:m.awayTeam?.id===teamId));if(!rel.length)return null;return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length;}
-  const hAvgG=avgG(allMatches,hId,'home'),hAvgC=avgC(allMatches,hId,'home');
-  const aAvgG=avgG(allMatches,aId,'away'),aAvgC=avgC(allMatches,aId,'away');
+
+  // ВСИЧКИ мачове — домакин + гост, не само по страна
+  function avgGAll(matches,teamId){
+    const rel=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId));
+    if(!rel.length)return null;
+    return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;
+  }
+  function avgCAll(matches,teamId){
+    const rel=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId));
+    if(!rel.length)return null;
+    return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length;
+  }
+
+  // Полувременни голове — влияят на разпределението 1П/2П
+  function htAvgAll(matches,teamId){
+    const rel=matches.filter(m=>m.status==='FINISHED'&&m.score?.halfTime!=null&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId));
+    if(!rel.length)return null;
+    const htG=rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.halfTime?.home??0):(m.score?.halfTime?.away??0));},0)/rel.length;
+    const ftG=rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;
+    return ftG>0?htG/ftG:0.45; // дял на головете в 1П
+  }
+
+  const hAvgG=avgGAll(allMatches,hId),hAvgC=avgCAll(allMatches,hId);
+  const aAvgG=avgGAll(allMatches,aId),aAvgC=avgCAll(allMatches,aId);
   if(hAvgG===null&&hAvgC===null&&aAvgG===null&&aAvgC===null)return null;
+
+  // Домакинско предимство 10% за домакина, 10% намаление за госта
   const expH=Math.max(0.3,((hAvgG??1.2)+(aAvgC??1.2))/2*1.1);
   const expA=Math.max(0.3,((aAvgG??1.2)+(hAvgC??1.2))/2*0.9);
   const expTotal=expH+expA;
+
+  // Полувременен дял — влияе на htScores
+  const hHtRatio=htAvgAll(allMatches,hId)??0.45;
+  const aHtRatio=htAvgAll(allMatches,aId)??0.45;
+  const htRatio=(hHtRatio+aHtRatio)/2; // средно за двата отбора
+
   const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1;
   const hWinP=Math.round(((hFS/tot)*0.6+(expH/expTotal)*0.4)*100);
   const aWinP=Math.round(((aFS/tot)*0.6+(expA/expTotal)*0.4)*100);
@@ -453,10 +481,11 @@ function buildPrediction(match,allMatches){
   function pBtts(){let p=0;for(let h=1;h<=10;h++)for(let a=1;a<=10;a++)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(85,Math.max(15,Math.round(p*100)));}
   const bttsP=pBtts();
   let scores=[];for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100});scores.sort((a,b)=>b.p-a.p);
-  let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*0.45,h)*poissonProb(expA*0.45,a)*100});htS.sort((a,b)=>b.p-a.p);
+  // Полувременни прогнози с реалния htRatio
+  let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*htRatio,h)*poissonProb(expA*htRatio,a)*100});htS.sort((a,b)=>b.p-a.p);
   const expCorners=Math.round(expTotal*1.8+5.5);
   const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
-  return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm};
+  return{hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,htRatio:Math.round(htRatio*100)};
 }
 
 // CONFIDENCE SCORE — комбинира всички сигнали в 0-100
@@ -514,13 +543,22 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
-// ВЕРОЯТЕН ГОЛМАЙСТОР — базиран на wcScorersCache + мачове
+// ВЕРОЯТЕН ГОЛМАЙСТОР — с тренд индикатор
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
   const hn2=match.homeTeam?.name||'';
   const an2=match.awayTeam?.name||'';
   const playerStats={};
+
+  // Брой завършени мачове за всеки отбор — за тренд изчисление
+  const teamMatches={};
+  allMatches.filter(m=>m.status==='FINISHED').forEach(m=>{
+    [m.homeTeam?.id,m.awayTeam?.id].forEach(tid=>{
+      if(tid===hId||tid===aId)teamMatches[tid]=(teamMatches[tid]||0)+1;
+    });
+  });
+
   // 1. От wcScorersCache — приоритет
   if(wcScorers&&wcScorers.length){
     wcScorers.forEach(s=>{
@@ -534,28 +572,33 @@ function calcTopScorers(match, allMatches, wcScorers){
       if(!isHome&&!isAway)return;
       const realTeamId=isHome?hId:aId;
       const key=s.id||s.name;
-      if(!playerStats[key]){playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0};}
+      if(!playerStats[key]){playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0,recentGoals:0,matchesPlayed:0};}
       else{playerStats[key].goals=Math.max(playerStats[key].goals,s.goals||0);}
     });
   }
-  // 2. Допълваме от мачове ако няма данни за някой от отборите
-  const hasHome=Object.values(playerStats).some(p=>p.teamId===hId);
-  const hasAway=Object.values(playerStats).some(p=>p.teamId===aId);
-  if(!hasHome||!hasAway){
-    allMatches.filter(m=>m.status==='FINISHED').forEach(m=>{
-      (m.goals||[]).forEach(g=>{
-        if(g.type==='OWN')return;
-        const pid=g.scorer?.id;const tid=g.team?.id;
-        if(!pid||!tid)return;
-        if(tid!==hId&&tid!==aId)return;
-        if(tid===hId&&hasHome)return;
-        if(tid===aId&&hasAway)return;
-        if(!playerStats[pid]){playerStats[pid]={id:pid,name:g.scorer?.name||'—',teamId:tid,goals:0};}
-        playerStats[pid].goals++;
-      });
+
+  // 2. Допълваме от мачове + броим последните 2 мача за тренд
+  const finishedMatches=allMatches.filter(m=>m.status==='FINISHED').sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
+  finishedMatches.forEach((m,matchIdx)=>{
+    (m.goals||[]).forEach(g=>{
+      if(g.type==='OWN')return;
+      const pid=g.scorer?.id;const tid=g.team?.id;
+      if(!pid||!tid)return;
+      if(tid!==hId&&tid!==aId)return;
+      const key=pid;
+      if(!playerStats[key]){playerStats[key]={id:pid,name:g.scorer?.name||'—',teamId:tid,goals:0,recentGoals:0,matchesPlayed:0};}
+      playerStats[key].goals++;
+      // Последните 2 мача = тренд
+      if(matchIdx<2)playerStats[key].recentGoals++;
     });
-  }
-  return Object.values(playerStats).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals).slice(0,6);
+  });
+
+  // Изчисляваме matchesPlayed за всеки играч
+  Object.values(playerStats).forEach(p=>{
+    p.matchesPlayed=teamMatches[p.teamId]||1;
+  });
+
+  return Object.values(playerStats).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals).slice(0,5);
 }
 
 function topScorerHtml(players, match, hf, af){
@@ -564,34 +607,46 @@ function topScorerHtml(players, match, hf, af){
   const hn=match.homeTeam?.shortName||match.homeTeam?.name||'—';
   const an=match.awayTeam?.shortName||match.awayTeam?.name||'—';
 
-  // Изчисляваме вероятност базирана на голове
   const maxGoals=players[0]?.goals||1;
   const withProb=players.map(p=>{
     const base=p.goals/maxGoals;
-    const pct=Math.round(Math.min(75,Math.max(15, base*55+15)));
+    const pct=Math.round(Math.min(75,Math.max(15,base*55+15)));
     const flag=p.teamId===hId?hf:af;
     const team=p.teamId===hId?hn:an;
-    return{...p, pct, flag, team};
+    // Тренд: голове на мач средно vs последните 2 мача
+    const avgPerMatch=p.goals/Math.max(p.matchesPlayed,1);
+    const recentAvg=p.recentGoals/2;
+    let trend='';
+    let trendColor='var(--muted)';
+    if(p.matchesPlayed>=2){
+      if(recentAvg>avgPerMatch+0.3){trend='🔥 +'+Math.round((recentAvg-avgPerMatch)*100)+'%';trendColor='var(--green)';}
+      else if(recentAvg<avgPerMatch-0.2){trend='📉 '+Math.round((recentAvg-avgPerMatch)*100)+'%';trendColor='var(--red)';}
+      else{trend='➡️ стабилен';trendColor='var(--muted)';}
+    }
+    return{...p,pct,flag,team,trend,trendColor,avgPerMatch:avgPerMatch.toFixed(2)};
   });
 
   return `<div style="margin:8px 0;background:rgba(255,214,0,0.04);border:1px solid rgba(255,214,0,0.2);border-radius:10px;padding:10px 12px;">
     <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--yellow);letter-spacing:2px;margin-bottom:8px">⚽ ВЕРОЯТЕН ГОЛМАЙСТОР</div>
-    ${withProb.map((p,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.4)">
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="font-family:'Rajdhani',sans-serif;font-size:11px;color:var(--muted)">${i+1}.</span>
-        <span style="font-size:11px;color:var(--text)">${p.flag} ${p.name}</span>
-        <span style="font-size:9px;color:var(--muted)">${p.goals} гола в турнира</span>
+    ${withProb.map((p,i)=>`<div style="padding:6px 0;border-bottom:1px solid rgba(30,45,61,0.4)">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:'Rajdhani',sans-serif;font-size:11px;color:var(--muted)">${i+1}.</span>
+          <span style="font-size:11px;color:var(--text)">${p.flag} ${p.name}</span>
+        </div>
+        <span style="font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;color:var(--yellow)">${p.pct}%</span>
       </div>
-      <div style="text-align:right">
-        <span style="font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;color:var(--yellow)">${p.pct}%</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
+        <span style="font-size:9px;color:var(--muted)">${p.goals} гола · ${p.avgPerMatch}/мач</span>
+        ${p.trend?`<span style="font-size:9px;color:${p.trendColor}">${p.trend}</span>`:''}
       </div>
     </div>`).join('')}
-    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">базирано на форма и голове в турнира</div>
+    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">% = вероятност за гол · тренд = последните 2 мача</div>
   </div>`;
 }
 
-// BET BUILDER — съвместими пазари, логически проверени
-function buildBetBuilder(pred, odds, hn, an, hf, af){
+// BET BUILDER — съвместими пазари + голмайстор
+function buildBetBuilder(pred, odds, hn, an, hf, af, topScorers){
   if(!pred)return '';
 
   // Определяме основния сценарий
@@ -660,6 +715,15 @@ function buildBetBuilder(pred, odds, hn, an, hf, af){
       selected.push({label:`${af} ${an} над 0.5 гола`,pct:pred.gm.aOver05,type:'TEAM'});
     }
     // При BTTS YES → и двата над 0.5 са излишни (вече покрити от BTTS)
+  }
+
+  // СТЪПКА 5: Голмайстор — само ако е 🔥 trending и pct>=40
+  if(topScorers&&topScorers.length){
+    const top1=topScorers[0];
+    if(top1&&top1.pct>=40&&top1.recentGoals>0){
+      const scorerFlag=top1.teamId===pred.hId?hf:af;
+      selected.push({label:`⚽ ${top1.name} да вкара`,pct:top1.pct,type:'SCORER'});
+    }
   }
 
   // Вземаме топ 3 по вероятност
@@ -949,10 +1013,9 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     if(pred){
       savePrediction(m,pred);
       const conf=calcConfidence(pred,odds);
-      const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af);
-      const valueBets=valueBetsHtml(pred,odds,hn,an,hf,af);
       const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const scorerHtml=topScorerHtml(scorerPlayers,m,hf,af);
+      const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af,scorerPlayers);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(conf,hn,an)}
         ${betBuilder}
