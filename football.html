@@ -1016,6 +1016,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const scorerHtml=topScorerHtml(scorerPlayers,m,hf,af);
       const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af,scorerPlayers);
+      const valueBets=valueBetsHtml(pred,odds,hn,an,hf,af);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(conf,hn,an)}
         ${betBuilder}
