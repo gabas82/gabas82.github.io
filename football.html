@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.4</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.7</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -403,13 +403,29 @@ function loadHistory(){
     const p=h.pred;
     const date=new Date(h.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
     const pw=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
-    let rHtml='<span style="color:var(--muted);font-size:10px">очаква се резултат...</span>';
+    const pwLabel=pw==='1'?h.home:pw==='2'?h.away:'Равен';
+    const pwPct=pw==='1'?p.hWin:pw==='2'?p.aWin:p.draw;
+    const overLabel=p.over25>50?'НАД 2.5':'ПОД 2.5';
+    const overPct=p.over25>50?p.over25:100-p.over25;
+    const bttsLabel=p.btts>50?'Г/Г ДА':'Г/Г НЕ';
+    const bttsPct=p.btts>50?p.btts:100-p.btts;
+    let rHtml='<div style="margin-top:6px;font-size:10px;color:var(--muted)">⏳ очаква се резултат...</div>';
     if(h.result){
       const r=h.result;
+      const winnerLabel=r.winner==='1'?h.home:r.winner==='2'?h.away:'Равен';
+      const overRealLabel=r.total>2.5?'НАД 2.5':'ПОД 2.5';
+      const bttsRealLabel=r.gg?'Г/Г ДА':'Г/Г НЕ';
       const w1=pw===r.winner?'✅':'❌';
       const wO=(p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5)?'✅':'❌';
       const wB=(p.btts>50&&r.gg)||(p.btts<=50&&!r.gg)?'✅':'❌';
-      rHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"><span style="font-size:10px;color:var(--text)">Резултат: <b>${r.hg}:${r.ag}</b></span><span style="font-size:10px">${w1} 1/X/2</span><span style="font-size:10px">${wO} Над/Под</span><span style="font-size:10px">${wB} Г/Г</span></div>`;
+      rHtml=`<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(30,45,61,0.5)">
+        <div style="font-size:10px;color:var(--text);margin-bottom:3px"><b>Резултат: ${r.hg}:${r.ag}</b></div>
+        <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:4px">
+          <div style="font-size:9px"><span style="color:var(--muted)">Прогноза:</span> <span style="color:var(--text)">${pwLabel} (${pwPct}%) · ${overLabel} (${overPct}%) · ${bttsLabel} (${bttsPct}%)</span></div>
+          <div style="font-size:9px"><span style="color:var(--muted)">Реалност:</span> <span style="color:var(--yellow)">${winnerLabel} · ${overRealLabel} · ${bttsRealLabel}</span></div>
+        </div>
+        <div style="display:flex;gap:8px"><span style="font-size:10px">${w1} 1/X/2</span><span style="font-size:10px">${wO} Над/Под</span><span style="font-size:10px">${wB} Г/Г</span></div>
+      </div>`;
     }
     return `<div class="hist-card"><div class="hist-match">${h.home} — ${h.away}</div><div class="hist-date">${h.comp} · ${date}</div><div class="hist-grid"><div class="hist-pill"><div class="hist-pill-label">1</div><div class="hist-pill-val good">${p.hWin}%</div></div><div class="hist-pill"><div class="hist-pill-label">X</div><div class="hist-pill-val neutral">${p.draw}%</div></div><div class="hist-pill"><div class="hist-pill-label">2</div><div class="hist-pill-val bad">${p.aWin}%</div></div><div class="hist-pill"><div class="hist-pill-label">НАД 2.5</div><div class="hist-pill-val info">${p.over25}%</div></div></div>${rHtml}</div>`;
   }).join('');
@@ -1459,12 +1475,13 @@ async function loadFinished(){
         const wO=(p.over25>50&&over)||(p.over25<=50&&!over);
         const wB=(p.btts>50&&gg)||(p.btts<=50&&!gg);
         const conf=calcConfidence(p,null);
-        ticksHtml=`<div style="display:flex;align-items:center;gap:6px;padding:5px 12px;border-top:1px solid var(--border);flex-wrap:wrap">
+        const confCol=conf?(conf.score>=75?'var(--green)':conf.score>=55?'var(--yellow)':'var(--red)'):'var(--muted)';
+        ticksHtml=`<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);flex-wrap:wrap">
           <span style="font-size:9px;color:var(--muted)">ПРОГНОЗА:</span>
           <span style="font-size:11px">${w1?'✅':'❌'} 1/X/2</span>
           <span style="font-size:11px">${wO?'✅':'❌'} Над/Под</span>
           <span style="font-size:11px">${wB?'✅':'❌'} Г/Г</span>
-          ${conf?`<span style="font-size:9px;color:var(--muted);margin-left:auto">Conf: ${conf.score}/100</span>`:''}
+          ${conf?`<span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:${confCol};margin-left:auto;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:10px">🎯 ${conf.score}/100</span>`:''}
         </div>`;
       }
       return `<div class="match-card finished">
@@ -1720,16 +1737,16 @@ async function loadEuroLeague(tab, compId, title){
   }
 }
 
-// ЛИГА НА КОНФЕРЕНЦИИТЕ — от api-sports.io (league_id: 5)
+// ЛИГА НА КОНФЕРЕНЦИИТЕ — клубна (api-sports.io league_id: 848)
 async function loadUECL(){
   const c=document.getElementById('uecl-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const season=new Date().getFullYear();
-    const data=await apiFetchAS('/fixtures?league=5&season='+season+'&next=20');
+    const data=await apiFetchAS('/fixtures?league=848&season='+season+'&next=20');
     const fixtures=(data.response||[]);
     if(!fixtures.length){
-      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
+      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>League phase започва 15 октомври 2026.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
       return;
     }
     c.innerHTML=fixtures.map(f=>{
