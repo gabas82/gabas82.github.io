@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.2</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.4</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -266,6 +266,10 @@ const FLAGS={
   'Bosnia-Herzegovina':'🇧🇦','Bosnia and Herzegovina':'🇧🇦','South Africa':'🇿🇦',
   'Bulgaria':'🇧🇬','Ivory Coast':'🇨🇮','Cape Verde':'🇨🇻','Sweden':'🇸🇪',
   'Norway':'🇳🇴','Curacao':'🇨🇼','Qatar':'🇶🇦','Uzbekistan':'🇺🇿',
+  'England':'🏴󐁧󐁢󐁥󐁮󐁧󐁿','Wales':'🏴󐁧󐁢󐁷󐁬󐁳󐁿','Northern Ireland':'🇬🇧','Republic of Ireland':'🇮🇪',
+  'Greece':'🇬🇷','Israel':'🇮🇱','Kosovo':'🇽🇰','Lithuania':'🇱🇹','Estonia':'🇪🇪',
+  'Luxembourg':'🇱🇺','Finland':'🇫🇮','Faroe Islands':'🇫🇴','Kazakhstan':'🇰🇿',
+  'San Marino':'🇸🇲','Liechtenstein':'🇱🇮','Cyprus':'🇨🇾','Montenegro':'🇲🇪',
 };
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
@@ -1147,7 +1151,8 @@ function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
     <div style="display:grid;grid-template-columns:${markets.map(()=>'1fr').join(' ')};gap:6px;margin-bottom:6px">
       ${markets.map(m=>{
         const col=m.pct>=70?'var(--green)':m.pct>=50?'var(--yellow)':'var(--red)';
-        const already=total>=(parseInt(m.label.match(/\d+\.?\d*/)?.[0])||99);
+        const threshold=parseFloat(m.label.match(/\d+\.?\d*/)?.[0])||99;
+        const already=total>threshold;
         return `<div style="background:var(--card2);border:1px solid ${col};border-radius:8px;padding:8px 6px;text-align:center">
           <div style="font-size:9px;color:var(--muted);margin-bottom:4px">${m.label}</div>
           <div style="font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:${col}">${already?'✅':m.pct+'%'}</div>
@@ -1179,6 +1184,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   let betHtml='';
   if(isFT&&hg!=null){
     const total=hg+ag,gg=hg>0&&ag>0,over=total>2.5,winner=hg>ag?'1':ag>hg?'2':'X';
+    const winnerLabel=winner==='1'?hn:winner==='2'?an:'Равен';
     // Търсим дали имаме прогноза в историята за този мач
     const histEntry=getHistory().find(h=>String(h.id)===String(m.id)||
       ((h.home===hn||h.home===(m.homeTeam?.name))&&(h.away===an||h.away===(m.awayTeam?.name))));
@@ -1186,12 +1192,30 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     if(histEntry&&histEntry.pred){
       const p=histEntry.pred;
       const predW=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
+      const predWLabel=predW==='1'?hn:predW==='2'?an:'Равен';
+      const predWPct=predW==='1'?p.hWin:predW==='2'?p.aWin:p.draw;
       const w1=predW===winner?'✅':'❌';
       const wO=(p.over25>50&&over)||(p.over25<=50&&!over)?'✅':'❌';
       const wB=(p.btts>50&&gg)||(p.btts<=50&&!gg)?'✅':'❌';
       const conf=calcConfidence(p,null);
+      const overLabel=p.over25>50?'НАД 2.5':'ПОД 2.5';
+      const overPct=p.over25>50?p.over25:100-p.over25;
+      const overRealLabel=over?'НАД 2.5':'ПОД 2.5';
+      const bttsLabel=p.btts>50?'Г/Г ДА':'Г/Г НЕ';
+      const bttsPct=p.btts>50?p.btts:100-p.btts;
+      const bttsRealLabel=gg?'Г/Г ДА':'Г/Г НЕ';
       histPredHtml=`<div style="margin:6px 12px 0;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:8px 10px;">
-        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:6px">📊 ПРОГНОЗА VS РЕАЛНОСТ ${conf?`<span style="color:var(--muted)">· Conf: ${conf.score}/100</span>`:''}</div>
+        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:8px">📊 ПРОГНОЗА VS РЕАЛНОСТ ${conf?`<span style="color:var(--muted)">· Conf: ${conf.score}/100</span>`:''}</div>
+        <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:10px">
+            <span style="color:var(--muted)">Прогноза:</span>
+            <span style="color:var(--text)">${predWLabel} (${predWPct}%) · ${overLabel} (${overPct}%) · ${bttsLabel} (${bttsPct}%)</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:10px">
+            <span style="color:var(--muted)">Реалност:</span>
+            <span style="color:var(--yellow)">${winnerLabel} · ${overRealLabel} · ${bttsRealLabel}</span>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
           <div style="text-align:center;background:var(--card2);border-radius:6px;padding:5px">
             <div style="font-size:8px;color:var(--muted)">1/X/2</div>
@@ -1677,8 +1701,12 @@ async function loadEuroLeague(tab, compId, title){
       apiFetch('/competitions/'+compId+'/matches?status=SCHEDULED&limit=20&_t='+ts),
       apiFetch('/competitions/'+compId+'/matches?status=FINISHED&limit=10&_t='+ts)
     ]);
-    const scheduled=mData.status==='fulfilled'?(mData.value.matches||[]):[];
-    const finished=sData.status==='fulfilled'?(sData.value.matches||[]):[];
+    let scheduled=mData.status==='fulfilled'?(mData.value.matches||[]):[];
+    let finished=sData.status==='fulfilled'?(sData.value.matches||[]):[];
+    // ВАЖНО: филтрираме само мачове с правилния competition ID
+    // (защитава срещу грешни/кеширани отговори от API)
+    scheduled=scheduled.filter(m=>m.competition?.id===compId);
+    finished=finished.filter(m=>m.competition?.id===compId);
     const all=[...finished.slice(-5).reverse(),...scheduled.slice(0,15)];
     if(!all.length){
       c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
