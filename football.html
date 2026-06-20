@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.14</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.15</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -292,8 +292,6 @@ async function loadWCScorers(){
       });
     });
     wcScorersCache=Object.values(players).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals);
-    // ПОПРАВКА v3.14: ако match-level goals[] не дава данни (API план ограничение),
-    // fallback директно към /scorers endpoint, който винаги работи (вижда се в таб ГОЛМАЙСТОРИ)
     if(!wcScorersCache.length){
       try{
         const fb=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
@@ -590,8 +588,6 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
-// ВЕРОЯТЕН ГОЛМАЙСТОР — v3.14: разчита ИЗЦЯЛО на wcScorersCache (от /scorers endpoint, винаги работи).
-// match-level goals[] extraction е само fallback за club competitions.
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
@@ -608,7 +604,6 @@ function calcTopScorers(match, allMatches, wcScorers){
   teamMatchCount[hId]=teamFinishedMatches[hId].length;
   teamMatchCount[aId]=teamFinishedMatches[aId].length;
 
-  // ПРИОРИТЕТ 1: wcScorersCache (от /scorers endpoint) — основен надежден източник
   if(wcScorers&&wcScorers.length){
     wcScorers.forEach(s=>{
       if(!s.name)return;
@@ -625,8 +620,6 @@ function calcTopScorers(match, allMatches, wcScorers){
     });
   }
 
-  // ПРИОРИТЕТ 2: само fallback, ако wcScorers не намери нищо за този мач
-  // (полезно за клубни лиги, където match-level goals[] понякога съдържа scorer данни)
   if(!Object.keys(playerStats).length){
     [hId,aId].forEach(tid=>{
       teamFinishedMatches[tid].forEach((m,idxInTeamMatches)=>{
@@ -1634,6 +1627,8 @@ async function loadScorers(){
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
 
+// ПОПРАВКА v3.15: explicit placeholder за WC секция, когато coverage все още не съдържа дисциплинарни данни
+// (api-sports.io документация: coverage flags са false докато данните се появят с напредването на турнира)
 async function loadCards(){
   const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');
   yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
@@ -1672,11 +1667,15 @@ async function loadCards(){
         yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
         yParsed.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
         yHtml+='</div>';
+      } else if(comp.id===2000){
+        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Дисциплинарни данни за Световното първенство все още не са налични — обикновено се появяват с напредването на турнира.</div>`;
       }
       if(rParsed.length){
         rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
         rParsed.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
         rHtml+='</div>';
+      } else if(comp.id===2000){
+        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Дисциплинарни данни за Световното първенство все още не са налични — обикновено се появяват с напредването на турнира.</div>`;
       }
     }catch(e){
       yHtml+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;
