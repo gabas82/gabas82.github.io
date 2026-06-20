@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.9</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.10</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -248,9 +248,7 @@ const COMPS=[
   {id:2003,name:'Eredivisie',flag:'🇳🇱'},
   {id:2013,name:'Бразилия Série A',flag:'🇧🇷'},
 ];
-// Класации само за лиги с коректни данни (без CL/EL за сега)
 const STANDINGS_IDS=[2000,2021,2002,2019,2014,2015,2003,2013];
-// Мапинг football-data.org competition ID -> api-sports.io league ID (за картони и др.)
 const COMPS_AS_MAP={2000:1,2021:39,2002:78,2019:135,2014:140,2015:61,2001:2,2018:3,2016:172,2003:88,2013:71};
 const FLAGS={
   'Mexico':'🇲🇽','Brazil':'🇧🇷','Argentina':'🇦🇷','France':'🇫🇷','Germany':'🇩🇪',
@@ -275,7 +273,7 @@ const FLAGS={
 };
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
-let wcScorersCache=[]; // Кеш за WC голмайстори
+let wcScorersCache=[];
 
 async function loadWCScorers(){
   try{
@@ -337,7 +335,6 @@ function calcGoalMarkets(expH,expA){
 }
 function goalBefore10(expH,expA){return Math.min(45,Math.max(8,Math.round((1-Math.exp(-(expH+expA)*(10/90)))*100)));}
 
-// ====== ИСТОРИЯ — ПОСТОЯННА, не се губи при ъпдейт ======
 const HIST_KEY='football_pred_history_v2';
 function getHistory(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return[];}}
 function saveHistory(arr){try{localStorage.setItem(HIST_KEY,JSON.stringify(arr));}catch(e){}}
@@ -361,7 +358,6 @@ async function updateHistoryResults(){
   const toUpdate=hist.filter(h=>!h.result);
   if(!toUpdate.length)return;
   try{
-    // Широк диапазон — 60 дни назад + всички WC мачове
     const[d1,d2]=await Promise.allSettled([
       apiFetch('/matches?dateFrom='+getDateMinus(60)+'&dateTo='+getToday()+'&status=FINISHED'),
       apiFetch('/competitions/2000/matches')
@@ -453,7 +449,6 @@ function importHistory(event){
       const imported=JSON.parse(e.target.result);
       if(!Array.isArray(imported)){alert('Невалиден файл');return;}
       const existing=getHistory();
-      // Merge — не дублира
       const merged=[...existing];
       imported.forEach(item=>{
         if(!merged.find(h=>String(h.id)===String(item.id))){
@@ -482,7 +477,6 @@ function buildPrediction(match,allMatches){
   const hForm=calcForm(allMatches,hId),aForm=calcForm(allMatches,aId);
   function fScore(f){return f.reduce((s,x)=>s+(x==='W'?3:x==='D'?1:0),0);}
 
-  // ВСИЧКИ мачове — домакин + гост, не само по страна
   function avgGAll(matches,teamId){
     const rel=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId));
     if(!rel.length)return null;
@@ -494,28 +488,25 @@ function buildPrediction(match,allMatches){
     return rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0));},0)/rel.length;
   }
 
-  // Полувременни голове — влияят на разпределението 1П/2П
   function htAvgAll(matches,teamId){
     const rel=matches.filter(m=>m.status==='FINISHED'&&m.score?.halfTime!=null&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId));
     if(!rel.length)return null;
     const htG=rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.halfTime?.home??0):(m.score?.halfTime?.away??0));},0)/rel.length;
     const ftG=rel.reduce((s,m)=>{const isH=m.homeTeam?.id===teamId;return s+(isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0));},0)/rel.length;
-    return ftG>0?htG/ftG:0.45; // дял на головете в 1П
+    return ftG>0?htG/ftG:0.45;
   }
 
   const hAvgG=avgGAll(allMatches,hId),hAvgC=avgCAll(allMatches,hId);
   const aAvgG=avgGAll(allMatches,aId),aAvgC=avgCAll(allMatches,aId);
   if(hAvgG===null&&hAvgC===null&&aAvgG===null&&aAvgC===null)return null;
 
-  // Домакинско предимство 10% за домакина, 10% намаление за госта
   const expH=Math.max(0.3,((hAvgG??1.2)+(aAvgC??1.2))/2*1.1);
   const expA=Math.max(0.3,((aAvgG??1.2)+(hAvgC??1.2))/2*0.9);
   const expTotal=expH+expA;
 
-  // Полувременен дял — влияе на htScores
   const hHtRatio=htAvgAll(allMatches,hId)??0.45;
   const aHtRatio=htAvgAll(allMatches,aId)??0.45;
-  const htRatio=(hHtRatio+aHtRatio)/2; // средно за двата отбора
+  const htRatio=(hHtRatio+aHtRatio)/2;
 
   const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1;
   const hWinP=Math.round(((hFS/tot)*0.6+(expH/expTotal)*0.4)*100);
@@ -528,33 +519,27 @@ function buildPrediction(match,allMatches){
   function pBtts(){let p=0;for(let h=1;h<=10;h++)for(let a=1;a<=10;a++)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(85,Math.max(15,Math.round(p*100)));}
   const bttsP=pBtts();
   let scores=[];for(let h=0;h<=4;h++)for(let a=0;a<=4;a++)scores.push({h,a,p:poissonProb(expH,h)*poissonProb(expA,a)*100});scores.sort((a,b)=>b.p-a.p);
-  // Полувременни прогнози с реалния htRatio
   let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*htRatio,h)*poissonProb(expA*htRatio,a)*100});htS.sort((a,b)=>b.p-a.p);
   const expCorners=Math.round(expTotal*1.8+5.5);
   const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
   return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,htRatio:Math.round(htRatio*100)};
 }
 
-// CONFIDENCE SCORE — комбинира всички сигнали в 0-100
 function calcConfidence(pred, odds){
   if(!pred)return null;
   let score=0, factors=[];
-  // 1. Колко силен е фаворитът
   const maxWin=Math.max(pred.hWin,pred.draw,pred.aWin);
   if(maxWin>=65){score+=25;factors.push('Силен фаворит');}
   else if(maxWin>=55){score+=15;factors.push('Умерен фаворит');}
   else{score+=5;}
-  // 2. Over/Under сигнал
   const overUnderConf=Math.abs(pred.over25-50);
   if(overUnderConf>=25){score+=20;factors.push('Ясен над/под сигнал');}
   else if(overUnderConf>=15){score+=12;}
   else{score+=4;}
-  // 3. BTTS сигнал
   const bttsConf=Math.abs(pred.btts-50);
   if(bttsConf>=20){score+=15;factors.push('Ясен Г/Г сигнал');}
   else if(bttsConf>=10){score+=8;}
   else{score+=2;}
-  // 4. Value от букмейкър
   if(odds&&odds.homeWin&&odds.draw&&odds.awayWin){
     const hImpl=Math.round(100/odds.homeWin);
     const aImpl=Math.round(100/odds.awayWin);
@@ -562,7 +547,6 @@ function calcConfidence(pred, odds){
     if(pred.hWin>hImpl+8||pred.aWin>aImpl+8||pred.draw>dImpl+8){score+=20;factors.push('VALUE засечен');}
     else if(pred.hWin>hImpl+4||pred.aWin>aImpl+4){score+=10;}
   } else {score+=5;}
-  // 5. Форма
   const hFormScore=pred.hForm?pred.hForm.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0):0;
   const aFormScore=pred.aForm?pred.aForm.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0):0;
   const formDiff=Math.abs(hFormScore-aFormScore);
@@ -590,7 +574,6 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
-// ВЕРОЯТЕН ГОЛМАЙСТОР — с тренд индикатор (тренд по мачовете НА ОТБОРА)
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
@@ -609,7 +592,6 @@ function calcTopScorers(match, allMatches, wcScorers){
   teamMatchCount[hId]=teamFinishedMatches[hId].length;
   teamMatchCount[aId]=teamFinishedMatches[aId].length;
 
-  // 1. От wcScorersCache — приоритет (общ брой голове)
   if(wcScorers&&wcScorers.length){
     wcScorers.forEach(s=>{
       if(!s.name)return;
@@ -627,7 +609,6 @@ function calcTopScorers(match, allMatches, wcScorers){
     });
   }
 
-  // 2. Допълваме от мачове на ВСЕКИ отбор поотделно + тренд НА ОТБОРА
   [hId,aId].forEach(tid=>{
     const teamMatches=teamFinishedMatches[tid];
     teamMatches.forEach((m,idxInTeamMatches)=>{
@@ -694,7 +675,6 @@ function topScorerHtml(players, match, hf, af){
   </div>`;
 }
 
-// BET BUILDER — съвместими пазари + голмайстор
 function buildBetBuilder(pred, odds, hn, an, hf, af, topScorers, hId, aId){
   if(!pred)return '';
 
@@ -714,7 +694,6 @@ function buildBetBuilder(pred, odds, hn, an, hf, af, topScorers, hId, aId){
   else if(favorDraw){selected.push({label:'Равен резултат',pct:pred.draw,type:'1X2',outcome:'D'});outcomeType='D';}
 
   if(outcomeType==='D'){
-    // При равен — пропускаме BTTS
   } else if(outcomeType==='H'||outcomeType==='A'){
     if(bttsNo&&pred.noBtts>=65){
       selected.push({label:'Не Г/Г',pct:pred.noBtts,type:'BTTS',outcome:'BTTS_NO'});
@@ -770,7 +749,6 @@ function buildBetBuilder(pred, odds, hn, an, hf, af, topScorers, hId, aId){
   </div>`;
 }
 
-// ИЗНЕНАДА ДЕТЕКТОР — отбори подходящи за X2/1X залози
 function surpriseDetectorHtml(pred, odds, hn, an, hf, af){
   if(!pred||!odds||!odds.homeWin||!odds.awayWin)return '';
 
@@ -846,7 +824,6 @@ function surpriseDetectorHtml(pred, odds, hn, an, hf, af){
   </div>`;
 }
 
-// VALUE BETS — маркира когато модел > букмейкър с 10%+
 function valueBetsHtml(pred, odds, hn, an, hf, af){
   if(!pred||!odds||!odds.homeWin)return '';
   const values=[];
@@ -986,21 +963,17 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
   let xh,xa;
 
   if(hasStats){
-    // РЕАЛНИ СТАТИСТИКИ — претеглено по важност (опасни атаки 40% / атаки 25% / удари в рамка 20% / притежание 10% / корнери 5%)
     const dangerH=dh>0?dh:ath*0.3;
     const dangerA=da>0?da:ata*0.3;
     xh = dangerH*0.40 + ath*0.25 + sh*0.20 + (ph>0?(ph/100)*10:0)*0.10 + ch*0.05;
     xa = dangerA*0.40 + ata*0.25 + sa*0.20 + (pa>0?(pa/100)*10:0)*0.10 + ca*0.05;
     if(xh+xa<0.5){xh=1;xa=1;}
   } else {
-    // НЯМА СТАТИСТИКИ — базови стойности почти равни, без bias към домакин
     xh=1.05; xa=1.0;
   }
 
-  // НОВА ЛОГИКА: резултатът отразява ФОРМА/ДОМИНАЦИЯ В МАЧА, не автоматичен "comeback бонус" за губещия.
-  // По-голяма головa разлика = по-силен сигнал, че доминиращият отбор функционира по-добре в момента (log за намаляващ ефект).
   if(hg!=null&&ag!=null){
-    const diff=hg-ag; // >0 домакин води
+    const diff=hg-ag;
     const dominanceSignal=Math.log(1+Math.abs(diff))*0.12;
 
     if(diff>0){
@@ -1009,8 +982,6 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
       xa = xa*(1+dominanceSignal);
     }
 
-    // Малък компенсиращ "пресинг на губещия" — само в края на мача (75+) и само при малка разлика (≤2 гола),
-    // защото реално губещ отбор хвърля всичко напред главно когато резултатът все още е "достижим".
     if(min>=75 && Math.abs(diff)<=2 && Math.abs(diff)>0){
       const lateChase=0.10;
       if(diff>0){ xa = xa*(1+lateChase); }
@@ -1028,14 +999,15 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
 }
 
 // LIVE ГОЛ КАЛКУЛАТОР — вероятност за НАД X гола в оставащото време
+// ПОПРАВКА v3.10: блокът вече не изчезва на 90-та минута. "Оставащо" има минимален буфер от 1 минута,
+// докато мачът е технически жив (isLive флага извън тази функция вече решава дали изобщо да се вика).
 function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
   const min=parseInt(minute)||0;
   const hg=parseInt(hScore)||0;
   const ag=parseInt(aScore)||0;
   const total=hg+ag;
-  const remaining=Math.max(0,90-min);
-
-  if(remaining<=0)return '';
+  const rawRemaining=90-min;
+  const remaining=rawRemaining>0?rawRemaining:1;
 
   let baseRate=0.028;
 
@@ -1616,7 +1588,6 @@ async function loadScorers(){
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
 
-// КАРТОНИ — от api-sports.io /players/topyellowcards и /players/topredcards (директна класация, независима от голмайстори)
 async function loadCards(){
   const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');
   yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
