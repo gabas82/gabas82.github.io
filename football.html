@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.13</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.14</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -292,6 +292,21 @@ async function loadWCScorers(){
       });
     });
     wcScorersCache=Object.values(players).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals);
+    // ПОПРАВКА v3.14: ако match-level goals[] не дава данни (API план ограничение),
+    // fallback директно към /scorers endpoint, който винаги работи (вижда се в таб ГОЛМАЙСТОРИ)
+    if(!wcScorersCache.length){
+      try{
+        const fb=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
+        const fsc=fb.scorers||[];
+        wcScorersCache=fsc.map(s=>({
+          id:s.player?.id,
+          name:s.player?.name||'—',
+          teamId:s.team?.id,
+          teamName:s.team?.name||'—',
+          goals:s.goals||0
+        })).filter(s=>s.goals>0);
+      }catch(e2){}
+    }
   }catch(e){}
 }
 async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
@@ -575,25 +590,25 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
+// ВЕРОЯТЕН ГОЛМАЙСТОР — v3.14: разчита ИЗЦЯЛО на wcScorersCache (от /scorers endpoint, винаги работи).
+// match-level goals[] extraction е само fallback за club competitions.
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
   const hn2=match.homeTeam?.name||'';
   const an2=match.awayTeam?.name||'';
   const playerStats={};
-  const seededFromCache=new Set();
 
   const finishedMatches=allMatches.filter(m=>m.status==='FINISHED').sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
-
   const teamFinishedMatches={
     [hId]: finishedMatches.filter(m=>m.homeTeam?.id===hId||m.awayTeam?.id===hId),
     [aId]: finishedMatches.filter(m=>m.homeTeam?.id===aId||m.awayTeam?.id===aId)
   };
-
   const teamMatchCount={};
   teamMatchCount[hId]=teamFinishedMatches[hId].length;
   teamMatchCount[aId]=teamFinishedMatches[aId].length;
 
+  // ПРИОРИТЕТ 1: wcScorersCache (от /scorers endpoint) — основен надежден източник
   if(wcScorers&&wcScorers.length){
     wcScorers.forEach(s=>{
       if(!s.name)return;
@@ -606,35 +621,27 @@ function calcTopScorers(match, allMatches, wcScorers){
       if(!isHome&&!isAway)return;
       const realTeamId=isHome?hId:aId;
       const key=s.id||s.name;
-      if(!playerStats[key]){playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0,recentGoals:0,matchesPlayed:0};}
-      else{playerStats[key].goals=Math.max(playerStats[key].goals,s.goals||0);}
-      seededFromCache.add(key);
+      playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0,recentGoals:0,matchesPlayed:teamMatchCount[realTeamId]||1};
     });
   }
 
-  [hId,aId].forEach(tid=>{
-    const teamMatches=teamFinishedMatches[tid];
-    teamMatches.forEach((m,idxInTeamMatches)=>{
-      (m.goals||[]).forEach(g=>{
-        if(g.type==='OWN')return;
-        const pid=g.scorer?.id;const gTid=g.team?.id;
-        if(!pid||!gTid)return;
-        if(gTid!==tid)return;
-        const key=pid;
-        if(seededFromCache.has(key)){
+  // ПРИОРИТЕТ 2: само fallback, ако wcScorers не намери нищо за този мач
+  // (полезно за клубни лиги, където match-level goals[] понякога съдържа scorer данни)
+  if(!Object.keys(playerStats).length){
+    [hId,aId].forEach(tid=>{
+      teamFinishedMatches[tid].forEach((m,idxInTeamMatches)=>{
+        (m.goals||[]).forEach(g=>{
+          if(g.type==='OWN')return;
+          const pid=g.scorer?.id;const gTid=g.team?.id;
+          if(!pid||!gTid||gTid!==tid)return;
+          const key=pid;
+          if(!playerStats[key]){playerStats[key]={id:pid,name:g.scorer?.name||'—',teamId:gTid,goals:0,recentGoals:0,matchesPlayed:teamMatchCount[tid]||1};}
+          playerStats[key].goals++;
           if(idxInTeamMatches<2)playerStats[key].recentGoals++;
-          return;
-        }
-        if(!playerStats[key]){playerStats[key]={id:pid,name:g.scorer?.name||'—',teamId:gTid,goals:0,recentGoals:0,matchesPlayed:0};}
-        playerStats[key].goals++;
-        if(idxInTeamMatches<2)playerStats[key].recentGoals++;
+        });
       });
     });
-  });
-
-  Object.values(playerStats).forEach(p=>{
-    p.matchesPlayed=teamMatchCount[p.teamId]||1;
-  });
+  }
 
   return Object.values(playerStats).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals).slice(0,5);
 }
