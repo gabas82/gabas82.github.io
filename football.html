@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.10</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.11</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -564,13 +564,14 @@ function confidenceHtml(conf, hn, an){
   const barW=conf.score;
   return `<div style="margin:8px 0;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <span style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:2px">🎯 CONFIDENCE SCORE</span>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:2px">🎯 СИЛА НА СИГНАЛА</span>
       <span style="font-family:'Rajdhani',sans-serif;font-size:18px;font-weight:700;color:${col}">${conf.score}/100 <span style="font-size:11px">${label}</span></span>
     </div>
     <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px">
       <div style="height:100%;width:${barW}%;background:${col};border-radius:3px;transition:width 0.8s"></div>
     </div>
     ${conf.factors.length?`<div style="display:flex;gap:4px;flex-wrap:wrap">${conf.factors.map(f=>`<span style="font-size:9px;background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.2);color:var(--green);padding:2px 6px;border-radius:8px">${f}</span>`).join('')}</div>`:''}
+    <div style="font-size:8px;color:var(--muted);margin-top:6px">* мярка за категоричност на модела, не гаранция за точност</div>
   </div>`;
 }
 
@@ -672,6 +673,27 @@ function topScorerHtml(players, match, hf, af){
       </div>
     </div>`).join('')}
     <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">% = вероятност за гол · тренд = последните 2 мача</div>
+  </div>`;
+}
+
+// НОВО v3.11: ВИНАГИ видим списък с топ голмайстори за ръчно решение в Bet Builder
+// (без филтрите pct>=40/recentGoals>0, които ограничават основния builder)
+function scorerBetSuggestionHtml(players, hf, af, hId){
+  if(!players||!players.length)return '';
+  const top=players.slice(0,3);
+  const maxGoals=players[0]?.goals||1;
+  return `<div style="margin:8px 0;background:rgba(0,229,255,0.04);border:1px solid rgba(0,229,255,0.2);border-radius:10px;padding:10px 12px;">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:2px;margin-bottom:8px">🎯 ГОЛМАЙСТОР В СРЕЩАТА — за ръчно добавяне</div>
+    ${top.map(p=>{
+      const base=p.goals/maxGoals;
+      const pct=Math.round(Math.min(75,Math.max(15,base*55+15)));
+      const flag=p.teamId===hId?hf:af;
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+        <span style="font-size:11px;color:var(--text)">${flag} ${p.name} <span style="color:var(--muted);font-size:9px">(${p.goals} г.)</span></span>
+        <span style="font-family:'Rajdhani',sans-serif;font-size:14px;font-weight:700;color:var(--cyan)">${pct}%</span>
+      </div>`;
+    }).join('')}
+    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">показва се винаги · избери ръчно кого да добавиш</div>
   </div>`;
 }
 
@@ -998,9 +1020,6 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
   return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ${src}</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>${srcLabel}</div>`;
 }
 
-// LIVE ГОЛ КАЛКУЛАТОР — вероятност за НАД X гола в оставащото време
-// ПОПРАВКА v3.10: блокът вече не изчезва на 90-та минута. "Оставащо" има минимален буфер от 1 минута,
-// докато мачът е технически жив (isLive флага извън тази функция вече решава дали изобщо да се вика).
 function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
   const min=parseInt(minute)||0;
   const hg=parseInt(hScore)||0;
@@ -1121,10 +1140,14 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const predW=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
       const predWLabel=predW==='1'?hn:predW==='2'?an:'Равен';
       const predWPct=predW==='1'?p.hWin:predW==='2'?p.aWin:p.draw;
-      const w1=predW===winner?'✅':'❌';
-      const wO=(p.over25>50&&over)||(p.over25<=50&&!over)?'✅':'❌';
-      const wB=(p.btts>50&&gg)||(p.btts<=50&&!gg)?'✅':'❌';
-      const conf=calcConfidence(p,null);
+      const w1Bool=predW===winner;
+      const wOBool=(p.over25>50&&over)||(p.over25<=50&&!over);
+      const wBBool=(p.btts>50&&gg)||(p.btts<=50&&!gg);
+      const w1=w1Bool?'✅':'❌';
+      const wO=wOBool?'✅':'❌';
+      const wB=wBBool?'✅':'❌';
+      const matchAccuracy=Math.round([w1Bool,wOBool,wBBool].filter(Boolean).length/3*100);
+      const accCol=matchAccuracy>=67?'var(--green)':matchAccuracy>=34?'var(--yellow)':'var(--red)';
       const overLabel=p.over25>50?'НАД 2.5':'ПОД 2.5';
       const overPct=p.over25>50?p.over25:100-p.over25;
       const overRealLabel=over?'НАД 2.5':'ПОД 2.5';
@@ -1132,7 +1155,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const bttsPct=p.btts>50?p.btts:100-p.btts;
       const bttsRealLabel=gg?'Г/Г ДА':'Г/Г НЕ';
       histPredHtml=`<div style="margin:6px 12px 0;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:8px 10px;">
-        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:8px">📊 ПРОГНОЗА VS РЕАЛНОСТ ${conf?`<span style="color:var(--muted)">· Conf: ${conf.score}/100</span>`:''}</div>
+        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:8px">📊 ПРОГНОЗА VS РЕАЛНОСТ <span style="color:${accCol}">· Точност: ${matchAccuracy}% (${[w1Bool,wOBool,wBBool].filter(Boolean).length}/3)</span></div>
         <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
           <div style="display:flex;align-items:center;justify-content:space-between;font-size:10px">
             <span style="color:var(--muted)">Прогноза:</span>
@@ -1188,12 +1211,14 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const conf=calcConfidence(pred,odds);
       const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const scorerHtml=topScorerHtml(scorerPlayers,m,hf,af);
+      const scorerBetHtml=scorerBetSuggestionHtml(scorerPlayers,hf,af,hId);
       const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af,scorerPlayers,hId,aId);
       const valueBets=valueBetsHtml(pred,odds,hn,an,hf,af);
       const surpriseHtml=surpriseDetectorHtml(pred,odds,hn,an,hf,af);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(conf,hn,an)}
         ${betBuilder}
+        ${scorerBetHtml}
         ${surpriseHtml}
         ${scorerHtml}
         ${valueBets}
@@ -1253,12 +1278,14 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       savePrediction(m,fP);
       const fConf=calcConfidence(fP,odds);
       const fScorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
+      const fScorerBetHtml=scorerBetSuggestionHtml(fScorerPlayers,hf,af,hId);
       const fBetBuilder=buildBetBuilder(fP,odds,hn,an,hf,af,fScorerPlayers,hId,aId);
       const fValueBets=valueBetsHtml(fP,odds,hn,an,hf,af);
       const fScorerHtml=topScorerHtml(fScorerPlayers,m,hf,af);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(fConf,hn,an)}
         ${fBetBuilder}
+        ${fScorerBetHtml}
         ${fScorerHtml}
         ${fValueBets}
         <div class="pred-title">🔮 ПРОГНОЗА (букмейкър)</div>
@@ -1380,14 +1407,14 @@ async function loadFinished(){
         const w1=predW===winner;
         const wO=(p.over25>50&&over)||(p.over25<=50&&!over);
         const wB=(p.btts>50&&gg)||(p.btts<=50&&!gg);
-        const conf=calcConfidence(p,null);
-        const confCol=conf?(conf.score>=75?'var(--green)':conf.score>=55?'var(--yellow)':'var(--red)'):'var(--muted)';
+        const matchAcc=Math.round([w1,wO,wB].filter(Boolean).length/3*100);
+        const accColTick=matchAcc>=67?'var(--green)':matchAcc>=34?'var(--yellow)':'var(--red)';
         ticksHtml=`<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);flex-wrap:wrap">
           <span style="font-size:9px;color:var(--muted)">ПРОГНОЗА:</span>
           <span style="font-size:11px">${w1?'✅':'❌'} 1/X/2</span>
           <span style="font-size:11px">${wO?'✅':'❌'} Над/Под</span>
           <span style="font-size:11px">${wB?'✅':'❌'} Г/Г</span>
-          ${conf?`<span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:${confCol};margin-left:auto;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:10px">🎯 ${conf.score}/100</span>`:''}
+          <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:${accColTick};margin-left:auto;background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:10px">📊 ${matchAcc}%</span>
         </div>`;
       }
       return `<div class="match-card finished">
