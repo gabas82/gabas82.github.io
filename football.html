@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.15</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.16</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -528,6 +528,7 @@ function buildPrediction(match,allMatches){
   const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP));
   const aWinAdj=100-drawP-hWinAdj;
   const gm=calcGoalMarkets(expH,expA);
+  const gmHt=calcGoalMarkets(expH*htRatio,expA*htRatio);
   const over25P=gm.over25,under25P=100-over25P;
   function pBtts(){let p=0;for(let h=1;h<=10;h++)for(let a=1;a<=10;a++)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(85,Math.max(15,Math.round(p*100)));}
   const bttsP=pBtts();
@@ -535,7 +536,7 @@ function buildPrediction(match,allMatches){
   let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*htRatio,h)*poissonProb(expA*htRatio,a)*100});htS.sort((a,b)=>b.p-a.p);
   const expCorners=Math.round(expTotal*1.8+5.5);
   const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
-  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,htRatio:Math.round(htRatio*100)};
+  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100)};
 }
 
 function calcConfidence(pred, odds){
@@ -897,6 +898,20 @@ function goalMarketsHtml(gm,hn,an,hf,af){
   </div>`;
 }
 
+function goalMarketsHtHtml(gmHt,hn,an,hf,af){
+  return `<div class="pred-title" style="margin-top:8px">⏱ ГОЛОВЕ 1-во ПОЛУВРЕМЕ — ПАЗАРИ</div>
+  <div class="pred-grid-4">
+    <div class="pred-pill"><div class="pred-label">НАД 0.5</div><div class="pred-value ${pCol(gmHt.over05)}">${gmHt.over05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 1.5</div><div class="pred-value ${pCol(gmHt.over15)}">${gmHt.over15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 2.5</div><div class="pred-value ${pCol(gmHt.over25)}">${gmHt.over25}%</div></div>
+    <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${pCol(gmHt.over35)}">${gmHt.over35}%</div></div>
+  </div>
+  <div class="pred-grid">
+    <div class="pred-pill"><div class="pred-label">${hf} ${hn} НАД 0.5 (1П)</div><div class="pred-value ${pCol(gmHt.hOver05)}">${gmHt.hOver05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">${af} ${an} НАД 0.5 (1П)</div><div class="pred-value ${pCol(gmHt.aOver05)}">${gmHt.aOver05}%</div></div>
+  </div>`;
+}
+
 function h2hHtml(matches,hName,aName){
   if(!matches||!matches.length)return '';
   const last5=matches.slice(-5);
@@ -1249,6 +1264,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
           <div class="pred-pill"><div class="pred-label">БЕЗ ГОЛ ДО 10'</div><div class="pred-value ${pCol(100-pred.g10)}">${100-pred.g10}%</div><div class="pred-pct">вероятност</div></div>
         </div>
         ${goalMarketsHtml(pred.gm,hn,an,hf,af)}
+        ${goalMarketsHtHtml(pred.gmHt,hn,an,hf,af)}
         <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div>
         <div class="pred-grid">${pred.topScores.map(s=>`<div class="pred-pill"><div class="pred-label">${s.h}:${s.a}</div><div class="pred-value info">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
         <div class="pred-title" style="margin-top:8px">⏱ РЕЗУЛТАТ ПОЛУВРЕМЕ</div>
@@ -1627,8 +1643,6 @@ async function loadScorers(){
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
 
-// ПОПРАВКА v3.15: explicit placeholder за WC секция, когато coverage все още не съдържа дисциплинарни данни
-// (api-sports.io документация: coverage flags са false докато данните се появят с напредването на турнира)
 async function loadCards(){
   const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');
   yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
