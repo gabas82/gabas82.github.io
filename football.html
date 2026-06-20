@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.12</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.13</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -575,7 +575,6 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
-// ВЕРОЯТЕН ГОЛМАЙСТОР — v3.12: поправено дублиране на голове между кеш и allMatches
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
@@ -622,8 +621,6 @@ function calcTopScorers(match, allMatches, wcScorers){
         if(!pid||!gTid)return;
         if(gTid!==tid)return;
         const key=pid;
-        // ПОПРАВКА v3.12: ако играчът вече е seed-нат от кеша (с авторитетен общ брой голове),
-        // тук само обновяваме тренд индикатора, без да добавяме отново към goals (избягва дублиране)
         if(seededFromCache.has(key)){
           if(idxInTeamMatches<2)playerStats[key].recentGoals++;
           return;
@@ -1448,7 +1445,14 @@ async function loadUpcoming(){
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     let allMatches=[];
     const ts=Date.now();
-    try{const[h,wc]=await Promise.all([apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),apiFetch('/competitions/2000/matches?status=FINISHED&_t='+ts)]);allMatches=[...(h.matches||[]),...(wc.matches||[])];}catch(e){}
+    try{
+      const[h,wc]=await Promise.all([
+        apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),
+        apiFetch('/competitions/2000/matches?_t='+ts)
+      ]);
+      const wcFinishedOnly=(wc.matches||[]).filter(m=>m.status==='FINISHED');
+      allMatches=[...(h.matches||[]),...wcFinishedOnly];
+    }catch(e){}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
     let html='';
@@ -1680,14 +1684,10 @@ async function loadEuroLeague(tab, compId, title){
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const ts=Date.now();
-    const[mData,sData]=await Promise.allSettled([
-      apiFetch('/competitions/'+compId+'/matches?status=SCHEDULED&limit=20&_t='+ts),
-      apiFetch('/competitions/'+compId+'/matches?status=FINISHED&limit=10&_t='+ts)
-    ]);
-    let scheduled=mData.status==='fulfilled'?(mData.value.matches||[]):[];
-    let finished=sData.status==='fulfilled'?(sData.value.matches||[]):[];
-    scheduled=scheduled.filter(m=>m.competition?.id===compId);
-    finished=finished.filter(m=>m.competition?.id===compId);
+    const data=await apiFetch('/competitions/'+compId+'/matches?_t='+ts);
+    let allCompMatches=(data.matches||[]).filter(m=>m.competition?.id===compId);
+    const scheduled=allCompMatches.filter(m=>['SCHEDULED','TIMED'].includes(m.status)).slice(0,20);
+    const finished=allCompMatches.filter(m=>m.status==='FINISHED');
     const all=[...finished.slice(-5).reverse(),...scheduled.slice(0,15)];
     if(!all.length){
       c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
