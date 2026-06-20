@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.11</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.12</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -306,9 +306,9 @@ function switchTab(name){
   loadCurrentTab();
   if(name==='live')autoTimer=setInterval(loadCurrentTab,60000);
 }
-function loadCurrentTab(){
+async function loadCurrentTab(){
   updateTime();
-  if(!wcScorersCache.length)loadWCScorers();
+  if(!wcScorersCache.length)await loadWCScorers();
   if(currentTab==='live')loadLive();
   else if(currentTab==='today')loadToday();
   else if(currentTab==='upcoming')loadUpcoming();
@@ -575,12 +575,14 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
+// ВЕРОЯТЕН ГОЛМАЙСТОР — v3.12: поправено дублиране на голове между кеш и allMatches
 function calcTopScorers(match, allMatches, wcScorers){
   const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
   if(!hId||!aId)return [];
   const hn2=match.homeTeam?.name||'';
   const an2=match.awayTeam?.name||'';
   const playerStats={};
+  const seededFromCache=new Set();
 
   const finishedMatches=allMatches.filter(m=>m.status==='FINISHED').sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
 
@@ -607,6 +609,7 @@ function calcTopScorers(match, allMatches, wcScorers){
       const key=s.id||s.name;
       if(!playerStats[key]){playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0,recentGoals:0,matchesPlayed:0};}
       else{playerStats[key].goals=Math.max(playerStats[key].goals,s.goals||0);}
+      seededFromCache.add(key);
     });
   }
 
@@ -619,6 +622,12 @@ function calcTopScorers(match, allMatches, wcScorers){
         if(!pid||!gTid)return;
         if(gTid!==tid)return;
         const key=pid;
+        // ПОПРАВКА v3.12: ако играчът вече е seed-нат от кеша (с авторитетен общ брой голове),
+        // тук само обновяваме тренд индикатора, без да добавяме отново към goals (избягва дублиране)
+        if(seededFromCache.has(key)){
+          if(idxInTeamMatches<2)playerStats[key].recentGoals++;
+          return;
+        }
         if(!playerStats[key]){playerStats[key]={id:pid,name:g.scorer?.name||'—',teamId:gTid,goals:0,recentGoals:0,matchesPlayed:0};}
         playerStats[key].goals++;
         if(idxInTeamMatches<2)playerStats[key].recentGoals++;
@@ -676,8 +685,6 @@ function topScorerHtml(players, match, hf, af){
   </div>`;
 }
 
-// НОВО v3.11: ВИНАГИ видим списък с топ голмайстори за ръчно решение в Bet Builder
-// (без филтрите pct>=40/recentGoals>0, които ограничават основния builder)
 function scorerBetSuggestionHtml(players, hf, af, hId){
   if(!players||!players.length)return '';
   const top=players.slice(0,3);
@@ -1440,7 +1447,8 @@ async function loadUpcoming(){
     const upcoming=upData.matches||[];
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     let allMatches=[];
-    try{const[h,wc]=await Promise.all([apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),apiFetch('/competitions/2000/matches?status=FINISHED')]);allMatches=[...(h.matches||[]),...(wc.matches||[])];}catch(e){}
+    const ts=Date.now();
+    try{const[h,wc]=await Promise.all([apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),apiFetch('/competitions/2000/matches?status=FINISHED&_t='+ts)]);allMatches=[...(h.matches||[]),...(wc.matches||[])];}catch(e){}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
     let html='';
@@ -1760,8 +1768,6 @@ async function loadEfbet(){
     c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
   }
 }
-loadWCScorers();
-setInterval(loadWCScorers,300000);
 switchTab('live');
 </script>
 </body>
