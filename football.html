@@ -231,7 +231,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.16</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.17</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -1477,7 +1477,18 @@ async function loadUpcoming(){
       html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`;
       for(const m of g.matches){
         let h2h=[];
-        try{const hId=m.homeTeam?.id,aId=m.awayTeam?.id;if(hId&&aId){const d=await apiFetch('/matches?competitions='+m.competition?.id+'&teams='+hId+'&teams='+aId+'&status=FINISHED');h2h=d.matches||[];}}catch(e){}
+        try{
+          const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
+          if(hId&&aId){
+            const d=await apiFetch('/matches?competitions='+m.competition?.id+'&teams='+hId+'&teams='+aId+'&status=FINISHED');
+            const raw=d.matches||[];
+            // ПОПРАВКА v3.17: локален филтър - пази само мачове, в които И двата отбора реално присъстват
+            h2h=raw.filter(mm=>{
+              const ids=[mm.homeTeam?.id,mm.awayTeam?.id];
+              return ids.includes(hId)&&ids.includes(aId);
+            });
+          }
+        }catch(e){}
         html+=renderMatch(m,true,allMatches,h2h,null);
       }
     }
