@@ -168,6 +168,18 @@
   .hist-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 20px; font-weight: 700; }
   .hist-stat-label { font-size: 9px; color: var(--muted); margin-top: 2px; }
   .no-pred-box { margin: 8px 12px; padding: 10px; background: rgba(90,122,138,0.08); border: 1px solid rgba(90,122,138,0.2); border-radius: 8px; text-align: center; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .cb-card { margin: 0 16px 10px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; padding: 12px; }
+  .cb-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(30,45,61,0.5); }
+  .cb-row:last-child { border-bottom: none; }
+  .cb-pos { font-family: 'Rajdhani',sans-serif; font-size: 13px; color: var(--muted); min-width: 20px; text-align: center; }
+  .cb-flag { font-size: 20px; }
+  .cb-team { flex: 1; font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 600; color: var(--text); }
+  .cb-stats { display: flex; gap: 8px; }
+  .cb-stat { text-align: center; min-width: 44px; }
+  .cb-stat-val { font-family: 'Rajdhani',sans-serif; font-size: 14px; font-weight: 700; }
+  .cb-stat-label { font-size: 7px; color: var(--muted); letter-spacing: 0.5px; }
+  .cb-score { font-family: 'Rajdhani',sans-serif; font-size: 18px; font-weight: 700; color: var(--purple); min-width: 36px; text-align: center; }
+  .cb-info-box { margin: 0 16px 12px; padding: 10px 12px; background: rgba(192,132,252,0.06); border: 1px solid rgba(192,132,252,0.25); border-radius: 10px; font-size: 10px; color: var(--muted); line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -187,6 +199,7 @@
   <div class="tab" onclick="switchTab('standings')">📊 КЛАСАЦИЯ</div>
   <div class="tab" onclick="switchTab('scorers')">⚽ ГОЛМАЙСТОРИ</div>
   <div class="tab" onclick="switchTab('cards')">🟨 КАРТОНИ</div>
+  <div class="tab" onclick="switchTab('comeback')">🔄 ОБРАТИ</div>
   <div class="tab" onclick="switchTab('cl')">⭐ ШЛ</div>
   <div class="tab" onclick="switchTab('el')">🟠 ЛЕ</div>
   <div class="tab" onclick="switchTab('uecl')">🔵 ЛК</div>
@@ -214,6 +227,11 @@
   <div class="section-title" style="margin-top:20px">🟥 НАЙ-МНОГО ЧЕРВЕНИ КАРТОНИ</div>
   <div id="red-content"></div>
 </div>
+<div id="tab-comeback" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🔄 COMEBACK RATING — ОТБОРИ С ОБРАТИ</div>
+  <div class="cb-info-box">📊 <b>Concede First %</b> — колко често отборът е бил на загуба на полувремето. <b>Comeback %</b> — колко от тези мачове е завършил без загуба (равен/победа). <b>Гол/мач</b> — средно вкарани голове. По-висок Comeback Rating = по-голям шанс за обрат, ако отборът поведе пръв съперника.</div>
+  <div id="comeback-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
 <div id="tab-cl" class="tab-content">
   <div class="section-title" style="margin-top:12px">⭐ ШАМПИОНСКА ЛИГА</div>
   <div id="cl-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
@@ -231,7 +249,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.18</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.19</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -274,6 +292,7 @@ const FLAGS={
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
 let wcScorersCache=[];
+let comebackStatsCache=null;
 
 async function loadWCScorers(){
   try{
@@ -311,7 +330,7 @@ async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Erro
 async function apiFetchAS(p){const r=await fetch(WORKER_AS+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 function switchTab(name){
   currentTab=name;
-  const names=['live','today','upcoming','finished','history','standings','scorers','cards','cl','el','uecl','efbet'];
+  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','cl','el','uecl','efbet'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -330,6 +349,7 @@ async function loadCurrentTab(){
   else if(currentTab==='standings')loadStandings();
   else if(currentTab==='scorers')loadScorers();
   else if(currentTab==='cards')loadCards();
+  else if(currentTab==='comeback')loadComeback();
   else if(currentTab==='cl')loadEuroLeague('cl',2001,'⭐ Шампионска лига');
   else if(currentTab==='el')loadEuroLeague('el',2018,'🟠 Лига Европа');
   else if(currentTab==='uecl')loadUECL();
@@ -1131,7 +1151,6 @@ function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
   </div>`;
 }
 
-// НОВО v3.18: Гол калкулатор само за 1-во полувреме, видим докато min<=50 (изчезва автоматично след почивката)
 function liveGoalCalcHtHtml(stats, minute, hScore, aScore, hn, an, hf, af){
   const min=parseInt(minute)||0;
   if(min>50)return '';
@@ -1795,6 +1814,152 @@ async function loadCards(){
   }
   yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';
   rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
+}
+
+// ==== НОВО v3.19: COMEBACK RATING ====
+// Извлича Concede First %, Comeback % и Goals Avg от мачове, които вече се теглят
+// за останалите табове (ПРОГНОЗИ/КЛАСАЦИЯ) — без нови заявки по отбор.
+function calcComebackStatsForTeam(teamId, allMatches){
+  const rel=allMatches
+    .filter(m=>m.status==='FINISHED'&&m.score?.halfTime!=null&&m.score?.fullTime!=null&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId))
+    .sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate))
+    .slice(0,20);
+  if(rel.length<3)return null;
+
+  let concedeFirstCount=0, comebackCount=0, goalsScored=0, goalsConceded=0;
+  rel.forEach(m=>{
+    const isH=m.homeTeam?.id===teamId;
+    const htG=isH?(m.score.halfTime.home??0):(m.score.halfTime.away??0);
+    const htC=isH?(m.score.halfTime.away??0):(m.score.halfTime.home??0);
+    const ftG=isH?(m.score.fullTime.home??0):(m.score.fullTime.away??0);
+    const ftC=isH?(m.score.fullTime.away??0):(m.score.fullTime.home??0);
+    goalsScored+=ftG; goalsConceded+=ftC;
+    const wasBehindHT=htC>htG;
+    if(wasBehindHT){
+      concedeFirstCount++;
+      if(ftG>=ftC)comebackCount++;
+    }
+  });
+
+  const n=rel.length;
+  const concedeFirstPct=Math.round(concedeFirstCount/n*100);
+  const comebackPct=concedeFirstCount>0?Math.round(comebackCount/concedeFirstCount*100):0;
+  const goalsAvg=goalsScored/n;
+  const concededAvg=goalsConceded/n;
+
+  // Comeback Rating: тежи Goals Avg най-много (както е посочено в анализа —
+  // отбор, който вкарва по 2-3 гола средно, има по-голям шанс да обърне 0:1),
+  // плюс реалния % обърнати мачове, минус склонността да допуска пръв гол.
+  const ratingScore=Math.round(
+    (goalsAvg*18) +
+    (comebackPct*0.5) -
+    (concedeFirstPct*0.15)
+  );
+
+  return{
+    teamId, matches:n,
+    concedeFirstPct, comebackCount, concedeFirstCount, comebackPct,
+    goalsAvg:Math.round(goalsAvg*100)/100,
+    concededAvg:Math.round(concededAvg*100)/100,
+    ratingScore:Math.max(0,ratingScore)
+  };
+}
+
+function buildComebackStats(allMatchesByComp){
+  const result={};
+  for(const compId in allMatchesByComp){
+    const matches=allMatchesByComp[compId];
+    const teamIds=new Set();
+    matches.forEach(m=>{if(m.homeTeam?.id)teamIds.add(m.homeTeam.id);if(m.awayTeam?.id)teamIds.add(m.awayTeam.id);});
+    const teamNames={};
+    matches.forEach(m=>{
+      if(m.homeTeam?.id)teamNames[m.homeTeam.id]={name:m.homeTeam.shortName||m.homeTeam.name,fullName:m.homeTeam.name};
+      if(m.awayTeam?.id)teamNames[m.awayTeam.id]={name:m.awayTeam.shortName||m.awayTeam.name,fullName:m.awayTeam.name};
+    });
+    const teamsStats=[];
+    teamIds.forEach(tid=>{
+      const stats=calcComebackStatsForTeam(tid,matches);
+      if(stats){
+        teamsStats.push({...stats,teamName:teamNames[tid]?.name||'—',teamFullName:teamNames[tid]?.fullName||''});
+      }
+    });
+    teamsStats.sort((a,b)=>b.ratingScore-a.ratingScore);
+    if(teamsStats.length)result[compId]=teamsStats;
+  }
+  return result;
+}
+
+async function loadComeback(forceRefresh){
+  const c=document.getElementById('comeback-content');
+  if(comebackStatsCache&&!forceRefresh){
+    renderComebackStats(comebackStatsCache);
+    return;
+  }
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  try{
+    const today=getToday();
+    const dateFrom=getDateMinus(90);
+    const allMatchesByComp={};
+
+    // Клубни състезания — един общ заявка обхваща всички с FINISHED статус
+    let generalMatches=[];
+    try{
+      const gen=await apiFetch('/matches?dateFrom='+dateFrom+'&dateTo='+today+'&status=FINISHED');
+      generalMatches=gen.matches||[];
+    }catch(e){}
+
+    generalMatches.forEach(m=>{
+      const cid=m.competition?.id;
+      if(!cid)return;
+      if(!allMatchesByComp[cid])allMatchesByComp[cid]=[];
+      allMatchesByComp[cid].push(m);
+    });
+
+    // WC2026 заявка отделно (вече кешираните данни не съдържат halfTime гарантирано
+    // в общия отговор за всички competitions, затова презареждаме изрично).
+    try{
+      const ts=Date.now();
+      const wc=await apiFetch('/competitions/2000/matches?_t='+ts);
+      const wcFinished=(wc.matches||[]).filter(m=>m.status==='FINISHED');
+      if(wcFinished.length)allMatchesByComp[2000]=wcFinished;
+    }catch(e){}
+
+    comebackStatsCache=buildComebackStats(allMatchesByComp);
+    renderComebackStats(comebackStatsCache);
+  }catch(e){
+    c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;
+  }
+}
+
+function renderComebackStats(statsByComp){
+  const c=document.getElementById('comeback-content');
+  const compIds=Object.keys(statsByComp);
+  if(!compIds.length){
+    c.innerHTML='<div class="no-data">Няма достатъчно данни за изчисление.<br>Опитай отново след като приключат повече мачове.</div>';
+    return;
+  }
+  let html='';
+  COMPS.forEach(comp=>{
+    const teams=statsByComp[comp.id];
+    if(!teams||!teams.length)return;
+    html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="cb-card">`;
+    teams.slice(0,15).forEach((t,i)=>{
+      const scoreCol=t.ratingScore>=55?'var(--green)':t.ratingScore>=35?'var(--yellow)':'var(--purple)';
+      html+=`<div class="cb-row">
+        <div class="cb-pos">${i+1}</div>
+        <div class="cb-flag">${getFlag(t.teamFullName)}</div>
+        <div class="cb-team">${t.teamName}</div>
+        <div class="cb-stats">
+          <div class="cb-stat"><div class="cb-stat-val bad">${t.concedeFirstPct}%</div><div class="cb-stat-label">ПЪРВИ ГОЛ ДОПУСНАТ</div></div>
+          <div class="cb-stat"><div class="cb-stat-val good">${t.comebackPct}%</div><div class="cb-stat-label">ОБРАТ %</div></div>
+          <div class="cb-stat"><div class="cb-stat-val info">${t.goalsAvg.toFixed(2)}</div><div class="cb-stat-label">ГОЛ/МАЧ</div></div>
+        </div>
+        <div class="cb-score" style="color:${scoreCol}">${t.ratingScore}</div>
+      </div>`;
+    });
+    html+='</div>';
+  });
+  c.innerHTML=html||'<div class="no-data">Няма достатъчно данни за изчисление.</div>';
 }
 
 async function loadEuroLeague(tab, compId, title){
