@@ -417,7 +417,10 @@ async function updateHistoryResults(){
 function loadHistory(){
   migrateHistory();
   updateHistoryResults();
-  const hist=getHistory().slice().reverse();
+  const hist=getHistory().slice().sort((a,b)=>{
+    if(!!a.result!==!!b.result)return a.result?-1:1;
+    return new Date(b.date)-new Date(a.date);
+  });
   const sc=document.getElementById('history-stats');
   const c=document.getElementById('history-content');
   if(!hist.length){sc.innerHTML='';c.innerHTML='<div class="no-data">Няма записани прогнози още.<br><br>Отвори таб ПРОГНОЗИ за да се запазят автоматично.</div>';return;}
