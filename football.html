@@ -258,7 +258,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.22</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.23</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -277,6 +277,15 @@ const COMPS=[
 ];
 const STANDINGS_IDS=[2000,2021,2002,2019,2014,2015,2003,2013];
 const COMPS_AS_MAP={2000:1,2021:39,2002:78,2019:135,2014:140,2015:61,2001:2,2018:3,2016:172,2003:88,2013:71};
+// Тези 4 състезания се теглят изцяло през api-sports.io (не football-data.org),
+// защото football-data.org или няма Лига Европа изобщо, или още не публикува
+// новия сезон/квалификациите навреме. Виж loadASLeagueTab() по-долу.
+const AS_LEAGUES=[
+  {id:2,tab:'cl',icon:'⭐',title:'Шампионска лига'},
+  {id:3,tab:'el',icon:'🟠',title:'Лига Европа'},
+  {id:848,tab:'uecl',icon:'🔵',title:'Лига на конференциите'},
+  {id:172,tab:'efbet',icon:'🇧🇬',title:'Ефбет Лига'}
+];
 const FLAGS={
   'Mexico':'🇲🇽','Brazil':'🇧🇷','Argentina':'🇦🇷','France':'🇫🇷','Germany':'🇩🇪',
   'England':'🏴󐁧󐁢󐁥󐁮󐁧󐁿','Spain':'🇪🇸','Portugal':'🇵🇹','Netherlands':'🇳🇱','Italy':'🇮🇹',
@@ -397,11 +406,87 @@ function savePrediction(m,pred){
   hist.push({id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10},result:null,savedAt:Date.now()});
   saveHistory(hist);
 }
+const AS_STATUS_MAP={
+  'NS':'SCHEDULED','TBD':'SCHEDULED','PST':'SCHEDULED','CANC':'SCHEDULED','ABD':'SCHEDULED',
+  '1H':'IN_PLAY','2H':'IN_PLAY','ET':'IN_PLAY','P':'IN_PLAY','INT':'PAUSED','SUSP':'PAUSED','BT':'PAUSED',
+  'HT':'HALFTIME',
+  'FT':'FINISHED','AET':'FINISHED','PEN':'FINISHED','AWD':'FINISHED','WO':'FINISHED'
+};
+// Преобразува api-sports.io fixture обект към същата вътрешна форма, която
+// football-data.org използва навсякъде в кода — така renderMatch(), прогнозният
+// модел, live калкулаторите и ИСТОРИЯ таба работят без промяна и за ШЛ/ЛЕ/ЛК/ЕФБЕТ.
+// Забележка: api-sports bulk fixtures не връщат голове по минута (нужен е отделен
+// /fixtures/events за всеки мач), затова goals/bookings остават празни масиви —
+// списъкът с голове по минута и "вероятен голмайстор" не се показват тук.
+function asFixtureToMatch(f){
+  const st=f.fixture?.status?.short||'NS';
+  const status=AS_STATUS_MAP[st]||'SCHEDULED';
+  const hg=f.goals?.home, ag=f.goals?.away;
+  const htH=f.score?.halftime?.home, htA=f.score?.halftime?.away;
+  let winner=null;
+  if(status==='FINISHED'&&hg!=null&&ag!=null){winner=hg>ag?'HOME_TEAM':ag>hg?'AWAY_TEAM':'DRAW';}
+  return{
+    id:'as_'+f.fixture?.id,
+    utcDate:f.fixture?.date,
+    status,
+    minute:f.fixture?.status?.elapsed,
+    competition:{id:'as_'+f.league?.id, name:f.league?.name||''},
+    group:f.league?.round||'',
+    stage:null,
+    homeTeam:{id:f.teams?.home?.id, name:f.teams?.home?.name||'—', shortName:f.teams?.home?.name||'—', lineup:[]},
+    awayTeam:{id:f.teams?.away?.id, name:f.teams?.away?.name||'—', shortName:f.teams?.away?.name||'—', lineup:[]},
+    score:{fullTime:{home:hg,away:ag}, halfTime:{home:htH,away:htA}, winner},
+    goals:[], bookings:[],
+    referees:f.fixture?.referee?[{name:f.fixture.referee,nationality:null}]:[]
+  };
+}
+function extractASLiveStats(f){
+  const stats={};
+  (f.statistics||[]).forEach(ts=>{
+    const isH=ts.team?.id===f.teams?.home?.id;
+    (ts.statistics||[]).forEach(s=>{
+      const k=s.type,v=s.value;
+      if(k==='Ball Possession'){isH?stats.possession_h=parseInt(v)||50:stats.possession_a=parseInt(v)||50;}
+      if(k==='Shots on Goal'){isH?stats.shotsOn_h=v:stats.shotsOn_a=v;}
+      if(k==='Total Shots'){isH?stats.shots_h=v:stats.shots_a=v;}
+      if(k==='Corner Kicks'){isH?stats.corners_h=v:stats.corners_a=v;}
+      if(k==='Fouls'){isH?stats.fouls_h=v:stats.fouls_a=v;}
+      if(k==='Yellow Cards'){isH?stats.yellow_h=v:stats.yellow_a=v;}
+      if(k==='Red Cards'){isH?stats.red_h=v:stats.red_a=v;}
+    });
+  });
+  return stats;
+}
+// Реконсилира резултати за прогнози, записани от ШЛ/ЛЕ/ЛК/ЕФБЕТ (id-та с префикс "as_"),
+// понеже те не идват от football-data.org и основната updateHistoryResults логика
+// не може да ги открие.
+async function updateHistoryResultsAS(hist){
+  const toUpdate=hist.filter(h=>!h.result&&String(h.id).startsWith('as_'));
+  if(!toUpdate.length)return false;
+  let changed=false;
+  try{
+    const season=new Date().getFullYear();
+    const results=await Promise.allSettled(AS_LEAGUES.map(l=>apiFetchAS('/fixtures?league='+l.id+'&season='+season+'&last=30')));
+    const allFixtures=[];
+    results.forEach(r=>{if(r.status==='fulfilled')allFixtures.push(...(r.value.response||[]));});
+    toUpdate.forEach(h=>{
+      const fid=String(h.id).replace('as_','');
+      const f=allFixtures.find(x=>String(x.fixture?.id)===fid);
+      if(f&&f.fixture?.status?.short==='FT'&&f.goals?.home!=null&&f.goals?.away!=null){
+        const hg=f.goals.home,ag=f.goals.away;
+        h.result={hg,ag,total:hg+ag,gg:hg>0&&ag>0,winner:hg>ag?'1':ag>hg?'2':'X'};
+        changed=true;
+      }
+    });
+  }catch(e){}
+  return changed;
+}
 async function updateHistoryResults(){
   const hist=getHistory();
   if(!hist.length)return;
   const toUpdate=hist.filter(h=>!h.result);
   if(!toUpdate.length)return;
+  let changed=false;
   try{
     const[d1,d2]=await Promise.allSettled([
       apiFetch('/matches?dateFrom='+getDateMinus(60)+'&dateTo='+getToday()+'&status=FINISHED'),
@@ -410,8 +495,8 @@ async function updateHistoryResults(){
     const general=d1.status==='fulfilled'?(d1.value.matches||[]):[];
     const wcAll=d2.status==='fulfilled'?(d2.value.matches||[]).filter(m=>m.status==='FINISHED'):[];
     const all=[...general,...wcAll];
-    let changed=false;
     toUpdate.forEach(h=>{
+      if(String(h.id).startsWith('as_'))return;
       const m=all.find(f=>
         String(f.id)===String(h.id)||
         ((f.homeTeam?.shortName===h.home||f.homeTeam?.name===h.home)&&
@@ -423,8 +508,12 @@ async function updateHistoryResults(){
         changed=true;
       }
     });
-    if(changed)saveHistory(hist);
   }catch(e){}
+  try{
+    const changedAS=await updateHistoryResultsAS(hist);
+    if(changedAS)changed=true;
+  }catch(e){}
+  if(changed)saveHistory(hist);
 }
 function loadHistory(){
   migrateHistory();
@@ -2133,151 +2222,67 @@ async function loadEuroLeague(tab, compId, title){
 // сезон навреме — затова табът ШЛ ползва api-sports.io (league id 2 = Champions
 // League), по същия модел като ЛЕ/ЛК/ЕФБЕТ. КАРТОНИ табът вече използваше
 // api-sports за ШЛ, затова там квалификациите се виждаха коректно.
-async function loadChampionsLeagueAS(){
-  const c=document.getElementById('cl-content');
+// Единен loader за ШЛ/ЛЕ/ЛК/ЕФБЕТ — тегли предстоящи + последни завършили +
+// live мачове от api-sports.io, конвертира ги към вътрешния формат и ги пуска
+// през renderMatch(), за да получат пълния комплект: 1/X/2, над/под, Г/Г, форма,
+// H2H, live гол калкулатор, и запис в ИСТОРИЯ (прогноза vs реалност след края).
+// Мачовете се групират по кръг (round), в хронологичен ред — това показва
+// прогреса през квалификациите към следващата фаза.
+async function loadASLeagueTab(tabId, leagueId, icon, title){
+  const c=document.getElementById(tabId+'-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const season=new Date().getFullYear();
-    const[next,last]=await Promise.allSettled([
-      apiFetchAS('/fixtures?league=2&season='+season+'&next=15'),
-      apiFetchAS('/fixtures?league=2&season='+season+'&last=5')
+    const[nextRes,lastRes,liveRes]=await Promise.allSettled([
+      apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
+      apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
+      apiFetchAS('/fixtures?live=all')
     ]);
-    const upcoming=(next.status==='fulfilled'?(next.value.response||[]):[]);
-    const finished=(last.status==='fulfilled'?(last.value.response||[]):[]);
-    const all=[...finished.reverse(),...upcoming];
-    if(!all.length){
+    const upcomingRaw=(nextRes.status==='fulfilled'?(nextRes.value.response||[]):[]);
+    const finishedRaw=(lastRes.status==='fulfilled'?(lastRes.value.response||[]):[]);
+    const liveRaw=(liveRes.status==='fulfilled'?(liveRes.value.response||[]):[]);
+    const liveFixtures=liveRaw.filter(f=>f.league?.id===leagueId);
+    const liveIds=new Set(liveFixtures.map(f=>f.fixture?.id));
+
+    const finished=finishedRaw.filter(f=>!liveIds.has(f.fixture?.id));
+    const upcoming=upcomingRaw.filter(f=>!liveIds.has(f.fixture?.id));
+    const allRaw=[...finished,...liveFixtures,...upcoming];
+
+    if(!allRaw.length){
       c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
       return;
     }
-    c.innerHTML=all.map(f=>{
-      const h=f.teams?.home,a=f.teams?.away;
-      const hg=f.goals?.home,ag=f.goals?.away;
-      const hf=getFlag(h?.name),af=getFlag(a?.name);
-      const date=new Date(f.fixture?.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-      const isFinished=f.fixture?.status?.short==='FT';
-      const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan)">${date}</div>`;
-      return `<div class="match-card ${isFinished?'finished':''}">
-        <div class="match-header"><span class="match-league">⭐ ${f.league?.round||'Шампионска лига'}</span><span class="ms ${isFinished?'finished':'scheduled'}">${isFinished?'КРАЙ':'ПРЕДСТОИ'}</span></div>
-        <div class="match-body"><div class="teams-row">
-          <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${h?.name||'—'}</div></div>
-          <div class="score-box">${scoreHtml}</div>
-          <div class="team"><span class="team-flag">${af}</span><div class="team-name">${a?.name||'—'}</div></div>
-        </div></div>
-      </div>`;
-    }).join('');
-  }catch(e){
-    c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-  }
-}
 
-// football-data.org competition id 2018 е реално "European Championship" (Евро),
-// НЕ Лига Европа — free планът им изобщо не покрива Лига Европа. Затова табът
-// ЛЕ ползва api-sports.io (league id 3 = Europa League), по модела на ЛК/ЕФБЕТ.
-async function loadEuropaLeagueAS(){
-  const c=document.getElementById('el-content');
-  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  try{
-    const season=new Date().getFullYear();
-    const[next,last]=await Promise.allSettled([
-      apiFetchAS('/fixtures?league=3&season='+season+'&next=15'),
-      apiFetchAS('/fixtures?league=3&season='+season+'&last=5')
-    ]);
-    const upcoming=(next.status==='fulfilled'?(next.value.response||[]):[]);
-    const finished=(last.status==='fulfilled'?(last.value.response||[]):[]);
-    const all=[...finished.reverse(),...upcoming];
-    if(!all.length){
-      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-      return;
-    }
-    c.innerHTML=all.map(f=>{
-      const h=f.teams?.home,a=f.teams?.away;
-      const hg=f.goals?.home,ag=f.goals?.away;
-      const hf=getFlag(h?.name),af=getFlag(a?.name);
-      const date=new Date(f.fixture?.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-      const isFinished=f.fixture?.status?.short==='FT';
-      const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan)">${date}</div>`;
-      return `<div class="match-card ${isFinished?'finished':''}">
-        <div class="match-header"><span class="match-league">🟠 ${f.league?.round||'Лига Европа'}</span><span class="ms ${isFinished?'finished':'scheduled'}">${isFinished?'КРАЙ':'ПРЕДСТОИ'}</span></div>
-        <div class="match-body"><div class="teams-row">
-          <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${h?.name||'—'}</div></div>
-          <div class="score-box">${scoreHtml}</div>
-          <div class="team"><span class="team-flag">${af}</span><div class="team-name">${a?.name||'—'}</div></div>
-        </div></div>
-      </div>`;
-    }).join('');
-  }catch(e){
-    c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-  }
-}
+    const allMatches=allRaw.map(asFixtureToMatch);
 
-async function loadUECL(){
-  const c=document.getElementById('uecl-content');
-  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  try{
-    const season=new Date().getFullYear();
-    const data=await apiFetchAS('/fixtures?league=848&season='+season+'&next=20');
-    const fixtures=(data.response||[]);
-    if(!fixtures.length){
-      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>League phase започва 15 октомври 2026.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-      return;
-    }
-    c.innerHTML=fixtures.map(f=>{
-      const h=f.teams?.home,a=f.teams?.away;
-      const hg=f.goals?.home,ag=f.goals?.away;
-      const hf=getFlag(h?.name),af=getFlag(a?.name);
-      const date=new Date(f.fixture?.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-      const isFinished=f.fixture?.status?.short==='FT';
-      const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan)">${date}</div>`;
-      return `<div class="match-card ${isFinished?'finished':''}">
-        <div class="match-header"><span class="match-league">🔵 ${f.league?.round||'Лига на конференциите'}</span><span class="ms ${isFinished?'finished':'scheduled'}">${isFinished?'КРАЙ':'ПРЕДСТОИ'}</span></div>
-        <div class="match-body"><div class="teams-row">
-          <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${h?.name||'—'}</div></div>
-          <div class="score-box">${scoreHtml}</div>
-          <div class="team"><span class="team-flag">${af}</span><div class="team-name">${a?.name||'—'}</div></div>
-        </div></div>
-      </div>`;
-    }).join('');
-  }catch(e){
-    c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-  }
-}
+    const groups={};
+    const order=[];
+    allRaw.slice().sort((a,b)=>new Date(a.fixture?.date)-new Date(b.fixture?.date)).forEach(f=>{
+      const r=f.league?.round||'—';
+      if(!groups[r]){groups[r]=[];order.push(r);}
+      groups[r].push(f);
+    });
 
-async function loadEfbet(){
-  const c=document.getElementById('efbet-content');
-  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  try{
-    const season=new Date().getFullYear();
-    const[next,last]=await Promise.allSettled([
-      apiFetchAS('/fixtures?league=172&season='+season+'&next=10'),
-      apiFetchAS('/fixtures?league=172&season='+season+'&last=5')
-    ]);
-    const upcoming=(next.status==='fulfilled'?(next.value.response||[]):[]);
-    const finished=(last.status==='fulfilled'?(last.value.response||[]):[]);
-    const all=[...finished.reverse(),...upcoming];
-    if(!all.length){
-      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-      return;
-    }
-    c.innerHTML=all.map(f=>{
-      const h=f.teams?.home,a=f.teams?.away;
-      const hg=f.goals?.home,ag=f.goals?.away;
-      const hf=getFlag(h?.name),af=getFlag(a?.name);
-      const date=new Date(f.fixture?.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-      const isFinished=f.fixture?.status?.short==='FT';
-      const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan)">${date}</div>`;
-      return `<div class="match-card ${isFinished?'finished':''}">
-        <div class="match-header"><span class="match-league">🇧🇬 ${f.league?.round||'Ефбет Лига'}</span><span class="ms ${isFinished?'finished':'scheduled'}">${isFinished?'КРАЙ':'ПРЕДСТОИ'}</span></div>
-        <div class="match-body"><div class="teams-row">
-          <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${h?.name||'—'}</div></div>
-          <div class="score-box">${scoreHtml}</div>
-          <div class="team"><span class="team-flag">${af}</span><div class="team-name">${a?.name||'—'}</div></div>
-        </div></div>
-      </div>`;
-    }).join('');
+    let html='';
+    order.forEach(r=>{
+      html+=`<div class="comp-header">${icon} ${r}</div>`;
+      groups[r].forEach(f=>{
+        const match=asFixtureToMatch(f);
+        const isLive=liveIds.has(f.fixture?.id);
+        const isFinished=match.status==='FINISHED';
+        const ls=isLive?extractASLiveStats(f):null;
+        html+=renderMatch(match, !isFinished, allMatches, null, ls);
+      });
+    });
+    c.innerHTML=html;
   }catch(e){
     c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
   }
 }
+async function loadChampionsLeagueAS(){await loadASLeagueTab('cl',2,'⭐','Шампионска лига');}
+async function loadEuropaLeagueAS(){await loadASLeagueTab('el',3,'🟠','Лига Европа');}
+async function loadUECL(){await loadASLeagueTab('uecl',848,'🔵','Лига на конференциите');}
+async function loadEfbet(){await loadASLeagueTab('efbet',172,'🇧🇬','Ефбет Лига');}
 switchTab('live');
 </script>
 </body>
