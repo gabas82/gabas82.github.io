@@ -258,7 +258,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.23</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.24</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -2233,14 +2233,20 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const season=new Date().getFullYear();
-    const[nextRes,lastRes,liveRes]=await Promise.allSettled([
+    const[nextRes,lastRes,liveRes,prevRes]=await Promise.allSettled([
       apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
       apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
-      apiFetchAS('/fixtures?live=all')
+      apiFetchAS('/fixtures?live=all'),
+      apiFetchAS('/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25')
     ]);
     const upcomingRaw=(nextRes.status==='fulfilled'?(nextRes.value.response||[]):[]);
     const finishedRaw=(lastRes.status==='fulfilled'?(lastRes.value.response||[]):[]);
     const liveRaw=(liveRes.status==='fulfilled'?(liveRes.value.response||[]):[]);
+    // Ако новият сезон тъкмо е започнал (напр. 1st Qualifying Round), в него
+    // все още няма нито един завършен мач — тегли и миналия сезон, само за да
+    // има прогнозният модел форма/голова статистика, върху която да смята.
+    // Тези мачове НЕ се показват в списъка, ползват се само за buildPrediction().
+    const prevSeasonRaw=(prevRes.status==='fulfilled'?(prevRes.value.response||[]):[]);
     const liveFixtures=liveRaw.filter(f=>f.league?.id===leagueId);
     const liveIds=new Set(liveFixtures.map(f=>f.fixture?.id));
 
@@ -2253,7 +2259,8 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
       return;
     }
 
-    const allMatches=allRaw.map(asFixtureToMatch);
+    const historyPool=finished.length>=4?allRaw:[...allRaw,...prevSeasonRaw];
+    const allMatches=historyPool.map(asFixtureToMatch);
 
     const groups={};
     const order=[];
