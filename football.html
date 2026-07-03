@@ -180,6 +180,10 @@
   .cb-stat-label { font-size: 7px; color: var(--muted); letter-spacing: 0.5px; }
   .cb-score { font-family: 'Rajdhani',sans-serif; font-size: 18px; font-weight: 700; color: var(--purple); min-width: 36px; text-align: center; }
   .cb-info-box { margin: 0 16px 12px; padding: 10px 12px; background: rgba(192,132,252,0.06); border: 1px solid rgba(192,132,252,0.25); border-radius: 10px; font-size: 10px; color: var(--muted); line-height: 1.5; }
+  .ko-eliminated { opacity: 0.55; }
+  .ko-badge { display:inline-block; font-size: 8px; font-family:'Rajdhani',sans-serif; font-weight:700; letter-spacing:1px; padding:2px 6px; border-radius: 8px; margin-left:6px; }
+  .ko-badge.alive { background: rgba(0,230,118,0.15); border:1px solid rgba(0,230,118,0.4); color: var(--green); }
+  .ko-badge.out { background: rgba(255,23,68,0.12); border:1px solid rgba(255,23,68,0.35); color: var(--red); }
 </style>
 </head>
 <body>
@@ -200,6 +204,7 @@
   <div class="tab" onclick="switchTab('scorers')">⚽ ГОЛМАЙСТОРИ</div>
   <div class="tab" onclick="switchTab('cards')">🟨 КАРТОНИ</div>
   <div class="tab" onclick="switchTab('comeback')">🔄 ОБРАТИ</div>
+  <div class="tab" onclick="switchTab('knockout')">🏆 НОКАУТ</div>
   <div class="tab" onclick="switchTab('cl')">⭐ ШЛ</div>
   <div class="tab" onclick="switchTab('el')">🟠 ЛЕ</div>
   <div class="tab" onclick="switchTab('uecl')">🔵 ЛК</div>
@@ -232,6 +237,10 @@
   <div class="cb-info-box">📊 <b>Concede First %</b> — колко често отборът е бил на загуба на полувремето. <b>Comeback %</b> — колко от тези мачове е завършил без загуба (равен/победа). <b>Гол/мач</b> — средно вкарани голове. По-висок Comeback Rating = по-голям шанс за обрат, ако отборът поведе пръв съперника.</div>
   <div id="comeback-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
+<div id="tab-knockout" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🏆 НОКАУТ ФАЗА — WORLD CUP 2026</div>
+  <div id="knockout-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
 <div id="tab-cl" class="tab-content">
   <div class="section-title" style="margin-top:12px">⭐ ШАМПИОНСКА ЛИГА</div>
   <div id="cl-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
@@ -249,7 +258,7 @@
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.19</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.20</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -293,6 +302,8 @@ function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
 let wcScorersCache=[];
 let comebackStatsCache=null;
+let wcKnockoutMatchesCache=null;
+let wcAliveTeamsCache=null;
 
 async function loadWCScorers(){
   try{
@@ -330,7 +341,7 @@ async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Erro
 async function apiFetchAS(p){const r=await fetch(WORKER_AS+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 function switchTab(name){
   currentTab=name;
-  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','cl','el','uecl','efbet'];
+  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -350,6 +361,7 @@ async function loadCurrentTab(){
   else if(currentTab==='scorers')loadScorers();
   else if(currentTab==='cards')loadCards();
   else if(currentTab==='comeback')loadComeback(true);
+  else if(currentTab==='knockout')loadKnockout();
   else if(currentTab==='cl')loadEuroLeague('cl',2001,'⭐ Шампионска лига');
   else if(currentTab==='el')loadEuroLeague('el',2018,'🟠 Лига Европа');
   else if(currentTab==='uecl')loadUECL();
@@ -1624,7 +1636,11 @@ async function loadStandings(){
           continue;
         }
       }
-      html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;
+      if(id===2000){
+        html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">🔒 груповата фаза приключи — архив</span></div>`;
+      } else {
+        html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;
+      }
       standings.forEach(group=>{
         if(standings.length>1)html+=`<div class="section-title">${group.group||group.stage}</div>`;
         html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;
@@ -1649,6 +1665,7 @@ function buildScorersFromMatches(matches){
           id, name:g.scorer?.name||'—',
           team:g.team?.shortName||g.team?.name||'—',
           teamName:g.team?.name||'',
+          teamId:g.team?.id||null,
           goals:0, assists:0, penGoals:0, ownGoals:0
         };
       }
@@ -1664,6 +1681,7 @@ function buildScorersFromMatches(matches){
             id:aid, name:g.assist?.name||'—',
             team:g.team?.shortName||g.team?.name||'—',
             teamName:g.team?.name||'',
+            teamId:g.team?.id||null,
             goals:0, assists:0, penGoals:0, ownGoals:0
           };
         }
@@ -1674,6 +1692,103 @@ function buildScorersFromMatches(matches){
   return Object.values(players)
     .filter(p=>p.goals>0||p.assists>0)
     .sort((a,b)=>b.goals-a.goals||b.assists-a.assists);
+}
+
+// ==== v3.20: НОКАУТ ФАЗА + "ОСТАНАЛИ ОТБОРИ" ФИЛТЪР ====
+const STAGE_LABELS={
+  'LAST_32':'🔵 1/16-финал (Round of 32)',
+  'ROUND_OF_32':'🔵 1/16-финал (Round of 32)',
+  'LAST_16':'🟢 1/8-финал (Round of 16)',
+  'ROUND_OF_16':'🟢 1/8-финал (Round of 16)',
+  'QUARTER_FINALS':'🟡 Четвъртфинал',
+  'SEMI_FINALS':'🟠 Полуфинал',
+  'THIRD_PLACE':'🥉 Мач за 3-то място',
+  'FINAL':'🏆 ФИНАЛ'
+};
+const STAGE_ORDER={
+  'LAST_32':1,'ROUND_OF_32':1,'LAST_16':2,'ROUND_OF_16':2,
+  'QUARTER_FINALS':3,'SEMI_FINALS':4,'THIRD_PLACE':5,'FINAL':6
+};
+
+async function loadWCKnockoutData(force){
+  if(wcKnockoutMatchesCache && !force) return wcKnockoutMatchesCache;
+  try{
+    const ts=Date.now();
+    const data=await apiFetch('/competitions/2000/matches?_t='+ts);
+    wcKnockoutMatchesCache=data.matches||[];
+    return wcKnockoutMatchesCache;
+  }catch(e){
+    return wcKnockoutMatchesCache||[];
+  }
+}
+
+// Определя кои отбори са "живи" (класирали са се за нокаут фазата и не са отпаднали)
+// на база резултатите от вече изтеглените мачове — без допълнителни заявки по отбор.
+function computeWCAliveTeams(matches){
+  const knockout=(matches||[]).filter(m=>m.stage && m.stage!=='GROUP_STAGE');
+  if(!knockout.length)return null; // нокаутът още не е стартирал / няма данни от API-то
+  const qualified=new Set();
+  const eliminated=new Set();
+  knockout.forEach(m=>{
+    const hId=m.homeTeam?.id, aId=m.awayTeam?.id;
+    if(hId)qualified.add(hId);
+    if(aId)qualified.add(aId);
+    if(m.status==='FINISHED'){
+      let winnerId=null;
+      const w=m.score?.winner;
+      if(w==='HOME_TEAM')winnerId=hId;
+      else if(w==='AWAY_TEAM')winnerId=aId;
+      else{
+        const hg=m.score?.fullTime?.home, ag=m.score?.fullTime?.away;
+        if(hg!=null&&ag!=null&&hg!==ag)winnerId=hg>ag?hId:aId;
+      }
+      if(winnerId){
+        const loserId=winnerId===hId?aId:hId;
+        if(loserId)eliminated.add(loserId);
+      }
+    }
+  });
+  const alive=new Set([...qualified].filter(id=>!eliminated.has(id)));
+  return {qualified,eliminated,alive};
+}
+
+async function getWCAliveTeamIds(force){
+  if(wcAliveTeamsCache && !force)return wcAliveTeamsCache;
+  const matches=await loadWCKnockoutData(force);
+  wcAliveTeamsCache=computeWCAliveTeams(matches);
+  return wcAliveTeamsCache;
+}
+
+async function loadKnockout(){
+  const c=document.getElementById('knockout-content');
+  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  try{
+    const matches=await loadWCKnockoutData(true);
+    wcAliveTeamsCache=computeWCAliveTeams(matches);
+    const knockout=matches.filter(m=>m.stage && m.stage!=='GROUP_STAGE');
+    if(!knockout.length){
+      c.innerHTML='<div class="no-data">Нокаут фазата още не е стартирала или API-то все още не връща данни за нея.</div>';
+      return;
+    }
+    const groups={};
+    knockout.forEach(m=>{
+      const st=m.stage;
+      if(!groups[st])groups[st]=[];
+      groups[st].push(m);
+    });
+    const orderedStages=Object.keys(groups).sort((a,b)=>(STAGE_ORDER[a]||99)-(STAGE_ORDER[b]||99));
+    let html='';
+    orderedStages.forEach(st=>{
+      const label=STAGE_LABELS[st]||st;
+      html+=`<div class="comp-header">${label}</div>`;
+      groups[st].slice().sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate)).forEach(m=>{
+        html+=renderMatch(m,false,null,null,null);
+      });
+    });
+    c.innerHTML=html;
+  }catch(e){
+    c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;
+  }
 }
 
 async function loadScorers(){
@@ -1701,15 +1816,31 @@ async function loadScorers(){
       const fallback=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
       const fsc=fallback.scorers||[];
       wcScorers=fsc.map(s=>({
+        id:null,
         name:s.player?.name||'—',
         team:s.team?.shortName||s.team?.name||'—',
         teamName:s.team?.name||'',
+        teamId:s.team?.id||null,
         goals:s.goals||0,
         assists:s.assists||0,
         penGoals:0
       })).filter(s=>s.goals>0);
       wcSource='football-data.org';
     }
+
+    // Само отбори, които все още са в турнира (класирали са се напред от групите).
+    // Отпадналите отбори вече не ни интересуват — филтрираме ги.
+    try{
+      const aliveInfo=await getWCAliveTeamIds();
+      if(aliveInfo && aliveInfo.alive && aliveInfo.alive.size){
+        const withTeamId=wcScorers.filter(s=>s.teamId!=null);
+        if(withTeamId.length){
+          wcScorers=wcScorers.filter(s=>s.teamId==null?true:aliveInfo.alive.has(s.teamId));
+          wcSource+=' · само оставащите в турнира отбори';
+        }
+      }
+    }catch(e3){}
+
     if(wcScorers.length){
       const cols='28px 1fr 60px 28px 28px';
       html+=`<div class="comp-header">🏆 World Cup 2026 <span style="font-size:9px;color:var(--muted);margin-left:8px">${wcSource}</span></div>
@@ -1819,7 +1950,7 @@ async function loadCards(){
   rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
 }
 
-// ==== НОВО v3.19: COMEBACK RATING ====
+// ==== COMEBACK RATING ====
 // Извлича Concede First %, Comeback % и Goals Avg от мачове, които вече се теглят
 // за останалите табове (ПРОГНОЗИ/КЛАСАЦИЯ) — без нови заявки по отбор.
 function calcComebackStatsForTeam(teamId, allMatches){
@@ -1868,12 +1999,17 @@ function calcComebackStatsForTeam(teamId, allMatches){
   };
 }
 
-function buildComebackStats(allMatchesByComp){
+function buildComebackStats(allMatchesByComp, wcAlive){
   const result={};
   for(const compId in allMatchesByComp){
     const matches=allMatchesByComp[compId];
     const teamIds=new Set();
     matches.forEach(m=>{if(m.homeTeam?.id)teamIds.add(m.homeTeam.id);if(m.awayTeam?.id)teamIds.add(m.awayTeam.id);});
+    // За World Cup 2026: смятаме статистика само за отборите, които все още
+    // са в турнира (за по-добра предвидимост — отпадналите вече не се актуализират).
+    if(String(compId)==='2000' && wcAlive && wcAlive.alive && wcAlive.alive.size){
+      [...teamIds].forEach(id=>{ if(!wcAlive.alive.has(id)) teamIds.delete(id); });
+    }
     const teamNames={};
     matches.forEach(m=>{
       if(m.homeTeam?.id)teamNames[m.homeTeam.id]={name:m.homeTeam.shortName||m.homeTeam.name,fullName:m.homeTeam.name};
@@ -1920,14 +2056,15 @@ async function loadComeback(forceRefresh){
 
     // WC2026 заявка отделно (вече кешираните данни не съдържат halfTime гарантирано
     // в общия отговор за всички competitions, затова презареждаме изрично).
+    let wcAlive=null;
     try{
-      const ts=Date.now();
-      const wc=await apiFetch('/competitions/2000/matches?_t='+ts);
-      const wcFinished=(wc.matches||[]).filter(m=>m.status==='FINISHED');
+      const wcMatches=await loadWCKnockoutData();
+      const wcFinished=(wcMatches||[]).filter(m=>m.status==='FINISHED');
       if(wcFinished.length)allMatchesByComp[2000]=wcFinished;
+      wcAlive=await getWCAliveTeamIds();
     }catch(e){}
 
-    comebackStatsCache=buildComebackStats(allMatchesByComp);
+    comebackStatsCache=buildComebackStats(allMatchesByComp, wcAlive);
     renderComebackStats(comebackStatsCache);
   }catch(e){
     c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;
@@ -1945,7 +2082,8 @@ function renderComebackStats(statsByComp){
   COMPS.forEach(comp=>{
     const teams=statsByComp[comp.id];
     if(!teams||!teams.length)return;
-    html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="cb-card">`;
+    const suffix=comp.id===2000?' <span style="font-size:9px;color:var(--muted);margin-left:8px">само оставащите в турнира отбори</span>':'';
+    html+=`<div class="comp-header">${comp.flag} ${comp.name}${suffix}</div><div class="cb-card">`;
     teams.slice(0,15).forEach((t,i)=>{
       const scoreCol=t.ratingScore>=55?'var(--green)':t.ratingScore>=35?'var(--yellow)':'var(--purple)';
       html+=`<div class="cb-row">
