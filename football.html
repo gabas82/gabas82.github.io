@@ -289,7 +289,7 @@
   <div id="superlig-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.27</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.28</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -1689,7 +1689,7 @@ async function loadLive(){
         const hf=getFlag(hn),af=getFlag(an);
         const ls=lsMap[(hn+'_'+an).toLowerCase()]||null;
         const sHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="color:var(--cyan);font-family:'Rajdhani',sans-serif;font-size:14px">LIVE</div>`;
-        return `<div class="match-card live"><div class="match-header"><span class="match-league">${f.league?.name||'FIFA World Cup'}</span><span class="ms live">● LIVE ${min?min+"'":''}  </span></div><div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${sHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${min?`<div class="match-minute">⏱ ${min}'</div>`:''}</div>${ls?liveStatsHtml(ls,hn,an):''}${nextGoalHtml(ls,min||0,hn,an,hf,af,hg,ag)}</div>`;
+        return `<div class="match-card live"><div class="match-header"><span class="match-league">${f.league?.name||'FIFA World Cup'}</span><span class="ms live">● LIVE ${min?min+"'":''}  </span></div><div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${sHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${min?`<div class="match-minute">⏱ ${min}'</div>`:''}</div>${nextGoalHtml(ls,min||0,hn,an,hf,af,hg,ag)}${liveGoalCalcHtHtml(ls,min||0,hg,ag,hn,an,hf,af)}${liveGoalCalcHtml(ls,min||0,hg,ag,hn,an,hf,af)}${ls?liveStatsHtml(ls,hn,an):''}</div>`;
       }).join('');
       c.innerHTML=html||'<div class="no-data">⚽ Няма live мачове в момента</div>';
       return;
