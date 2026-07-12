@@ -209,6 +209,12 @@
   <div class="tab" onclick="switchTab('el')">🟠 ЛЕ</div>
   <div class="tab" onclick="switchTab('uecl')">🔵 ЛК</div>
   <div class="tab" onclick="switchTab('efbet')">🇧🇬 ЕФБЕТ</div>
+  <div class="tab" onclick="switchTab('pl')">🏴󐁧󐁢󐁥󐁮󐁧󐁿 ПРЕМИЪР</div>
+  <div class="tab" onclick="switchTab('bl')">🇩🇪 БУНДЕСЛИГА</div>
+  <div class="tab" onclick="switchTab('seriea')">🇮🇹 СЕРИЯ А</div>
+  <div class="tab" onclick="switchTab('laliga')">🇪🇸 ЛА ЛИГА</div>
+  <div class="tab" onclick="switchTab('ligue1')">🇫🇷 ЛИГ 1</div>
+  <div class="tab" onclick="switchTab('superlig')">🇹🇷 СЮПЕР ЛИГ</div>
 </div>
 <div id="tab-live" class="tab-content active"><div class="section-title" style="margin-top:12px">LIVE МАЧОВЕ</div><div id="live-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div></div>
 <div id="tab-today" class="tab-content"><div class="section-title" style="margin-top:12px">МАЧОВЕ ДНЕС</div><div id="today-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div></div>
@@ -257,8 +263,32 @@
   <div class="section-title" style="margin-top:12px">🇧🇬 ЕФБЕТ ЛИГА</div>
   <div id="efbet-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
+<div id="tab-pl" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🏴󐁧󐁢󐁥󐁮󐁧󐁿 ПРЕМИЪР ЛИЙГ</div>
+  <div id="pl-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-bl" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🇩🇪 БУНДЕСЛИГА</div>
+  <div id="bl-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-seriea" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🇮🇹 СЕРИЯ А</div>
+  <div id="seriea-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-laliga" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🇪🇸 ЛА ЛИГА</div>
+  <div id="laliga-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-ligue1" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🇫🇷 ЛИГ 1</div>
+  <div id="ligue1-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
+<div id="tab-superlig" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🇹🇷 СЮПЕР ЛИГ</div>
+  <div id="superlig-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.25</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.26</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -284,7 +314,13 @@ const AS_LEAGUES=[
   {id:2,tab:'cl',icon:'⭐',title:'Шампионска лига'},
   {id:3,tab:'el',icon:'🟠',title:'Лига Европа'},
   {id:848,tab:'uecl',icon:'🔵',title:'Лига на конференциите'},
-  {id:172,tab:'efbet',icon:'🇧🇬',title:'Ефбет Лига'}
+  {id:172,tab:'efbet',icon:'🇧🇬',title:'Ефбет Лига'},
+  {id:39,tab:'pl',icon:'🏴󐁧󐁢󐁥󐁮󐁧󐁿',title:'Премиър Лийг'},
+  {id:78,tab:'bl',icon:'🇩🇪',title:'Бундеслига'},
+  {id:135,tab:'seriea',icon:'🇮🇹',title:'Серия А'},
+  {id:140,tab:'laliga',icon:'🇪🇸',title:'Ла Лига'},
+  {id:61,tab:'ligue1',icon:'🇫🇷',title:'Лиг 1'},
+  {id:203,tab:'superlig',icon:'🇹🇷',title:'Сюпер Лиг'}
 ];
 const FLAGS={
   'Mexico':'🇲🇽','Brazil':'🇧🇷','Argentina':'🇦🇷','France':'🇫🇷','Germany':'🇩🇪',
@@ -350,7 +386,7 @@ async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Erro
 async function apiFetchAS(p){const r=await fetch(WORKER_AS+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 function switchTab(name){
   currentTab=name;
-  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet'];
+  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -375,6 +411,12 @@ async function loadCurrentTab(){
   else if(currentTab==='el')loadEuropaLeagueAS();
   else if(currentTab==='uecl')loadUECL();
   else if(currentTab==='efbet')loadEfbet();
+  else if(currentTab==='pl')loadPremierLeagueAS();
+  else if(currentTab==='bl')loadBundesligaAS();
+  else if(currentTab==='seriea')loadSerieAAS();
+  else if(currentTab==='laliga')loadLaLigaAS();
+  else if(currentTab==='ligue1')loadLigue1AS();
+  else if(currentTab==='superlig')loadSuperLigAS();
 }
 function updateTime(){document.getElementById('update-time').textContent=new Date().toLocaleTimeString('bg-BG');}
 function getToday(){return new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Berlin'});}
@@ -545,15 +587,30 @@ function loadHistory(){
   const c=document.getElementById('history-content');
   if(!hist.length){sc.innerHTML='';c.innerHTML='<div class="no-data">Няма записани прогнози още.<br><br>Отвори таб ПРОГНОЗИ за да се запазят автоматично.</div>';return;}
   const wr=hist.filter(h=>h.result&&!h.result.decidedAfterRegulation);
-  let c1=0,co=0,cb=0,tot=wr.length;
+  let c1=0,tot=wr.length;
+  let overCorrect=0,overTotal=0,underCorrect=0,underTotal=0;
+  let bttsYesCorrect=0,bttsYesTotal=0,bttsNoCorrect=0,bttsNoTotal=0;
   wr.forEach(h=>{
     const p=h.pred,r=h.result;
     const pw=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
     if(pw===r.winner)c1++;
-    if((p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5))co++;
-    if((p.btts>50&&r.gg)||(p.btts<=50&&!r.gg))cb++;
+    if(p.over25>50){overTotal++;if(r.total>2.5)overCorrect++;}
+    else{underTotal++;if(r.total<=2.5)underCorrect++;}
+    if(p.btts>50){bttsYesTotal++;if(r.gg)bttsYesCorrect++;}
+    else{bttsNoTotal++;if(!r.gg)bttsNoCorrect++;}
   });
-  sc.innerHTML=tot?`<div class="hist-stats"><div class="hist-stats-title">📊 СТАТИСТИКА (${tot} завършени)</div><div class="hist-stats-grid"><div class="hist-stat"><div class="hist-stat-val good">${Math.round(c1/tot*100)}%</div><div class="hist-stat-label">1/X/2 ТОЧНОСТ</div></div><div class="hist-stat"><div class="hist-stat-val info">${Math.round(co/tot*100)}%</div><div class="hist-stat-label">НАД/ПОД 2.5</div></div><div class="hist-stat"><div class="hist-stat-val purple">${Math.round(cb/tot*100)}%</div><div class="hist-stat-label">Г/Г ТОЧНОСТ</div></div></div></div>`:'';
+  const pct=(c,t)=>t?Math.round(c/t*100):0;
+  sc.innerHTML=tot?`<div class="hist-stats"><div class="hist-stats-title">📊 СТАТИСТИКА (${tot} завършени)</div>
+    <div class="hist-stats-grid"><div class="hist-stat"><div class="hist-stat-val good">${pct(c1,tot)}%</div><div class="hist-stat-label">1/X/2 ТОЧНОСТ</div></div></div>
+    <div class="hist-stats-grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
+      <div class="hist-stat"><div class="hist-stat-val info">${pct(overCorrect,overTotal)}%</div><div class="hist-stat-label">НАД 2.5 (${overTotal})</div></div>
+      <div class="hist-stat"><div class="hist-stat-val info">${pct(underCorrect,underTotal)}%</div><div class="hist-stat-label">ПОД 2.5 (${underTotal})</div></div>
+    </div>
+    <div class="hist-stats-grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
+      <div class="hist-stat"><div class="hist-stat-val purple">${pct(bttsYesCorrect,bttsYesTotal)}%</div><div class="hist-stat-label">Г/Г ДА (${bttsYesTotal})</div></div>
+      <div class="hist-stat"><div class="hist-stat-val purple">${pct(bttsNoCorrect,bttsNoTotal)}%</div><div class="hist-stat-label">Г/Г НЕ (${bttsNoTotal})</div></div>
+    </div>
+  </div>`:'';
   c.innerHTML=hist.map(h=>{
     const p=h.pred;
     const date=new Date(h.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
@@ -658,6 +715,23 @@ function buildPrediction(match,allMatches){
   const aAvgG=avgGAll(allMatches,aId),aAvgC=avgCAll(allMatches,aId);
   if(hAvgG===null&&hAvgC===null&&aAvgG===null&&aAvgC===null)return null;
 
+  // Успеваемост за целия наличен сезон (W/D/L%) — по-стабилен сигнал от
+  // последните 5 мача, особено в началото на сезона или при неравномерна форма.
+  function seasonRate(matches,teamId){
+    const rel=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId));
+    if(!rel.length)return null;
+    let w=0,d=0,l=0;
+    rel.forEach(m=>{
+      const isH=m.homeTeam?.id===teamId;
+      const mg=isH?(m.score?.fullTime?.home??0):(m.score?.fullTime?.away??0);
+      const og=isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0);
+      if(mg>og)w++;else if(mg===og)d++;else l++;
+    });
+    return{winRate:w/rel.length,drawRate:d/rel.length,lossRate:l/rel.length,n:rel.length};
+  }
+  const hSeason=seasonRate(allMatches,hId),aSeason=seasonRate(allMatches,aId);
+  const hWinRate=hSeason?hSeason.winRate:0.33,aWinRate=aSeason?aSeason.winRate:0.33;
+
   const expH=Math.max(0.3,((hAvgG??1.2)+(aAvgC??1.2))/2*1.1);
   const expA=Math.max(0.3,((aAvgG??1.2)+(hAvgC??1.2))/2*0.9);
   const expTotal=expH+expA;
@@ -667,8 +741,8 @@ function buildPrediction(match,allMatches){
   const htRatio=(hHtRatio+aHtRatio)/2;
 
   const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1;
-  const hWinP=Math.round(((hFS/tot)*0.6+(expH/expTotal)*0.4)*100);
-  const aWinP=Math.round(((aFS/tot)*0.6+(expA/expTotal)*0.4)*100);
+  const hWinP=Math.round(((hFS/tot)*0.35+(expH/expTotal)*0.35+hWinRate*0.30)*100);
+  const aWinP=Math.round(((aFS/tot)*0.35+(expA/expTotal)*0.35+aWinRate*0.30)*100);
   const drawP=Math.max(5,100-hWinP-aWinP);
   const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP));
   const aWinAdj=100-drawP-hWinAdj;
@@ -681,7 +755,7 @@ function buildPrediction(match,allMatches){
   let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*htRatio,h)*poissonProb(expA*htRatio,a)*100});htS.sort((a,b)=>b.p-a.p);
   const expCorners=Math.round(expTotal*1.8+5.5);
   const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
-  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100)};
+  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100),hWinRatePct:Math.round(hWinRate*100),aWinRatePct:Math.round(aWinRate*100)};
 }
 
 function calcConfidence(pred, odds){
@@ -1479,9 +1553,9 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
         ${valueBets}
         <div class="pred-title" style="margin-top:8px">🔮 ПРОГНОЗА</div>
         <div class="pred-grid-3">
-          <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div></div>
+          <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div><div class="pred-pct">сезон W%: ${pred.hWinRatePct}%</div></div>
           <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${pred.draw}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.draw}%;background:var(--yellow)"></div></div></div>
-          <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${pred.aWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.aWin}%;background:var(--red)"></div></div></div>
+          <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${pred.aWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.aWin}%;background:var(--red)"></div></div><div class="pred-pct">сезон W%: ${pred.aWinRatePct}%</div></div>
         </div>
         <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pCol(pred.over25)}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div>
@@ -1696,8 +1770,7 @@ async function loadUpcoming(){
   try{
     const today=getToday(),day3=getDatePlus(3);
     const upData=await apiFetch('/matches?dateFrom='+today+'&dateTo='+day3+'&status=SCHEDULED,TIMED');
-    const upcoming=upData.matches||[];
-    if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
+    let upcoming=upData.matches||[];
     let allMatches=[];
     const ts=Date.now();
     try{
@@ -1705,14 +1778,24 @@ async function loadUpcoming(){
         apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),
         apiFetch('/competitions/2000/matches?_t='+ts)
       ]);
-      const wcFinishedOnly=(wc.matches||[]).filter(m=>m.status==='FINISHED');
+      const wcAll=wc.matches||[];
+      const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
       allMatches=[...(h.matches||[]),...wcFinishedOnly];
+      // Нокаут мачовете на Световното (напр. двата полуфинала) понякога са
+      // разделени с повече от 3 дни един от друг — 3-дневният прозорец на
+      // основната заявка пропуска втория. Тук ги добавяме отделно, без
+      // ограничение по дата, за да не изчезват от таб ПРОГНОЗИ.
+      const wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
+      const existingIds=new Set(upcoming.map(m=>String(m.id)));
+      wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
     }catch(e){}
+    if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
     let html='';
     for(const k in groups){
       const g=groups[k];const comp=COMPS.find(c=>c.id==k);
+      g.matches.sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
       html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`;
       for(const m of g.matches){
         let h2h=[];
@@ -1877,13 +1960,18 @@ async function loadKnockout(){
   const c=document.getElementById('knockout-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
-    const matches=await loadWCKnockoutData(true);
+    // Щом финалът е приключил, турнирът не се променя повече — спираме
+    // принудителното презареждане (force) и показваме архивен бадж, вместо
+    // да правим ненужни заявки към API-то при всяко отваряне на таба.
+    const alreadyArchived=wcKnockoutMatchesCache&&wcKnockoutMatchesCache.some(m=>m.stage==='FINAL'&&m.status==='FINISHED');
+    const matches=await loadWCKnockoutData(!alreadyArchived);
     wcAliveTeamsCache=computeWCAliveTeams(matches);
     const knockout=matches.filter(m=>m.stage && m.stage!=='GROUP_STAGE');
     if(!knockout.length){
       c.innerHTML='<div class="no-data">Нокаут фазата още не е стартирала или API-то все още не връща данни за нея.</div>';
       return;
     }
+    const finalDone=knockout.some(m=>m.stage==='FINAL'&&m.status==='FINISHED');
     const groups={};
     knockout.forEach(m=>{
       const st=m.stage;
@@ -1891,7 +1979,7 @@ async function loadKnockout(){
       groups[st].push(m);
     });
     const orderedStages=Object.keys(groups).sort((a,b)=>(STAGE_ORDER[a]||99)-(STAGE_ORDER[b]||99));
-    let html='';
+    let html=finalDone?`<div style="margin:0 16px 12px;padding:8px 12px;background:rgba(255,214,0,0.06);border:1px solid rgba(255,214,0,0.25);border-radius:10px;font-size:10px;color:var(--yellow);text-align:center">🏁 Турнирът приключи — архивен изглед, без автоматично опресняване</div>`:'';
     orderedStages.forEach(st=>{
       const label=STAGE_LABELS[st]||st;
       html+=`<div class="comp-header">${label}</div>`;
@@ -2004,6 +2092,40 @@ async function loadScorers(){
       html+='</div>';
     }catch(e){}
   }
+
+  // Сюпер Лиг (Турция) не се покрива от football-data.org — тегли се директно
+  // през api-sports.io, аналогично на ШЛ/ЛЕ/ЛК/ЕФБЕТ моделите другаде в кода.
+  try{
+    const season=new Date().getFullYear();
+    let slData=await apiFetchAS('/players/topscorers?league=203&season='+season);
+    let slArr=slData.response||[];
+    if(!slArr.length){
+      slData=await apiFetchAS('/players/topscorers?league=203&season='+(season-1));
+      slArr=slData.response||[];
+    }
+    if(slArr.length){
+      const cols='28px 1fr 60px 30px 30px';
+      html+=`<div class="comp-header">🇹🇷 Сюпер Лиг</div>
+      <div class="big-table">
+        <div class="big-header" style="grid-template-columns:${cols}">
+          <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+          <div style="color:var(--green)">⚽</div>
+          <div style="color:var(--cyan)">🎯</div>
+        </div>`;
+      slArr.slice(0,20).forEach((p,i)=>{
+        const stat=p.statistics?.[0]||{};
+        html+=`<div class="big-row" style="grid-template-columns:${cols}">
+          <div class="s-pos">${i+1}</div>
+          <div class="s-name">${p.player?.name||'—'}</div>
+          <div class="s-team">${getFlag(stat.team?.name)} ${stat.team?.name||'—'}</div>
+          <div class="s-goals">${stat.goals?.total||0}</div>
+          <div class="s-ast">${stat.goals?.assists!=null?stat.goals.assists:'—'}</div>
+        </div>`;
+      });
+      html+='</div>';
+    }
+  }catch(e){}
+
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
 
@@ -2013,8 +2135,10 @@ async function loadCards(){
   let yHtml='',rHtml='';
   const season=new Date().getFullYear();
   const seasonPrev=season-1;
-  for(const comp of COMPS){
-    const asLeagueId=COMPS_AS_MAP[comp.id];
+  const CARD_COMPS=[...COMPS,{id:'tr_superlig',name:'Сюпер Лиг',flag:'🇹🇷'}];
+  const CARD_AS_MAP={...COMPS_AS_MAP,tr_superlig:203};
+  for(const comp of CARD_COMPS){
+    const asLeagueId=CARD_AS_MAP[comp.id];
     if(!asLeagueId)continue;
     try{
       let yData=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season);
@@ -2285,6 +2409,12 @@ async function loadChampionsLeagueAS(){await loadASLeagueTab('cl',2,'⭐','Ша�
 async function loadEuropaLeagueAS(){await loadASLeagueTab('el',3,'🟠','Лига Европа');}
 async function loadUECL(){await loadASLeagueTab('uecl',848,'🔵','Лига на конференциите');}
 async function loadEfbet(){await loadASLeagueTab('efbet',172,'🇧🇬','Ефбет Лига');}
+async function loadPremierLeagueAS(){await loadASLeagueTab('pl',39,'🏴󐁧󐁢󐁥󐁮󐁧󐁿','Премиър Лийг');}
+async function loadBundesligaAS(){await loadASLeagueTab('bl',78,'🇩🇪','Бундеслига');}
+async function loadSerieAAS(){await loadASLeagueTab('seriea',135,'🇮🇹','Серия А');}
+async function loadLaLigaAS(){await loadASLeagueTab('laliga',140,'🇪🇸','Ла Лига');}
+async function loadLigue1AS(){await loadASLeagueTab('ligue1',61,'🇫🇷','Лиг 1');}
+async function loadSuperLigAS(){await loadASLeagueTab('superlig',203,'🇹🇷','Сюпер Лиг');}
 switchTab('live');
 </script>
 </body>
