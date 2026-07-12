@@ -20,7 +20,8 @@
   .live-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; animation: pulse 1.5s infinite; box-shadow: 0 0 8px var(--green); }
   @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
   .refresh-btn { background: rgba(0,230,118,0.1); border: 1px solid rgba(0,230,118,0.3); color: var(--green); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-family: 'Rajdhani',sans-serif; font-weight: 600; cursor: pointer; letter-spacing: 1px; }
-  .tabs { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); }
+  .tabs { display: flex; gap: 6px; padding: 10px 16px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border); cursor: grab; user-select: none; }
+  .tabs.dragging { cursor: grabbing; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-family: 'Rajdhani',sans-serif; font-weight: 600; letter-spacing: 1px; cursor: pointer; white-space: nowrap; border: 1px solid var(--border); background: var(--card); color: var(--muted); transition: all 0.2s; flex-shrink: 0; }
   .tab.active { background: rgba(0,230,118,0.15); border-color: var(--green); color: var(--green); }
@@ -288,7 +289,7 @@
   <div id="superlig-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
-<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.26</div>
+<div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.27</div>
 <script>
 const WORKER='https://orange-grass-d809.gabas82.workers.dev/football';
 const WORKER_AS='https://orange-grass-d809.gabas82.workers.dev/apisports';
@@ -2416,6 +2417,39 @@ async function loadLaLigaAS(){await loadASLeagueTab('laliga',140,'🇪🇸','Л�
 async function loadLigue1AS(){await loadASLeagueTab('ligue1',61,'🇫🇷','Лиг 1');}
 async function loadSuperLigAS(){await loadASLeagueTab('superlig',203,'🇹🇷','Сюпер Лиг');}
 switchTab('live');
+
+// На компютър няма как да се "плъзне" лентата с табове с пръст както на
+// телефон — тук добавяме превъртане на хоризонтал с колелцето на мишката
+// и влачене с натиснат ляв бутон, за да се виждат новите табове след ЕФБЕТ.
+(function initTabsScroll(){
+  const tabsEl=document.querySelector('.tabs');
+  if(!tabsEl)return;
+  tabsEl.addEventListener('wheel',function(e){
+    if(e.deltaY===0)return;
+    e.preventDefault();
+    tabsEl.scrollLeft+=e.deltaY;
+  },{passive:false});
+  let isDown=false,startX=0,scrollStart=0;
+  tabsEl.addEventListener('mousedown',function(e){
+    isDown=true;
+    tabsEl.classList.add('dragging');
+    startX=e.pageX;
+    scrollStart=tabsEl.scrollLeft;
+  });
+  window.addEventListener('mouseup',function(){
+    isDown=false;
+    tabsEl.classList.remove('dragging');
+  });
+  tabsEl.addEventListener('mouseleave',function(){
+    isDown=false;
+    tabsEl.classList.remove('dragging');
+  });
+  tabsEl.addEventListener('mousemove',function(e){
+    if(!isDown)return;
+    e.preventDefault();
+    tabsEl.scrollLeft=scrollStart-(e.pageX-startX);
+  });
+})();
 </script>
 </body>
 </html>
