@@ -350,12 +350,15 @@ const FLAGS={
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
 
-// Топ 2 голмайстори на първенството, показвани върху предстоящите (все още
-// неизиграни) мачове за ориентация — кой води в дадения турнир към момента.
-// Кешът е ключиран по competition.id ('as_'+leagueId за api-sports турнирите,
-// иначе числовия football-data.org id) и се опреснява на всеки час.
+// Пълен списък голмайстори на първенството (сортиран по голове), използван за
+// извличане на голмайстора на ВСЕКИ от двата играещи отбора върху предстоящите
+// (все още неизиграни) мачове — не голмайсторите на първенството като цяло,
+// защото те се повтарят еднакво на всички мачове от турнира и не казват нищо
+// за конкретния мач. Кешът е ключиран по competition.id ('as_'+leagueId за
+// api-sports турнирите, иначе числовия football-data.org id) и се опреснява
+// на всеки час.
 const compTopScorersCache={};
-async function fetchCompTopScorers(compId){
+async function fetchCompScorersList(compId){
   const key=String(compId);
   const cached=compTopScorersCache[key];
   if(cached&&cached.ts>Date.now()-3600000)return cached.data;
@@ -370,29 +373,38 @@ async function fetchCompTopScorers(compId){
         d=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1));
         list=normalizeApiSportsScorers(d);
       }
-      data=topTwoScorers(list);
+      data=list;
     }else{
-      const d=await apiFetch('/competitions/'+key+'/scorers?limit=10');
-      data=topTwoScorers(normalizeFootballDataScorers(d));
+      const d=await apiFetch('/competitions/'+key+'/scorers?limit=50');
+      data=normalizeFootballDataScorers(d);
     }
   }catch(e){}
   compTopScorersCache[key]={data,ts:Date.now()};
   return data;
 }
-// Периодично сканира DOM-а за все още незапълнени "🏆 Топ голмайстори" слотове
-// (виж renderMatch()) и ги попълва — независимо кой таб ги е добавил. Така не
-// се налага всяка функция, която рендира мачове, да знае за тази логика.
+// Периодично сканира DOM-а за все още незапълнени "⚽ Голмайстори" слотове (виж
+// renderMatch()) и ги попълва — независимо кой таб ги е добавил. Така не се
+// налага всяка функция, която рендира мачове, да знае за тази логика.
 function pollCompScorers(){
   const slots=document.querySelectorAll('[data-comp-scorers-id]:not([data-comp-scorers-done])');
   if(!slots.length)return;
   const ids=new Set();
-  slots.forEach(el=>ids.add(el.getAttribute('data-comp-scorers-id')));
+  slots.forEach(el=>ids.add(el.dataset.compScorersId));
   ids.forEach(async id=>{
-    const data=await fetchCompTopScorers(id);
+    const list=await fetchCompScorersList(id);
     document.querySelectorAll('[data-comp-scorers-id="'+id+'"]').forEach(el=>{
       el.setAttribute('data-comp-scorers-done','1');
-      if(!data.length){el.style.display='none';return;}
-      el.innerHTML='🏆 Топ голмайстори: '+data.map((s,i)=>(i===0?'🥇':'🥈')+' '+s.name+' ('+s.team+') · '+s.goals+'⚽').join('&nbsp;&nbsp;');
+      const homeId=el.dataset.homeId?Number(el.dataset.homeId):null;
+      const awayId=el.dataset.awayId?Number(el.dataset.awayId):null;
+      const homeName=el.dataset.homeName||'';
+      const awayName=el.dataset.awayName||'';
+      const hs=findTeamTopScorer(list,homeId,homeName);
+      const as=findTeamTopScorer(list,awayId,awayName);
+      if(!hs&&!as){el.style.display='none';return;}
+      const parts=[];
+      if(hs)parts.push('🥇 '+homeName+': '+hs.name+' ('+hs.goals+'⚽)');
+      if(as)parts.push('🥈 '+awayName+': '+as.name+' ('+as.goals+'⚽)');
+      el.innerHTML='⚽ '+parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
     });
   });
 }
@@ -1366,7 +1378,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   const statusClass=isLive?'live':isFT?'finished':'';
   const min=m.minute?m.minute+"'":(isHT?'ПОЧИВКА':'');
   const dateTimeLabel=formatMatchDateTime(m.utcDate);
-  const compScorersHtml=(!isLive&&!isFT&&m.competition?.id!=null)?`<div class="comp-scorers-slot" data-comp-scorers-id="${m.competition.id}">🏆 Топ голмайстори (${m.competition.name||''}): <span style="color:var(--muted)">зареждане...</span></div>`:'';
+  const compScorersHtml=(!isLive&&!isFT&&m.competition?.id!=null)?`<div class="comp-scorers-slot" data-comp-scorers-id="${m.competition.id}" data-home-id="${m.homeTeam?.id??''}" data-home-name="${hn.replace(/"/g,'&quot;')}" data-away-id="${m.awayTeam?.id??''}" data-away-name="${an.replace(/"/g,'&quot;')}">⚽ Голмайстори: <span style="color:var(--muted)">зареждане...</span></div>`:'';
   const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan);letter-spacing:1px">${new Date(m.utcDate).toLocaleTimeString('bg-BG',{hour:'2-digit',minute:'2-digit'})}</div>`;
   const durBadge=isFT?durationBadge(m):'';
   const statusHtml=isLive?`<span class="ms live">● LIVE ${min}</span>`:isFT?`<span class="ms finished">КРАЙ${durBadge} · П/В ${hHT??'-'}:${aHT??'-'}</span>`:isHT?`<span class="ms live">⏸ ПОЧИВКА</span>`:`<span class="ms scheduled">ПРЕДСТОИ</span>`;

@@ -45,6 +45,7 @@ function normalizeFootballDataScorers(json){
   const list=(json?.scorers||[]).map(s=>({
     name:s.player?.name||'—',
     team:s.team?.shortName||s.team?.name||'—',
+    teamId:s.team?.id??null,
     goals:s.goals||0
   })).filter(s=>s.goals>0);
   list.sort((a,b)=>b.goals-a.goals);
@@ -58,6 +59,7 @@ function normalizeApiSportsScorers(json){
     return{
       name:p.player?.name||'—',
       team:stat.team?.name||'—',
+      teamId:stat.team?.id??null,
       goals:stat.goals?.total||0
     };
   }).filter(s=>s.goals>0);
@@ -67,6 +69,22 @@ function normalizeApiSportsScorers(json){
 
 function topTwoScorers(list){
   return list.slice(0,2);
+}
+
+// Намира голмайстора на конкретен отбор в нормализиран (вече сортиран по голове
+// низходящо) списък голмайстори на първенството — така картичката на мача може
+// да показва голмайстора на всеки от двата играещи отбора, а не първенството
+// като цяло. Съвпадението е по teamId (надежден идентификатор от същия източник
+// като мача), с fallback по име, когато teamId липсва в данните.
+function findTeamTopScorer(list,teamId,teamName){
+  const norm=(teamName||'').toLowerCase();
+  const found=(list||[]).find(s=>{
+    if(teamId!=null&&s.teamId!=null)return s.teamId===teamId;
+    if(!norm||!s.team)return false;
+    const st=s.team.toLowerCase();
+    return st===norm||norm.includes(st)||st.includes(norm);
+  });
+  return found||null;
 }
 
 // v3.25: computeRegularScore() връща 90-минутния резултат само когато мачът
@@ -212,6 +230,6 @@ if (typeof module !== 'undefined' && module.exports) {
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
     saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
-    calcDoubleChance, doubleChanceHit, doubleChanceLabel
+    calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer
   };
 }
