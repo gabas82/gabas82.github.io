@@ -31,6 +31,8 @@
   .match-card.finished { border-color: rgba(90,122,138,0.3); }
   .match-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--card2); border-bottom: 1px solid var(--border); }
   .match-league { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .match-date { font-size: 9px; color: var(--muted); font-family: 'Rajdhani',sans-serif; letter-spacing: 0.5px; white-space: nowrap; }
+  .comp-scorers-slot { padding: 6px 12px; font-size: 9px; color: var(--text); background: rgba(192,132,252,0.06); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); letter-spacing: 0.3px; }
   .ms { font-size: 10px; font-family: 'Rajdhani',sans-serif; font-weight: 700; letter-spacing: 1px; }
   .ms.live { color: var(--green); } .ms.finished { color: var(--muted); } .ms.scheduled { color: var(--cyan); }
   .match-body { padding: 14px 12px; }
@@ -347,6 +349,54 @@ const FLAGS={
 };
 function getFlag(n){return FLAGS[n]||'🏟️';}
 let currentTab='live',autoTimer=null;
+
+// Топ 2 голмайстори на първенството, показвани върху предстоящите (все още
+// неизиграни) мачове за ориентация — кой води в дадения турнир към момента.
+// Кешът е ключиран по competition.id ('as_'+leagueId за api-sports турнирите,
+// иначе числовия football-data.org id) и се опреснява на всеки час.
+const compTopScorersCache={};
+async function fetchCompTopScorers(compId){
+  const key=String(compId);
+  const cached=compTopScorersCache[key];
+  if(cached&&cached.ts>Date.now()-3600000)return cached.data;
+  let data=cached?cached.data:[];
+  try{
+    if(key.startsWith('as_')){
+      const leagueId=key.replace('as_','');
+      const season=new Date().getFullYear();
+      let d=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+season);
+      let list=normalizeApiSportsScorers(d);
+      if(!list.length){
+        d=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1));
+        list=normalizeApiSportsScorers(d);
+      }
+      data=topTwoScorers(list);
+    }else{
+      const d=await apiFetch('/competitions/'+key+'/scorers?limit=10');
+      data=topTwoScorers(normalizeFootballDataScorers(d));
+    }
+  }catch(e){}
+  compTopScorersCache[key]={data,ts:Date.now()};
+  return data;
+}
+// Периодично сканира DOM-а за все още незапълнени "🏆 Топ голмайстори" слотове
+// (виж renderMatch()) и ги попълва — независимо кой таб ги е добавил. Така не
+// се налага всяка функция, която рендира мачове, да знае за тази логика.
+function pollCompScorers(){
+  const slots=document.querySelectorAll('[data-comp-scorers-id]:not([data-comp-scorers-done])');
+  if(!slots.length)return;
+  const ids=new Set();
+  slots.forEach(el=>ids.add(el.getAttribute('data-comp-scorers-id')));
+  ids.forEach(async id=>{
+    const data=await fetchCompTopScorers(id);
+    document.querySelectorAll('[data-comp-scorers-id="'+id+'"]').forEach(el=>{
+      el.setAttribute('data-comp-scorers-done','1');
+      if(!data.length){el.style.display='none';return;}
+      el.innerHTML='🏆 Топ голмайстори: '+data.map((s,i)=>(i===0?'🥇':'🥈')+' '+s.name+' ('+s.team+') · '+s.goals+'⚽').join('&nbsp;&nbsp;');
+    });
+  });
+}
+setInterval(pollCompScorers,2000);
 let wcScorersCache=[];
 let comebackStatsCache=null;
 let wcKnockoutMatchesCache=null;
@@ -1300,6 +1350,8 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   const isFT=m.status==='FINISHED',isHT=m.status==='HALFTIME';
   const statusClass=isLive?'live':isFT?'finished':'';
   const min=m.minute?m.minute+"'":(isHT?'ПОЧИВКА':'');
+  const dateTimeLabel=formatMatchDateTime(m.utcDate);
+  const compScorersHtml=(!isLive&&!isFT&&m.competition?.id!=null)?`<div class="comp-scorers-slot" data-comp-scorers-id="${m.competition.id}">🏆 Топ голмайстори (${m.competition.name||''}): <span style="color:var(--muted)">зареждане...</span></div>`:'';
   const scoreHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="font-family:'Rajdhani',sans-serif;font-size:14px;color:var(--cyan);letter-spacing:1px">${new Date(m.utcDate).toLocaleTimeString('bg-BG',{hour:'2-digit',minute:'2-digit'})}</div>`;
   const durBadge=isFT?durationBadge(m):'';
   const statusHtml=isLive?`<span class="ms live">● LIVE ${min}</span>`:isFT?`<span class="ms finished">КРАЙ${durBadge} · П/В ${hHT??'-'}:${aHT??'-'}</span>`:isHT?`<span class="ms live">⏸ ПОЧИВКА</span>`:`<span class="ms scheduled">ПРЕДСТОИ</span>`;
@@ -1503,7 +1555,8 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     }
   }
   return `<div class="match-card ${statusClass}">
-    <div class="match-header"><span class="match-league">${m.competition?.name||''} · ${m.group||m.stage||''}</span>${statusHtml}</div>
+    <div class="match-header"><span class="match-league">${m.competition?.name||''} · ${m.group||m.stage||''}</span><span class="match-date">${dateTimeLabel}</span>${statusHtml}</div>
+    ${compScorersHtml}
     <div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${scoreHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${isLive&&min?`<div class="match-minute">⏱ ${min}</div>`:''}</div>
     ${goalsHtml}${booksHtml}${nGS}${lGCHt}${lGC}${lSS}${betHtml}${predHtml}
   </div>`;
@@ -1544,7 +1597,7 @@ async function loadLive(){
         const hf=getFlag(hn),af=getFlag(an);
         const ls=lsMap[(hn+'_'+an).toLowerCase()]||null;
         const sHtml=hg!=null?`<div class="score">${hg}</div><div class="score-sep">:</div><div class="score">${ag}</div>`:`<div style="color:var(--cyan);font-family:'Rajdhani',sans-serif;font-size:14px">LIVE</div>`;
-        return `<div class="match-card live"><div class="match-header"><span class="match-league">${f.league?.name||'FIFA World Cup'}</span><span class="ms live">● LIVE ${min?min+"'":''}  </span></div><div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${sHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${min?`<div class="match-minute">⏱ ${min}'</div>`:''}</div>${nextGoalHtml(ls,min||0,hn,an,hf,af,hg,ag)}${liveGoalCalcHtHtml(ls,min||0,hg,ag,hn,an,hf,af)}${liveGoalCalcHtml(ls,min||0,hg,ag,hn,an,hf,af)}${ls?liveStatsHtml(ls,hn,an):''}</div>`;
+        return `<div class="match-card live"><div class="match-header"><span class="match-league">${f.league?.name||'FIFA World Cup'}</span><span class="match-date">${formatMatchDateTime(f.fixture?.date)}</span><span class="ms live">● LIVE ${min?min+"'":''}  </span></div><div class="match-body"><div class="teams-row"><div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div><div class="score-box">${sHtml}</div><div class="team"><span class="team-flag">${af}</span><div class="team-name">${an}</div></div></div>${min?`<div class="match-minute">⏱ ${min}'</div>`:''}</div>${nextGoalHtml(ls,min||0,hn,an,hf,af,hg,ag)}${liveGoalCalcHtHtml(ls,min||0,hg,ag,hn,an,hf,af)}${liveGoalCalcHtml(ls,min||0,hg,ag,hn,an,hf,af)}${ls?liveStatsHtml(ls,hn,an):''}</div>`;
       }).join('');
       c.innerHTML=html||'<div class="no-data">⚽ Няма live мачове в момента</div>';
       return;
@@ -1607,7 +1660,7 @@ async function loadFinished(){
         </div>`;
       }
       return `<div class="match-card finished">
-        <div class="match-header"><span class="match-league">${m.competition?.name||''}</span><span class="ms finished">КРАЙ${dBadge} · П/В ${hHT??'-'}:${aHT??'-'}</span></div>
+        <div class="match-header"><span class="match-league">${m.competition?.name||''}</span><span class="match-date">${formatMatchDateTime(m.utcDate)}</span><span class="ms finished">КРАЙ${dBadge} · П/В ${hHT??'-'}:${aHT??'-'}</span></div>
         <div class="match-body"><div class="teams-row">
           <div class="team"><span class="team-flag">${hf}</span><div class="team-name">${hn}</div></div>
           <div class="score-box"><div class="score">${hg??'-'}</div><div class="score-sep">:</div><div class="score">${ag??'-'}</div></div>
@@ -2272,6 +2325,18 @@ async function loadLaLigaAS(){await loadASLeagueTab('laliga',140,'🇪🇸','Л�
 async function loadLigue1AS(){await loadASLeagueTab('ligue1',61,'🇫🇷','Лиг 1');}
 async function loadSuperLigAS(){await loadASLeagueTab('superlig',203,'🇹🇷','Сюпер Лиг');}
 switchTab('live');
+
+// Непрекъснато сверяване на прогнози срещу реалност: работи във фонов режим
+// независимо от активния таб (не само когато потребителят отвори ИСТОРИЯ),
+// за да може статистиката за точност на модела да е винаги актуална. Ако
+// потребителят в момента гледа таб ИСТОРИЯ, изгледът се опреснява автоматично.
+migrateHistory();
+async function backgroundHistorySync(){
+  await updateHistoryResults();
+  if(currentTab==='history')loadHistory();
+}
+backgroundHistorySync();
+setInterval(backgroundHistorySync,5*60*1000);
 
 // На компютър няма как да се "плъзне" лентата с табове с пръст както на
 // телефон — тук добавяме превъртане на хоризонтал с колелцето на мишката

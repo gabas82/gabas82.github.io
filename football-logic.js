@@ -14,6 +14,44 @@ function calcGoalMarkets(expH,expA){
 }
 function goalBefore10(expH,expA){return Math.min(45,Math.max(8,Math.round((1-Math.exp(-(expH+expA)*(10/90)))*100)));}
 
+// Дата + час на мача в локалната часова зона на зрителя (за ориентация в списъците
+// с мачове, независимо дали е на живо, приключил или предстоящ).
+function formatMatchDateTime(utcDate){
+  if(!utcDate)return '';
+  const d=new Date(utcDate);
+  if(isNaN(d.getTime()))return '';
+  return d.toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit'})+' · '+d.toLocaleTimeString('bg-BG',{hour:'2-digit',minute:'2-digit'});
+}
+
+// Нормализира отговора на football-data.org /competitions/{id}/scorers в единен формат.
+function normalizeFootballDataScorers(json){
+  const list=(json?.scorers||[]).map(s=>({
+    name:s.player?.name||'—',
+    team:s.team?.shortName||s.team?.name||'—',
+    goals:s.goals||0
+  })).filter(s=>s.goals>0);
+  list.sort((a,b)=>b.goals-a.goals);
+  return list;
+}
+
+// Нормализира отговора на api-sports.io /players/topscorers в същия формат.
+function normalizeApiSportsScorers(json){
+  const list=(json?.response||[]).map(p=>{
+    const stat=p.statistics?.[0]||{};
+    return{
+      name:p.player?.name||'—',
+      team:stat.team?.name||'—',
+      goals:stat.goals?.total||0
+    };
+  }).filter(s=>s.goals>0);
+  list.sort((a,b)=>b.goals-a.goals);
+  return list;
+}
+
+function topTwoScorers(list){
+  return list.slice(0,2);
+}
+
 // v3.25: computeRegularScore() връща 90-минутния резултат само когато мачът
 // не е решен с продължения/дузпи (score.duration). Ако е решен след 90-та
 // минута, връща null — тогава кодът показва бележка вместо да сравнява
@@ -155,6 +193,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     getToday, getDateMinus, getDatePlus, calcPct, poissonProb, calcGoalMarkets,
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
-    saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence
+    saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
+    formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers
   };
 }

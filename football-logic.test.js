@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   calcPct, poissonProb, calcGoalMarkets, goalBefore10, computeRegularScore,
   durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory,
-  calcForm, buildPrediction, calcConfidence
+  calcForm, buildPrediction, calcConfidence, formatMatchDateTime,
+  normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers
 } from './football-logic.js';
 
 describe('calcPct', () => {
@@ -219,5 +220,82 @@ describe('calcConfidence', () => {
     const conf = calcConfidence(pred, null);
     expect(conf.score).toBeGreaterThanOrEqual(10);
     expect(conf.score).toBeLessThanOrEqual(98);
+  });
+});
+
+describe('formatMatchDateTime', () => {
+  it('връща празен низ при липсваща дата', () => {
+    expect(formatMatchDateTime(null)).toBe('');
+    expect(formatMatchDateTime(undefined)).toBe('');
+  });
+  it('връща празен низ при невалидна дата', () => {
+    expect(formatMatchDateTime('not-a-date')).toBe('');
+  });
+  it('форматира валидна ISO дата като "дд.мм · чч:мм"', () => {
+    const result = formatMatchDateTime('2026-03-15T18:30:00Z');
+    expect(result).toMatch(/^\d{2}\.\d{2} · \d{2}:\d{2}$/);
+  });
+});
+
+describe('normalizeFootballDataScorers', () => {
+  it('връща празен масив при липсващи данни', () => {
+    expect(normalizeFootballDataScorers(null)).toEqual([]);
+    expect(normalizeFootballDataScorers({})).toEqual([]);
+  });
+  it('филтрира голмайстори с 0 гола', () => {
+    const json = { scorers: [{ player: { name: 'A' }, team: { name: 'X' }, goals: 0 }] };
+    expect(normalizeFootballDataScorers(json)).toEqual([]);
+  });
+  it('сортира низходящо по голове, дори ако входът не е сортиран', () => {
+    const json = {
+      scorers: [
+        { player: { name: 'Slow' }, team: { name: 'X' }, goals: 3 },
+        { player: { name: 'Fast' }, team: { name: 'Y' }, goals: 10 },
+      ]
+    };
+    const result = normalizeFootballDataScorers(json);
+    expect(result.map(s => s.name)).toEqual(['Fast', 'Slow']);
+  });
+  it('предпочита team.shortName пред team.name', () => {
+    const json = { scorers: [{ player: { name: 'A' }, team: { shortName: 'FCX', name: 'Football Club X' }, goals: 5 }] };
+    expect(normalizeFootballDataScorers(json)[0].team).toBe('FCX');
+  });
+});
+
+describe('normalizeApiSportsScorers', () => {
+  it('връща празен масив при липсващи данни', () => {
+    expect(normalizeApiSportsScorers(null)).toEqual([]);
+    expect(normalizeApiSportsScorers({})).toEqual([]);
+  });
+  it('извлича име, отбор и голове от statistics[0]', () => {
+    const json = {
+      response: [
+        { player: { name: 'Player A' }, statistics: [{ team: { name: 'Team A' }, goals: { total: 12 } }] }
+      ]
+    };
+    expect(normalizeApiSportsScorers(json)).toEqual([{ name: 'Player A', team: 'Team A', goals: 12 }]);
+  });
+  it('филтрира записи без голове и сортира низходящо', () => {
+    const json = {
+      response: [
+        { player: { name: 'Zero' }, statistics: [{ team: { name: 'Z' }, goals: { total: 0 } }] },
+        { player: { name: 'Low' }, statistics: [{ team: { name: 'L' }, goals: { total: 2 } }] },
+        { player: { name: 'High' }, statistics: [{ team: { name: 'H' }, goals: { total: 9 } }] },
+      ]
+    };
+    const result = normalizeApiSportsScorers(json);
+    expect(result.map(s => s.name)).toEqual(['High', 'Low']);
+  });
+});
+
+describe('topTwoScorers', () => {
+  it('връща само първите 2 елемента', () => {
+    const list = [{ name: 'A', team: 'X', goals: 10 }, { name: 'B', team: 'Y', goals: 8 }, { name: 'C', team: 'Z', goals: 5 }];
+    expect(topTwoScorers(list)).toEqual([list[0], list[1]]);
+  });
+  it('връща целия масив, ако е с по-малко от 2 елемента', () => {
+    expect(topTwoScorers([])).toEqual([]);
+    const one = [{ name: 'A', team: 'X', goals: 3 }];
+    expect(topTwoScorers(one)).toEqual(one);
   });
 });
