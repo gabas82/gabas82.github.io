@@ -3,7 +3,8 @@ import {
   calcPct, poissonProb, calcGoalMarkets, goalBefore10, computeRegularScore,
   durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory,
   calcForm, buildPrediction, calcConfidence, formatMatchDateTime,
-  normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers
+  normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
+  calcDoubleChance, doubleChanceHit, doubleChanceLabel
 } from './football-logic.js';
 
 describe('calcPct', () => {
@@ -297,5 +298,43 @@ describe('topTwoScorers', () => {
     expect(topTwoScorers([])).toEqual([]);
     const one = [{ name: 'A', team: 'X', goals: 3 }];
     expect(topTwoScorers(one)).toEqual(one);
+  });
+});
+
+describe('calcDoubleChance', () => {
+  it('изключва госта, когато той е най-малко вероятен -> 1X', () => {
+    expect(calcDoubleChance(70, 20, 10)).toEqual({ pick: '1X', pct: 90 });
+  });
+  it('изключва домакина, когато той е най-малко вероятен -> X2', () => {
+    expect(calcDoubleChance(10, 20, 70)).toEqual({ pick: 'X2', pct: 90 });
+  });
+  it('изключва равенството, когато то е най-малко вероятно -> 12', () => {
+    expect(calcDoubleChance(45, 10, 45)).toEqual({ pick: '12', pct: 90 });
+  });
+});
+
+describe('doubleChanceHit', () => {
+  it('1X печели при победа на домакина или равенство', () => {
+    expect(doubleChanceHit('1X', '1')).toBe(true);
+    expect(doubleChanceHit('1X', 'X')).toBe(true);
+    expect(doubleChanceHit('1X', '2')).toBe(false);
+  });
+  it('X2 печели при равенство или победа на госта', () => {
+    expect(doubleChanceHit('X2', 'X')).toBe(true);
+    expect(doubleChanceHit('X2', '2')).toBe(true);
+    expect(doubleChanceHit('X2', '1')).toBe(false);
+  });
+  it('12 печели при победа на който и да е от двата тима, но не и равенство', () => {
+    expect(doubleChanceHit('12', '1')).toBe(true);
+    expect(doubleChanceHit('12', '2')).toBe(true);
+    expect(doubleChanceHit('12', 'X')).toBe(false);
+  });
+});
+
+describe('doubleChanceLabel', () => {
+  it('връща четим етикет за всяка от трите комбинации', () => {
+    expect(doubleChanceLabel('1X')).toContain('1X');
+    expect(doubleChanceLabel('X2')).toContain('X2');
+    expect(doubleChanceLabel('12')).toContain('12');
   });
 });

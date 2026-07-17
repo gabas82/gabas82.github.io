@@ -603,21 +603,31 @@ function loadHistory(){
   const c=document.getElementById('history-content');
   if(!hist.length){sc.innerHTML='';c.innerHTML='<div class="no-data">Няма записани прогнози още.<br><br>Отвори таб ПРОГНОЗИ за да се запазят автоматично.</div>';return;}
   const wr=hist.filter(h=>h.result&&!h.result.decidedAfterRegulation);
-  let c1=0,tot=wr.length;
+  let tot=wr.length;
+  let homeCorrect=0,homeTotal=0,drawCorrect=0,drawTotal=0,awayCorrect=0,awayTotal=0;
   let overCorrect=0,overTotal=0,underCorrect=0,underTotal=0;
   let bttsYesCorrect=0,bttsYesTotal=0,bttsNoCorrect=0,bttsNoTotal=0;
+  let dcCorrect=0,dcTotal=0;
   wr.forEach(h=>{
     const p=h.pred,r=h.result;
     const pw=p.hWin>p.aWin&&p.hWin>p.draw?'1':p.aWin>p.hWin&&p.aWin>p.draw?'2':'X';
-    if(pw===r.winner)c1++;
+    if(pw==='1'){homeTotal++;if(pw===r.winner)homeCorrect++;}
+    else if(pw==='X'){drawTotal++;if(pw===r.winner)drawCorrect++;}
+    else{awayTotal++;if(pw===r.winner)awayCorrect++;}
     if(p.over25>50){overTotal++;if(r.total>2.5)overCorrect++;}
     else{underTotal++;if(r.total<=2.5)underCorrect++;}
     if(p.btts>50){bttsYesTotal++;if(r.gg)bttsYesCorrect++;}
     else{bttsNoTotal++;if(!r.gg)bttsNoCorrect++;}
+    const dc=calcDoubleChance(p.hWin,p.draw,p.aWin);
+    dcTotal++;if(doubleChanceHit(dc.pick,r.winner))dcCorrect++;
   });
   const pct=(c,t)=>t?Math.round(c/t*100):0;
   sc.innerHTML=tot?`<div class="hist-stats"><div class="hist-stats-title">📊 СТАТИСТИКА (${tot} завършени)</div>
-    <div class="hist-stats-grid"><div class="hist-stat"><div class="hist-stat-val good">${pct(c1,tot)}%</div><div class="hist-stat-label">1/X/2 ТОЧНОСТ</div></div></div>
+    <div class="hist-stats-grid">
+      <div class="hist-stat"><div class="hist-stat-val good">${pct(homeCorrect,homeTotal)}%</div><div class="hist-stat-label">1 ДОМАКИН (${homeTotal})</div></div>
+      <div class="hist-stat"><div class="hist-stat-val neutral">${pct(drawCorrect,drawTotal)}%</div><div class="hist-stat-label">X РАВЕН (${drawTotal})</div></div>
+      <div class="hist-stat"><div class="hist-stat-val bad">${pct(awayCorrect,awayTotal)}%</div><div class="hist-stat-label">2 ГОСТ (${awayTotal})</div></div>
+    </div>
     <div class="hist-stats-grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
       <div class="hist-stat"><div class="hist-stat-val info">${pct(overCorrect,overTotal)}%</div><div class="hist-stat-label">НАД 2.5 (${overTotal})</div></div>
       <div class="hist-stat"><div class="hist-stat-val info">${pct(underCorrect,underTotal)}%</div><div class="hist-stat-label">ПОД 2.5 (${underTotal})</div></div>
@@ -625,6 +635,9 @@ function loadHistory(){
     <div class="hist-stats-grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
       <div class="hist-stat"><div class="hist-stat-val purple">${pct(bttsYesCorrect,bttsYesTotal)}%</div><div class="hist-stat-label">Г/Г ДА (${bttsYesTotal})</div></div>
       <div class="hist-stat"><div class="hist-stat-val purple">${pct(bttsNoCorrect,bttsNoTotal)}%</div><div class="hist-stat-label">Г/Г НЕ (${bttsNoTotal})</div></div>
+    </div>
+    <div class="hist-stats-grid" style="grid-template-columns:1fr;margin-top:8px">
+      <div class="hist-stat"><div class="hist-stat-val good">${pct(dcCorrect,dcTotal)}%</div><div class="hist-stat-label">ДВОЕН ШАНС (${dcTotal})</div></div>
     </div>
   </div>`:'';
   c.innerHTML=hist.map(h=>{
@@ -637,9 +650,10 @@ function loadHistory(){
     const overPct=p.over25>50?p.over25:100-p.over25;
     const bttsLabel=p.btts>50?'Г/Г ДА':'Г/Г НЕ';
     const bttsPct=p.btts>50?p.btts:100-p.btts;
+    const dc=calcDoubleChance(p.hWin,p.draw,p.aWin);
     let rHtml='<div style="margin-top:6px;font-size:10px;color:var(--muted)">⏳ очаква се резултат...</div>';
     if(h.result&&h.result.decidedAfterRegulation){
-      rHtml=`<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(30,45,61,0.5)"><div style="font-size:10px;color:var(--muted)">⏱️ Мачът е решен след 90-та минута (продължения/дузпи) — краен резултат ${h.result.fullHg}:${h.result.fullAg}. Прогнозата за 1X2/Над-Под/Г-Г не се верифицира, тъй като тези пазари важат за редовното време.</div></div>`;
+      rHtml=`<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(30,45,61,0.5)"><div style="font-size:10px;color:var(--muted)">⏱️ Мачът е решен след 90-та минута (продължения/дузпи) — краен резултат ${h.result.fullHg}:${h.result.fullAg}. Прогнозата за 1X2/Над-Под/Г-Г/Двоен шанс не се верифицира, тъй като тези пазари важат за редовното време.</div></div>`;
     }else if(h.result){
       const r=h.result;
       const winnerLabel=r.winner==='1'?h.home:r.winner==='2'?h.away:'Равен';
@@ -648,13 +662,14 @@ function loadHistory(){
       const w1=pw===r.winner?'✅':'❌';
       const wO=(p.over25>50&&r.total>2.5)||(p.over25<=50&&r.total<=2.5)?'✅':'❌';
       const wB=(p.btts>50&&r.gg)||(p.btts<=50&&!r.gg)?'✅':'❌';
+      const wDC=doubleChanceHit(dc.pick,r.winner)?'✅':'❌';
       rHtml=`<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(30,45,61,0.5)">
         <div style="font-size:10px;color:var(--text);margin-bottom:3px"><b>Резултат: ${r.hg}:${r.ag}</b></div>
         <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:4px">
-          <div style="font-size:9px"><span style="color:var(--muted)">Прогноза:</span> <span style="color:var(--text)">${pwLabel} (${pwPct}%) · ${overLabel} (${overPct}%) · ${bttsLabel} (${bttsPct}%)</span></div>
+          <div style="font-size:9px"><span style="color:var(--muted)">Прогноза:</span> <span style="color:var(--text)">${pwLabel} (${pwPct}%) · ${overLabel} (${overPct}%) · ${bttsLabel} (${bttsPct}%) · ${doubleChanceLabel(dc.pick)} (${dc.pct}%)</span></div>
           <div style="font-size:9px"><span style="color:var(--muted)">Реалност:</span> <span style="color:var(--yellow)">${winnerLabel} · ${overRealLabel} · ${bttsRealLabel}</span></div>
         </div>
-        <div style="display:flex;gap:8px"><span style="font-size:10px">${w1} 1/X/2</span><span style="font-size:10px">${wO} Над/Под</span><span style="font-size:10px">${wB} Г/Г</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><span style="font-size:10px">${w1} 1/X/2</span><span style="font-size:10px">${wO} Над/Под</span><span style="font-size:10px">${wB} Г/Г</span><span style="font-size:10px">${wDC} Дв. шанс</span></div>
       </div>`;
     }
     return `<div class="hist-card"><div class="hist-match">${h.home} — ${h.away}</div><div class="hist-date">${h.comp} · ${date}</div><div class="hist-grid"><div class="hist-pill"><div class="hist-pill-label">1</div><div class="hist-pill-val good">${p.hWin}%</div></div><div class="hist-pill"><div class="hist-pill-label">X</div><div class="hist-pill-val neutral">${p.draw}%</div></div><div class="hist-pill"><div class="hist-pill-label">2</div><div class="hist-pill-val bad">${p.aWin}%</div></div><div class="hist-pill"><div class="hist-pill-label">НАД 2.5</div><div class="hist-pill-val info">${p.over25}%</div></div></div>${rHtml}</div>`;
@@ -1376,10 +1391,13 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const w1Bool=predW===winner;
       const wOBool=(p.over25>50&&over)||(p.over25<=50&&!over);
       const wBBool=(p.btts>50&&gg)||(p.btts<=50&&!gg);
+      const dc=calcDoubleChance(p.hWin,p.draw,p.aWin);
+      const wDCBool=doubleChanceHit(dc.pick,winner);
       const w1=w1Bool?'✅':'❌';
       const wO=wOBool?'✅':'❌';
       const wB=wBBool?'✅':'❌';
-      const matchAccuracy=Math.round([w1Bool,wOBool,wBBool].filter(Boolean).length/3*100);
+      const wDC=wDCBool?'✅':'❌';
+      const matchAccuracy=Math.round([w1Bool,wOBool,wBBool,wDCBool].filter(Boolean).length/4*100);
       const accCol=matchAccuracy>=67?'var(--green)':matchAccuracy>=34?'var(--yellow)':'var(--red)';
       const overLabel=p.over25>50?'НАД 2.5':'ПОД 2.5';
       const overPct=p.over25>50?p.over25:100-p.over25;
@@ -1388,18 +1406,18 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const bttsPct=p.btts>50?p.btts:100-p.btts;
       const bttsRealLabel=gg?'Г/Г ДА':'Г/Г НЕ';
       histPredHtml=`<div style="margin:6px 12px 0;background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:8px;padding:8px 10px;">
-        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:8px">📊 ПРОГНОЗА VS РЕАЛНОСТ <span style="color:${accCol}">· Точност: ${matchAccuracy}% (${[w1Bool,wOBool,wBBool].filter(Boolean).length}/3)</span></div>
+        <div style="font-family:'Rajdhani',sans-serif;font-size:10px;color:var(--cyan);letter-spacing:2px;margin-bottom:8px">📊 ПРОГНОЗА VS РЕАЛНОСТ <span style="color:${accCol}">· Точност: ${matchAccuracy}% (${[w1Bool,wOBool,wBBool,wDCBool].filter(Boolean).length}/4)</span></div>
         <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px">
           <div style="display:flex;align-items:center;justify-content:space-between;font-size:10px">
             <span style="color:var(--muted)">Прогноза:</span>
-            <span style="color:var(--text)">${predWLabel} (${predWPct}%) · ${overLabel} (${overPct}%) · ${bttsLabel} (${bttsPct}%)</span>
+            <span style="color:var(--text)">${predWLabel} (${predWPct}%) · ${overLabel} (${overPct}%) · ${bttsLabel} (${bttsPct}%) · ${doubleChanceLabel(dc.pick)} (${dc.pct}%)</span>
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between;font-size:10px">
             <span style="color:var(--muted)">Реалност:</span>
             <span style="color:var(--yellow)">${winnerLabel} · ${overRealLabel} · ${bttsRealLabel}</span>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
           <div style="text-align:center;background:var(--card2);border-radius:6px;padding:5px">
             <div style="font-size:8px;color:var(--muted)">1/X/2</div>
             <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700">${w1} ${predW}</div>
@@ -1414,6 +1432,11 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
             <div style="font-size:8px;color:var(--muted)">Г/Г</div>
             <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700">${wB}</div>
             <div style="font-size:8px;color:var(--muted)">${p.btts}%</div>
+          </div>
+          <div style="text-align:center;background:var(--card2);border-radius:6px;padding:5px">
+            <div style="font-size:8px;color:var(--muted)">ДВ. ШАНС</div>
+            <div style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700">${wDC} ${dc.pick}</div>
+            <div style="font-size:8px;color:var(--muted)">${dc.pct}%</div>
           </div>
         </div>
       </div>`;
@@ -1446,6 +1469,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     if(pred){
       savePrediction(m,pred);
       const conf=calcConfidence(pred,odds);
+      const dcPred=calcDoubleChance(pred.hWin,pred.draw,pred.aWin);
       const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const scorerHtml=topScorerHtml(scorerPlayers,m,hf,af);
       const scorerBetHtml=scorerBetSuggestionHtml(scorerPlayers,hf,af,hId);
@@ -1464,6 +1488,9 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
           <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div><div class="pred-pct">сезон W%: ${pred.hWinRatePct}%</div></div>
           <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${pred.draw}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.draw}%;background:var(--yellow)"></div></div></div>
           <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${pred.aWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.aWin}%;background:var(--red)"></div></div><div class="pred-pct">сезон W%: ${pred.aWinRatePct}%</div></div>
+        </div>
+        <div class="pred-grid" style="grid-template-columns:1fr">
+          <div class="pred-pill"><div class="pred-label">ДВОЕН ШАНС</div><div class="pred-value good">${doubleChanceLabel(dcPred.pick)}</div><div class="pred-pct">${dcPred.pct}% вероятност</div></div>
         </div>
         <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${pCol(pred.over25)}">${pred.over25}%</div><div class="pred-pct">Оч. голове: ${pred.expH} — ${pred.expA}</div></div>
@@ -1515,6 +1542,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const fP={hId,aId,hWin:hW,draw:dW,aWin:aW,over25:o25,btts:bP,noBtts:100-bP,g10:goalBefore10(expH,expA),cornersOver:cO,expCorners:eC,gm,hForm:[],aForm:[]};
       savePrediction(m,fP);
       const fConf=calcConfidence(fP,odds);
+      const dcPredF=calcDoubleChance(hW,dW,aW);
       const fScorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const fScorerBetHtml=scorerBetSuggestionHtml(fScorerPlayers,hf,af,hId);
       const fBetBuilder=buildBetBuilder(fP,odds,hn,an,hf,af,fScorerPlayers,hId,aId);
@@ -1531,6 +1559,9 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
           <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${hW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${hW}%;background:var(--green)"></div></div></div>
           <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${dW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${dW}%;background:var(--yellow)"></div></div></div>
           <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${aW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${aW}%;background:var(--red)"></div></div></div>
+        </div>
+        <div class="pred-grid" style="grid-template-columns:1fr">
+          <div class="pred-pill"><div class="pred-label">ДВОЕН ШАНС</div><div class="pred-value good">${doubleChanceLabel(dcPredF.pick)}</div><div class="pred-pct">${dcPredF.pct}% вероятност</div></div>
         </div>
         <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${o25>50?'good':'bad'}">${o25}%</div><div class="pred-pct">Оч. голове: ${expH.toFixed(1)} — ${expA.toFixed(1)}</div></div>

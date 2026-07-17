@@ -14,6 +14,23 @@ function calcGoalMarkets(expH,expA){
 }
 function goalBefore10(expH,expA){return Math.min(45,Math.max(8,Math.round((1-Math.exp(-(expH+expA)*(10/90)))*100)));}
 
+// Двоен шанс: изключва най-малко вероятния единичен изход (1/X/2) и комбинира
+// другите два — стандартната логика на пазара "двоен шанс" в залаганията.
+function calcDoubleChance(hWin,draw,aWin){
+  const min=Math.min(hWin,draw,aWin);
+  if(min===aWin)return{pick:'1X',pct:hWin+draw};
+  if(min===hWin)return{pick:'X2',pct:draw+aWin};
+  return{pick:'12',pct:hWin+aWin};
+}
+function doubleChanceHit(pick,winner){
+  if(pick==='1X')return winner==='1'||winner==='X';
+  if(pick==='X2')return winner==='X'||winner==='2';
+  return winner==='1'||winner==='2';
+}
+function doubleChanceLabel(pick){
+  return pick==='1X'?'1X (Дом./Равен)':pick==='X2'?'X2 (Равен/Гост)':'12 (Дом./Гост)';
+}
+
 // Дата + час на мача в локалната часова зона на зрителя (за ориентация в списъците
 // с мачове, независимо дали е на живо, приключил или предстоящ).
 function formatMatchDateTime(utcDate){
@@ -194,6 +211,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getToday, getDateMinus, getDatePlus, calcPct, poissonProb, calcGoalMarkets,
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
     saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
-    formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers
+    formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
+    calcDoubleChance, doubleChanceHit, doubleChanceLabel
   };
 }
