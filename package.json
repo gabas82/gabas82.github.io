@@ -1,0 +1,13 @@
+{
+  "name": "gabas82-github-io",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Статичен сайт (football.html) + unit тестове за чистата логика (прогнози, статистика, история).",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9",
+    "jsdom": "^25.0.1"
+  }
+}
