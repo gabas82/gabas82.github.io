@@ -4,7 +4,7 @@ import {
   durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory,
   calcForm, buildPrediction, calcConfidence, formatMatchDateTime,
   normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
-  calcDoubleChance, doubleChanceHit, doubleChanceLabel
+  calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer
 } from './football-logic.js';
 
 describe('calcPct', () => {
@@ -274,7 +274,7 @@ describe('normalizeApiSportsScorers', () => {
         { player: { name: 'Player A' }, statistics: [{ team: { name: 'Team A' }, goals: { total: 12 } }] }
       ]
     };
-    expect(normalizeApiSportsScorers(json)).toEqual([{ name: 'Player A', team: 'Team A', goals: 12 }]);
+    expect(normalizeApiSportsScorers(json)).toEqual([{ name: 'Player A', team: 'Team A', teamId: null, goals: 12 }]);
   });
   it('филтрира записи без голове и сортира низходящо', () => {
     const json = {
@@ -298,6 +298,28 @@ describe('topTwoScorers', () => {
     expect(topTwoScorers([])).toEqual([]);
     const one = [{ name: 'A', team: 'X', goals: 3 }];
     expect(topTwoScorers(one)).toEqual(one);
+  });
+});
+
+describe('findTeamTopScorer', () => {
+  const list = [
+    { name: 'Star Striker', team: 'Team A', teamId: 1, goals: 20 },
+    { name: 'Backup Striker', team: 'Team A', teamId: 1, goals: 5 },
+    { name: 'Rival Striker', team: 'Team B', teamId: 2, goals: 15 },
+  ];
+  it('намира голмайстора с най-много голове за даден teamId (списъкът вече е сортиран)', () => {
+    expect(findTeamTopScorer(list, 1, 'Team A')).toEqual(list[0]);
+    expect(findTeamTopScorer(list, 2, 'Team B')).toEqual(list[2]);
+  });
+  it('връща null, ако отборът няма нито един голмайстор в списъка', () => {
+    expect(findTeamTopScorer(list, 999, 'Team C')).toBeNull();
+  });
+  it('пада обратно към съвпадение по име, когато teamId липсва в данните', () => {
+    const noIdList = [{ name: 'Player X', team: 'Real Madrid', teamId: null, goals: 10 }];
+    expect(findTeamTopScorer(noIdList, null, 'Real Madrid')).toEqual(noIdList[0]);
+  });
+  it('не бърка отбори с различен teamId дори при подобни имена', () => {
+    expect(findTeamTopScorer(list, 2, 'Team A')).toEqual(list[2]);
   });
 });
 
