@@ -41,16 +41,28 @@ function tOptions(q) {
   return base;
 }
 
+// Прилага превода на статичните части на интерфейса — заглавие, навигация, футър —
+// които не се пре-рендират от switchView() (те са фиксирана HTML структура, не се
+// презаписват при всяко превключване на изглед).
+function applyStaticUiTranslations() {
+  document.getElementById("app-subtitle").textContent = UI("appSubtitle");
+  document.getElementById("lang-toggle").title = UI("langToggleTitle");
+  document.getElementById("nav-study").textContent = UI("navStudy");
+  document.getElementById("nav-admin").textContent = UI("navAdmin");
+  document.getElementById("nav-stats").textContent = UI("navStats");
+  document.getElementById("nav-own").textContent = UI("navOwn");
+  document.getElementById("nav-guide").textContent = UI("navGuide");
+  document.getElementById("app-footer").textContent = UI("footerNote");
+}
+
 function initLangToggle() {
   const box = document.getElementById("lang-toggle");
   const caption = document.getElementById("lang-caption");
   function refreshActive() {
     box.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === getLang()));
     // Веднага видима потвърдка, че превключването сработи — дори на екран без активен въпрос за превод.
-    caption.textContent =
-      getLang() === "bg"
-        ? "✓ Езикът на въпросите е български (напр. „Каботаж“). Интерфейсът остава български."
-        : "✓ Fragensprache ist Deutsch (z. B. „Kabotage“). Die Oberfläche bleibt Bulgarisch.";
+    caption.textContent = UI("langCaption");
+    applyStaticUiTranslations();
   }
   box.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -103,7 +115,7 @@ function getTopic(id) {
 }
 
 function partLabel(part) {
-  return part === 2 ? "Част 2 (Teil 2)" : "Част 1 (Teil 1)";
+  return part === 2 ? UI("part2Label") : UI("part1Label");
 }
 
 function topicsByPart(part) {
@@ -259,29 +271,29 @@ function renderStudySetup() {
 
   container.innerHTML = `
     <div class="card">
-      <h2>Настрой теста</h2>
+      <h2>${UI("setupTitle")}</h2>
       <div class="field">
-        <label>Тема</label>
+        <label>${UI("topicLabel")}</label>
         <select id="study-topic">
-          <option value="__all__">Всички теми — смесен тест (${totalQuestions})</option>
+          <option value="__all__">${UI("allTopicsOption", totalQuestions)}</option>
           <optgroup label="${partLabel(1)}">${optionsForPart(1)}</optgroup>
           <optgroup label="${partLabel(2)}">${optionsForPart(2)}</optgroup>
         </select>
       </div>
       <div class="row" style="margin-bottom:.8rem;">
         <label style="display:flex;align-items:center;gap:.4rem;margin:0;">
-          <input type="checkbox" id="study-shuffle" checked /> Разбъркай въпросите
+          <input type="checkbox" id="study-shuffle" checked /> ${UI("shuffleLabel")}
         </label>
         <label style="display:flex;align-items:center;gap:.4rem;margin:0;">
-          <input type="checkbox" id="study-wrong-only" /> Само въпроси, на които преди си отговорил(а) грешно
+          <input type="checkbox" id="study-wrong-only" /> ${UI("wrongOnlyLabel")}
         </label>
       </div>
-      <button class="btn" id="start-quiz-btn">Започни</button>
+      <button class="btn" id="start-quiz-btn">${UI("startBtn")}</button>
     </div>
     <div class="card">
-      <h2>Пробен изпит</h2>
-      <p class="muted">Избира ${EXAM_SIZE} въпроса от всички теми (Част 1 и Част 2, плюс отговорените ти лични въпроси). Приоритет имат тези, на които никога не си отговаряла, или последно си сгрешила — за да се учат по-лесно; след тях се допълва на ротационен принцип с останалите, отдавна невключвани. В момента общо разполагаеми: ${totalQuestions}.</p>
-      <button class="btn secondary" id="start-exam-btn">Започни пробен изпит (${EXAM_SIZE} въпроса)</button>
+      <h2>${UI("examTitle")}</h2>
+      <p class="muted">${UI("examDesc", EXAM_SIZE, totalQuestions)}</p>
+      <button class="btn secondary" id="start-exam-btn">${UI("examStartBtn", EXAM_SIZE)}</button>
     </div>
     <div id="quiz-area"></div>
   `;
@@ -308,7 +320,7 @@ function startQuiz() {
 
   if (pool.length === 0) {
     document.getElementById("quiz-area").innerHTML =
-      '<div class="card muted">Няма въпроси за тези настройки. Добави въпроси от "Управление на съдържанието" или махни филтъра.</div>';
+      `<div class="card muted">${UI("noQuestionsForFilter")}</div>`;
     return;
   }
 
@@ -339,7 +351,7 @@ function startMockExam() {
 
   if (allTop.length === 0) {
     document.getElementById("quiz-area").innerHTML =
-      '<div class="card muted">Все още няма въпроси в базата. Добави въпроси от "Управление на съдържанието".</div>';
+      `<div class="card muted">${UI("noQuestionsAtAll")}</div>`;
     return;
   }
 
@@ -404,16 +416,16 @@ function renderQuizQuestion() {
       .join("");
   } else {
     optionsHtml = `
-      <textarea id="open-answer" placeholder="(по желание) напиши своя отговор тук, преди да провериш верния..."></textarea>
-      <button class="btn secondary" id="reveal-btn" style="margin-top:.5rem;">Покажи верния отговор</button>
+      <textarea id="open-answer" placeholder="${UI("openAnswerPlaceholder")}"></textarea>
+      <button class="btn secondary" id="reveal-btn" style="margin-top:.5rem;">${UI("revealBtn")}</button>
     `;
   }
 
   area.innerHTML = `
     <div class="card">
       <div class="progress-track"><div class="progress-fill" style="width:${progressPct}%"></div></div>
-      <span class="pill">${escapeHtml(topic ? topic.name : q.own ? "Твой допълнителен въпрос" : "")}</span>
-      ${isFollowUp ? '<span class="follow-up-tag">↳ Свързан казус към предходния въпрос</span>' : ""}
+      <span class="pill">${escapeHtml(topic ? topic.name : q.own ? UI("ownQuestionPillFallback") : "")}</span>
+      ${isFollowUp ? `<span class="follow-up-tag">${UI("followUpTag")}</span>` : ""}
       <h2 style="margin-top:.6rem;">${escapeHtml(t(q, "question"))}</h2>
       <div id="options-wrap">${optionsHtml}</div>
       <div id="answer-feedback"></div>
@@ -464,12 +476,12 @@ function finishAnswer(q, isCorrect) {
   let bannerHtml = "";
   let boxClass = "explanation-box";
   if (isCorrect === true) {
-    bannerHtml = '<div class="result-banner correct">✓ Вярно</div>';
+    bannerHtml = `<div class="result-banner correct">${UI("correctBanner")}</div>`;
     boxClass += " correct";
     recordProgress(q.id, "correct");
     quiz.correctCount++;
   } else if (isCorrect === false) {
-    bannerHtml = '<div class="result-banner wrong">✗ Грешно</div>';
+    bannerHtml = `<div class="result-banner wrong">${UI("wrongBanner")}</div>`;
     boxClass += " wrong";
     recordProgress(q.id, "wrong");
   } else {
@@ -479,25 +491,23 @@ function finishAnswer(q, isCorrect) {
 
   let modelAnswerHtml = "";
   if (q.type === "open") {
-    modelAnswerHtml = `<p><strong>Модел за верен отговор:</strong><br>${escapeHtml(t(q, "modelAnswer") || "(няма въведен)")}</p>`;
+    modelAnswerHtml = `<p><strong>${UI("modelAnswerLabel")}</strong><br>${escapeHtml(t(q, "modelAnswer") || UI("noModelAnswerText"))}</p>`;
   }
-  const ownNote = q.own
-    ? '<p class="muted">Твой допълнителен въпрос — отговорът е от външен източник, който ти сама си записала, не от учебниците.</p>'
-    : "";
+  const ownNote = q.own ? `<p class="muted">${UI("ownNoteText")}</p>` : "";
   const explanationText = t(q, "explanation");
 
   feedback.innerHTML = `
     ${bannerHtml}
     <div class="${boxClass}">
       ${modelAnswerHtml}
-      ${explanationText ? `<p><strong>Обяснение:</strong><br>${escapeHtml(explanationText)}</p>` : ""}
+      ${explanationText ? `<p><strong>${UI("explanationLabel")}</strong><br>${escapeHtml(explanationText)}</p>` : ""}
       ${ownNote}
     </div>
   `;
 
   const followUps = followUpsOf(q.id);
   const nav = document.getElementById("quiz-nav");
-  const label = followUps.length > 0 ? "Продължи към свързания казус →" : "Следващ въпрос →";
+  const label = followUps.length > 0 ? UI("continueFollowUpBtn") : UI("nextQuestionBtn");
   nav.innerHTML = `<button class="btn" id="next-btn">${label}</button>`;
   document.getElementById("next-btn").addEventListener("click", () => {
     if (isFollowUp) quiz.followUpQueue.shift();
@@ -513,17 +523,15 @@ function renderQuizSummary() {
   const quiz = state.quiz;
   const area = document.getElementById("quiz-area");
   const pct = quiz.totalAnswered ? Math.round((quiz.correctCount / quiz.totalAnswered) * 100) : 0;
-  const title = quiz.isExam ? `Резултат от пробния изпит (${quiz.examSize} въпроса)` : "Резултат";
-  const examNote = quiz.isExam
-    ? '<p class="muted">Прагът за успешен резултат зависи от актуалните изисквания на съответната IHK камара — провери го там. Направи нов пробен изпит по-късно, за да обходиш ротационно и останалите въпроси.</p>'
-    : "";
+  const title = quiz.isExam ? UI("examSummaryTitle", quiz.examSize) : UI("summaryTitle");
+  const examNote = quiz.isExam ? `<p class="muted">${UI("examNote")}</p>` : "";
   area.innerHTML = `
     <div class="card">
       <h2>${title}</h2>
-      <p>Верни отговори: <strong>${quiz.correctCount} / ${quiz.totalAnswered}</strong> (${pct}%)</p>
+      <p>${UI("correctAnswersLabel")} <strong>${quiz.correctCount} / ${quiz.totalAnswered}</strong> (${pct}%)</p>
       ${examNote}
       <div class="row">
-        <button class="btn" id="restart-btn">Нов тест</button>
+        <button class="btn" id="restart-btn">${UI("newTestBtn")}</button>
       </div>
     </div>
   `;
@@ -541,11 +549,11 @@ function renderAdmin() {
         <div class="row between">
           <div>
             <strong>${escapeHtml(t.name)}</strong>
-            <div class="muted">${escapeHtml(t.description || "")} · ${count} въпрос(а)</div>
+            <div class="muted">${escapeHtml(t.description || "")} · ${UI("questionCountSuffix", count)}</div>
           </div>
           <div class="row">
-            <button class="btn small secondary" data-manage-topic="${t.id}">Управлявай въпроси</button>
-            <button class="btn small danger" data-delete-topic="${t.id}">Изтрий темата</button>
+            <button class="btn small secondary" data-manage-topic="${t.id}">${UI("manageQuestionsBtn")}</button>
+            <button class="btn small danger" data-delete-topic="${t.id}">${UI("deleteTopicBtn")}</button>
           </div>
         </div>
       </div>
@@ -557,35 +565,35 @@ function renderAdmin() {
     const rows = topics.map(topicRow).join("");
     return `
       <h3 style="margin-bottom:.5rem;">${partLabel(part)}</h3>
-      ${rows || '<p class="muted">Все още няма теми в тази част.</p>'}
+      ${rows || `<p class="muted">${UI("noTopicsInPart")}</p>`}
     `;
   }
 
   container.innerHTML = `
     <div class="card">
-      <h2>Теми</h2>
+      <h2>${UI("topicsHeading")}</h2>
       ${partSection(1)}
       ${partSection(2)}
       <div class="row" style="margin-top:1rem;">
-        <input type="text" id="new-topic-name" placeholder="Име на новата тема (напр. Straßenverkehrsrecht)" style="flex:1;min-width:220px;" />
+        <input type="text" id="new-topic-name" placeholder="${UI("newTopicPlaceholder")}" style="flex:1;min-width:220px;" />
         <select id="new-topic-part" style="max-width:220px;">
           <option value="1">${partLabel(1)}</option>
           <option value="2">${partLabel(2)}</option>
         </select>
-        <button class="btn" id="add-topic-btn">+ Добави тема</button>
+        <button class="btn" id="add-topic-btn">${UI("addTopicBtn")}</button>
       </div>
     </div>
     <div id="question-manager"></div>
     <div class="card">
-      <h2>Резервно копие</h2>
-      <p class="muted">Съдържанието се пази автоматично в браузъра. За да го запазиш трайно (или пренесеш на друго устройство), изтегли резервно копие.</p>
+      <h2>${UI("backupHeading")}</h2>
+      <p class="muted">${UI("backupDesc")}</p>
       <div class="row">
-        <button class="btn secondary" id="export-btn">Изтегли JSON</button>
+        <button class="btn secondary" id="export-btn">${UI("exportBtn")}</button>
         <label class="btn secondary" style="margin:0;">
-          Качи JSON
+          ${UI("importBtn")}
           <input type="file" id="import-input" accept="application/json" class="hidden" />
         </label>
-        <button class="btn danger" id="reset-seed-btn">Върни примерните въпроси</button>
+        <button class="btn danger" id="reset-seed-btn">${UI("resetSeedBtn")}</button>
       </div>
     </div>
   `;
@@ -615,7 +623,7 @@ function addTopic() {
 
 function deleteTopic(topicId) {
   const topic = getTopic(topicId);
-  if (!confirm(`Да изтрия темата "${topic.name}" и всичките ѝ въпроси?`)) return;
+  if (!confirm(UI("deleteTopicConfirm", topic.name))) return;
   const removedIds = state.data.questions.filter((q) => q.topicId === topicId).map((q) => q.id);
   state.data.questions = state.data.questions.filter((q) => q.topicId !== topicId);
   state.data.topics = state.data.topics.filter((t) => t.id !== topicId);
@@ -639,12 +647,12 @@ function renderQuestionManager(topicId) {
           <div class="question-list-item ${depth > 0 ? "nested" : ""}">
             <div class="row between">
               <div>
-                <span class="pill">${q.type === "test" ? "Тест" : "Отворен"}</span>
+                <span class="pill">${q.type === "test" ? UI("testPill") : UI("openPill")}</span>
                 ${escapeHtml(t(q, "question")).slice(0, 100)}${t(q, "question").length > 100 ? "…" : ""}
               </div>
               <div class="row">
-                <button class="btn small secondary" data-edit-q="${q.id}">Редактирай</button>
-                <button class="btn small danger" data-delete-q="${q.id}">Изтрий</button>
+                <button class="btn small secondary" data-edit-q="${q.id}">${UI("editBtn")}</button>
+                <button class="btn small danger" data-delete-q="${q.id}">${UI("deleteBtn")}</button>
               </div>
             </div>
           </div>
@@ -659,10 +667,10 @@ function renderQuestionManager(topicId) {
   container.innerHTML = `
     <div class="card">
       <div class="row between">
-        <h2>Въпроси: ${escapeHtml(topic.name)}</h2>
-        <button class="btn" id="add-question-btn">+ Добави въпрос</button>
+        <h2>${UI("questionsHeading", escapeHtml(topic.name))}</h2>
+        <button class="btn" id="add-question-btn">${UI("addQuestionBtn")}</button>
       </div>
-      ${tree || '<p class="muted">Все още няма въпроси в тази тема.</p>'}
+      ${tree || `<p class="muted">${UI("noQuestionsInTopic")}</p>`}
       <div id="question-form-wrap"></div>
     </div>
   `;
@@ -678,9 +686,7 @@ function renderQuestionManager(topicId) {
 
 function deleteQuestion(qId) {
   const hasChildren = followUpsOf(qId).length > 0;
-  const msg = hasChildren
-    ? "Този въпрос има свързани казуси, които също ще бъдат изтрити. Продължи?"
-    : "Да изтрия този въпрос?";
+  const msg = hasChildren ? UI("deleteQuestionWithChildrenConfirm") : UI("deleteQuestionConfirm");
   if (!confirm(msg)) return;
   const toDelete = new Set([qId]);
   let changed = true;
@@ -723,65 +729,65 @@ function renderQuestionForm(editId) {
 
   wrap.innerHTML = `
     <div class="card" style="background:var(--accent-bg);margin-top:1rem;">
-      <h2>${editing ? "Редактирай въпрос" : "Нов въпрос"}</h2>
+      <h2>${editing ? UI("editQuestionTitle") : UI("newQuestionTitle")}</h2>
 
       <div class="field">
-        <label>Снимка на въпроса от книгата — за лична справка (по желание)</label>
+        <label>${UI("photoLabel")}</label>
         <p class="muted" style="margin-top:0;">
-          Остава само в този браузър, на това устройство — НЕ се публикува никъде, НЕ влиза в резервното копие (JSON износ) и НЕ се качва в интернет. Служи само за твоя памет, докато преписваш въпроса със свои думи в полетата по-долу.
+          ${UI("photoDesc")}
         </p>
         <input type="file" id="q-photo-input" accept="image/*" capture="environment" />
         <div id="q-photo-preview" style="margin-top:.5rem;"></div>
       </div>
 
       <div class="field">
-        <label>Основен въпрос ли е, или свързан казус към друг въпрос?</label>
+        <label>${UI("parentLabel")}</label>
         <select id="q-parent">
-          <option value="">— Самостоятелен (основен) въпрос —</option>
+          <option value="">${UI("parentNoneOption")}</option>
           ${parentOptions}
         </select>
       </div>
       <div class="field">
-        <label>Вид на въпроса</label>
+        <label>${UI("typeLabel")}</label>
         <select id="q-type">
-          <option value="test" ${type === "test" ? "selected" : ""}>Тест с избор (А/Б/В...)</option>
-          <option value="open" ${type === "open" ? "selected" : ""}>Отворен / обяснителен въпрос</option>
+          <option value="test" ${type === "test" ? "selected" : ""}>${UI("typeTestOption")}</option>
+          <option value="open" ${type === "open" ? "selected" : ""}>${UI("typeOpenOption")}</option>
         </select>
       </div>
       <div class="field">
-        <label>Текст на въпроса — немски (препиши със свои думи, вдъхновен от снимката по-горе)</label>
+        <label>${UI("questionDeLabel")}</label>
         <textarea id="q-text">${editing ? escapeHtml(editing.question) : ""}</textarea>
       </div>
       <div class="field">
-        <label>Текст на въпроса — български (по желание, за бутона БГ/DE)</label>
+        <label>${UI("questionBgLabel")}</label>
         <textarea id="q-text-bg">${editing ? escapeHtml(editing.questionBg || "") : ""}</textarea>
       </div>
 
       <div id="test-fields" class="field">
-        <label>Отговори — немски (ляво) и български превод (дясно, по желание); маркирай верния</label>
+        <label>${UI("optionsLabel")}</label>
         <div id="options-list"></div>
-        <button type="button" class="btn small secondary" id="add-option-btn">+ Добави отговор</button>
+        <button type="button" class="btn small secondary" id="add-option-btn">${UI("addOptionBtn")}</button>
       </div>
 
       <div id="open-fields" class="field hidden">
-        <label>Модел за верен отговор / резюме — немски</label>
+        <label>${UI("modelAnswerDeLabel")}</label>
         <textarea id="q-model-answer">${editing ? escapeHtml(editing.modelAnswer || "") : ""}</textarea>
-        <label style="margin-top:.6rem;">Модел за верен отговор — български (по желание)</label>
+        <label style="margin-top:.6rem;">${UI("modelAnswerBgLabel")}</label>
         <textarea id="q-model-answer-bg">${editing ? escapeHtml(editing.modelAnswerBg || "") : ""}</textarea>
       </div>
 
       <div class="field">
-        <label>Обяснение — немски (защо е верен отговорът; показва се винаги след отговор)</label>
+        <label>${UI("explanationDeLabel")}</label>
         <textarea id="q-explanation">${editing ? escapeHtml(editing.explanation || "") : ""}</textarea>
       </div>
       <div class="field">
-        <label>Обяснение — български (по желание)</label>
+        <label>${UI("explanationBgLabel")}</label>
         <textarea id="q-explanation-bg">${editing ? escapeHtml(editing.explanationBg || "") : ""}</textarea>
       </div>
 
       <div class="row">
-        <button class="btn" id="save-question-btn">Запази</button>
-        <button class="btn secondary" id="cancel-question-btn">Отказ</button>
+        <button class="btn" id="save-question-btn">${UI("saveBtn")}</button>
+        <button class="btn secondary" id="cancel-question-btn">${UI("cancelBtn")}</button>
       </div>
     </div>
   `;
@@ -796,9 +802,9 @@ function renderQuestionForm(editId) {
       .map(
         (opt, i) => `
         <div class="option-input-row">
-          <input type="radio" name="correct-opt" value="${i}" ${i === correctIndex ? "checked" : ""} title="Верен отговор" />
-          <input type="text" data-opt-index="${i}" value="${escapeHtml(opt)}" placeholder="Отговор ${String.fromCharCode(65 + i)} — DE" />
-          <input type="text" data-opt-bg-index="${i}" value="${escapeHtml(currentOptionsBg[i] || "")}" placeholder="Отговор ${String.fromCharCode(65 + i)} — БГ (по желание)" />
+          <input type="radio" name="correct-opt" value="${i}" ${i === correctIndex ? "checked" : ""} title="${UI("correctOptionTitle")}" />
+          <input type="text" data-opt-index="${i}" value="${escapeHtml(opt)}" placeholder="${UI("optionPlaceholderDe", String.fromCharCode(65 + i))}" />
+          <input type="text" data-opt-bg-index="${i}" value="${escapeHtml(currentOptionsBg[i] || "")}" placeholder="${UI("optionPlaceholderBg", String.fromCharCode(65 + i))}" />
           ${currentOptions.length > 2 ? `<button type="button" class="btn small danger" data-remove-opt="${i}">✕</button>` : ""}
         </div>
       `
@@ -853,8 +859,8 @@ function renderQuestionForm(editId) {
       return;
     }
     box.innerHTML = `
-      <img src="${dataUrl}" alt="Снимка за лична справка" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;" />
-      <button type="button" class="btn small danger" id="remove-photo-btn" style="margin-top:.4rem;">Изтрий снимката</button>
+      <img src="${dataUrl}" alt="${UI("photoAlt")}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;" />
+      <button type="button" class="btn small danger" id="remove-photo-btn" style="margin-top:.4rem;">${UI("removePhotoBtn")}</button>
     `;
     document.getElementById("remove-photo-btn").addEventListener("click", async () => {
       await deletePhoto(formId);
@@ -882,7 +888,7 @@ function renderQuestionForm(editId) {
   document.getElementById("save-question-btn").addEventListener("click", () => {
     const questionText = document.getElementById("q-text").value.trim();
     if (!questionText) {
-      alert("Моля, въведи текст на въпроса.");
+      alert(UI("alertNoQuestionText"));
       return;
     }
     const qType = document.getElementById("q-type").value;
@@ -904,7 +910,7 @@ function renderQuestionForm(editId) {
         .map((o, i) => ({ de: o.trim(), bg: (currentOptionsBg[i] || "").trim() }))
         .filter((p) => p.de.length > 0);
       if (cleanPairs.length < 2) {
-        alert("Добави поне два отговора.");
+        alert(UI("alertNeedTwoOptions"));
         return;
       }
       payload.options = cleanPairs.map((p) => p.de);
@@ -965,24 +971,24 @@ function renderStats() {
     const answered = qs.filter((q) => state.progress[q.id]);
     const correct = qs.filter((q) => state.progress[q.id] && state.progress[q.id].lastResult === "correct");
     const pct = answered.length ? Math.round((correct.length / answered.length) * 100) : 0;
-    return `<tr><td colspan="5"><strong>Твои допълнителни въпроси</strong></td></tr>
-      <tr><td>Твои въпроси</td><td>${qs.length}</td><td>${answered.length}</td><td>${correct.length}</td><td>${pct}%</td></tr>`;
+    return `<tr><td colspan="5"><strong>${UI("ownQuestionsSectionLabel")}</strong></td></tr>
+      <tr><td>${UI("ownQuestionsRowLabel")}</td><td>${qs.length}</td><td>${answered.length}</td><td>${correct.length}</td><td>${pct}%</td></tr>`;
   }
 
   container.innerHTML = `
     <div class="card">
-      <h2>Статистика по теми</h2>
+      <h2>${UI("statsHeading")}</h2>
       <table>
-        <thead><tr><th>Тема</th><th>Общо въпроси</th><th>Отговорени</th><th>Последно верни</th><th>%</th></tr></thead>
+        <thead><tr><th>${UI("thTopic")}</th><th>${UI("thTotal")}</th><th>${UI("thAnswered")}</th><th>${UI("thLastCorrect")}</th><th>${UI("thPercent")}</th></tr></thead>
         <tbody>${rowsForPart(1)}${rowsForPart(2)}${ownRow()}</tbody>
       </table>
       <div class="row" style="margin-top:1rem;">
-        <button class="btn danger" id="reset-progress-btn">Изчисти статистиката</button>
+        <button class="btn danger" id="reset-progress-btn">${UI("resetStatsBtn")}</button>
       </div>
     </div>
   `;
   document.getElementById("reset-progress-btn").addEventListener("click", () => {
-    if (!confirm("Да изчистя ли цялата статистика (запазените верни/грешни отговори)?")) return;
+    if (!confirm(UI("resetStatsConfirm"))) return;
     state.progress = {};
     saveProgress();
     renderStats();
@@ -999,20 +1005,20 @@ function renderOwnQuestionsTab() {
   function pendingItem(q) {
     return `
       <div class="question-list-item">
-        <p><strong>Въпрос:</strong> ${escapeHtml(q.question)}</p>
+        <p><strong>${UI("questionLabel")}</strong> ${escapeHtml(q.question)}</p>
         <div class="row">
-          <button type="button" class="btn small secondary" data-copy-own="${q.id}">Копирай въпроса</button>
-          <button type="button" class="btn small danger" data-delete-own="${q.id}">Изтрий</button>
+          <button type="button" class="btn small secondary" data-copy-own="${q.id}">${UI("copyQuestionBtn")}</button>
+          <button type="button" class="btn small danger" data-delete-own="${q.id}">${UI("deleteBtn")}</button>
         </div>
         <div class="field" style="margin-top:.6rem;">
-          <label>Постави отговора тук, когато го получиш</label>
-          <textarea data-answer-input="${q.id}" placeholder="Отговорът, който получи..."></textarea>
+          <label>${UI("answerInputLabel")}</label>
+          <textarea data-answer-input="${q.id}" placeholder="${UI("answerInputPlaceholder")}"></textarea>
         </div>
         <div class="field">
-          <label>Бележка / обяснение (по желание)</label>
+          <label>${UI("noteInputLabel")}</label>
           <textarea data-explanation-input="${q.id}"></textarea>
         </div>
-        <button type="button" class="btn small" data-save-answer="${q.id}">Запази отговора</button>
+        <button type="button" class="btn small" data-save-answer="${q.id}">${UI("saveAnswerBtn")}</button>
       </div>
     `;
   }
@@ -1020,38 +1026,32 @@ function renderOwnQuestionsTab() {
   function answeredItem(q) {
     return `
       <div class="question-list-item">
-        <p><strong>Въпрос:</strong> ${escapeHtml(q.question)}</p>
-        <p><strong>Отговор:</strong> ${escapeHtml(q.modelAnswer || "")}</p>
-        ${q.explanation ? `<p><strong>Бележка:</strong> ${escapeHtml(q.explanation)}</p>` : ""}
-        <p class="muted">Вече излиза заедно с останалите въпроси във "Всички теми" и в пробния изпит.</p>
-        <button type="button" class="btn small danger" data-delete-own="${q.id}">Изтрий</button>
+        <p><strong>${UI("questionLabel")}</strong> ${escapeHtml(q.question)}</p>
+        <p><strong>${UI("answerLabel")}</strong> ${escapeHtml(q.modelAnswer || "")}</p>
+        ${q.explanation ? `<p><strong>${UI("noteLabel")}</strong> ${escapeHtml(q.explanation)}</p>` : ""}
+        <p class="muted">${UI("alreadyInTestsNote")}</p>
+        <button type="button" class="btn small danger" data-delete-own="${q.id}">${UI("deleteBtn")}</button>
       </div>
     `;
   }
 
   container.innerHTML = `
     <div class="card">
-      <h2>Твой допълнителен въпрос</h2>
-      <p class="muted">
-        За неща, които не са ти ясни и не идват директно от двете книги. Записваш въпроса тук,
-        после го задаваш встрани (напр. на мен, в чата с Клод, или на друг източник), и накрая
-        поставяш получения отговор обратно тук. Той остава само в твоята лична база на това
-        устройство и после ще излиза заедно с останалите въпроси в тестовете — ясно отбелязан
-        като „твой допълнителен въпрос“, за да е видно, че не е от учебниците.
-      </p>
+      <h2>${UI("ownTabHeading")}</h2>
+      <p class="muted">${UI("ownTabDesc")}</p>
       <div class="field">
-        <label>Нов въпрос</label>
-        <textarea id="own-q-text" placeholder="Напр.: Защо точно 45 часа седмична почивка, а не 24?"></textarea>
+        <label>${UI("newQuestionLabel")}</label>
+        <textarea id="own-q-text" placeholder="${UI("newQuestionPlaceholder")}"></textarea>
       </div>
-      <button class="btn" id="save-own-question-btn">Запази въпроса</button>
+      <button class="btn" id="save-own-question-btn">${UI("saveQuestionBtn")}</button>
     </div>
     <div class="card">
-      <h2>Чакат отговор (${pending.length})</h2>
-      ${pending.map(pendingItem).join("") || '<p class="muted">Няма чакащи въпроси.</p>'}
+      <h2>${UI("pendingHeading", pending.length)}</h2>
+      ${pending.map(pendingItem).join("") || `<p class="muted">${UI("noPending")}</p>`}
     </div>
     <div class="card">
-      <h2>Отговорени (${answered.length})</h2>
-      ${answered.map(answeredItem).join("") || '<p class="muted">Все още няма отговорени.</p>'}
+      <h2>${UI("answeredHeading", answered.length)}</h2>
+      ${answered.map(answeredItem).join("") || `<p class="muted">${UI("noAnswered")}</p>`}
     </div>
   `;
 
@@ -1081,10 +1081,10 @@ function renderOwnQuestionsTab() {
       const q = getQuestion(btn.dataset.copyOwn);
       try {
         await navigator.clipboard.writeText(q.question);
-        btn.textContent = "Копирано ✓";
-        setTimeout(() => (btn.textContent = "Копирай въпроса"), 1500);
+        btn.textContent = UI("copiedBtn");
+        setTimeout(() => (btn.textContent = UI("copyQuestionBtn")), 1500);
       } catch (e) {
-        alert("Не успях да копирам автоматично — маркирай текста на въпроса и го копирай ръчно.");
+        alert(UI("copyFailAlert"));
       }
     });
   });
@@ -1096,7 +1096,7 @@ function renderOwnQuestionsTab() {
       const answer = container.querySelector(`[data-answer-input="${id}"]`).value.trim();
       const note = container.querySelector(`[data-explanation-input="${id}"]`).value.trim();
       if (!answer) {
-        alert("Постави отговора, преди да запазиш.");
+        alert(UI("saveAnswerAlert"));
         return;
       }
       q.modelAnswer = answer;
@@ -1109,7 +1109,7 @@ function renderOwnQuestionsTab() {
 
   container.querySelectorAll("[data-delete-own]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      if (!confirm("Да изтрия този въпрос?")) return;
+      if (!confirm(UI("deleteOwnConfirm"))) return;
       const id = btn.dataset.deleteOwn;
       state.data.questions = state.data.questions.filter((q) => q.id !== id);
       saveData();
@@ -1123,61 +1123,56 @@ function renderOwnQuestionsTab() {
 
 function renderGuide() {
   const container = document.getElementById("guide-container");
+  const steps = UI("guide1Steps")
+    .map((s) => s.replace("{part1}", partLabel(1)).replace("{part2}", partLabel(2)))
+    .map((s) => `<li>${s}</li>`)
+    .join("");
   container.innerHTML = `
     <div class="card">
-      <h2>Как се ползва помагалото</h2>
-      <p class="muted">Кратка легенда — какво прави всеки бутон.</p>
+      <h2>${UI("guideIntroTitle")}</h2>
+      <p class="muted">${UI("guideIntroDesc")}</p>
     </div>
 
     <div class="card">
-      <h2>1. Вписване на въпроси от книгите</h2>
-      <p>Отиди в „Управление на съдържанието“:</p>
-      <ol>
-        <li>Темите вече са готови, разделени в „${partLabel(1)}“ и „${partLabel(2)}“ — точно като главите в двете книги. Ако ти трябва нова тема, пиши ѝ име долу и избери част 1 или 2.</li>
-        <li>Натисни „Управлявай въпроси“ на темата, по която точно четеш в момента.</li>
-        <li>Натисни „+ Добави въпрос“.</li>
-        <li>По желание — прикачи снимка на страницата от книгата с бутона за снимка. Тя остава <strong>само на този телефон/браузър</strong>, само за твоя памет — никога не се публикува, не излиза в резервното копие и не се качва никъде.</li>
-        <li>Гледайки въпроса в книгата (или снимката), препиши го със свои думи: избери „Тест с избор“ или „Отворен/обяснителен въпрос“, попълни отговорите (при тест) или модела за верен отговор (при отворен), и обяснението защо той е верен.</li>
-        <li>Всяко поле за текст има два реда — немски (основният, какъвто е на изпита) и български (по желание). Не е задължително да пълниш и двата веднага — можеш да довършиш българския превод по-късно.</li>
-        <li>Ако от въпроса произлиза свързан казус, добави го като нов въпрос и в полето „Основен въпрос ли е, или свързан казус“ избери въпроса, към който принадлежи — ще излиза автоматично веднага след него.</li>
-        <li>Натисни „Запази“. Въпросът вече е част от базата.</li>
-      </ol>
+      <h2>${UI("guide1Title")}</h2>
+      <p>${UI("guide1Intro")}</p>
+      <ol>${steps}</ol>
     </div>
 
     <div class="card">
-      <h2>2. Бутон БГ/DE</h2>
-      <p>Горе вдясно в заглавието има превключвател „БГ / DE“. Той сменя само <strong>езика на съдържанието</strong> на въпросите, отговорите и обясненията (интерфейсът на приложението си остава на български, за да е удобно). Ако за даден въпрос няма въведен български превод, автоматично се показва немският текст. Полезно е да учиш на български, докато разбираш материала, и после да превключваш на немски, за да видиш и запомниш точната формулировка, каквато ще ти трябва на изпита.</p>
-      <p class="muted">Важно: превключването се вижда само докато решаваш конкретен въпрос в „Учи“ или го редактираш в „Управление на съдържанието“ — на самия екран „Настрой теста“ (преди да натиснеш „Започни“) няма текст от въпрос, затова там не изглежда, че нещо се променя. Малкият надпис с отметка под бутоните потвърждава, че превключването е сработило, дори когато не се вижда друга промяна.</p>
+      <h2>${UI("guide2Title")}</h2>
+      <p>${UI("guide2Desc")}</p>
+      <p class="muted">${UI("guide2Note")}</p>
     </div>
 
     <div class="card">
-      <h2>3. Учене</h2>
-      <p>В „Учи“ избираш тема (или „Всички теми“), по желание разбъркване или само въпросите, на които преди си грешала, и натискаш „Започни“. При тест веднага виждаш кой отговор е верен (зелено) и кой си избрала грешно (червено), плюс обяснение защо. При отворен въпрос — пишеш (по желание) и показваш верния отговор.</p>
+      <h2>${UI("guide3Title")}</h2>
+      <p>${UI("guide3Desc")}</p>
     </div>
 
     <div class="card">
-      <h2>4. Пробен изпит</h2>
-      <p>Бутонът в „Учи“ прави тест от 30 въпроса от цялата база (Част 1 + Част 2 + твоите отговорени лични въпроси). С приоритет излизат тези, които никога не си пробвала или последно си сгрешила — за да се учат по-лесно. С времето, докато базата расте, обхваща постепенно всичко.</p>
+      <h2>${UI("guide4Title")}</h2>
+      <p>${UI("guide4Desc")}</p>
     </div>
 
     <div class="card">
-      <h2>5. Твой допълнителен въпрос</h2>
-      <p>За неща извън двете книги, които не са ти ясни. Записваш въпроса в раздел „Твой въпрос“, задаваш го встрани (напр. на мен в чата), и после поставяш получения отговор обратно там. Остава завинаги в личната ти база и после излиза заедно с останалите въпроси в тестовете, ясно отбелязан като „твой допълнителен въпрос“ — за да е видно, че не е от учебниците.</p>
+      <h2>${UI("guide5Title")}</h2>
+      <p>${UI("guide5Desc")}</p>
     </div>
 
     <div class="card">
-      <h2>6. Статистика</h2>
-      <p>Показва процент верни отговори по теми (и за твоите лични въпроси), с бутон за нулиране.</p>
+      <h2>${UI("guide6Title")}</h2>
+      <p>${UI("guide6Desc")}</p>
     </div>
 
     <div class="card">
-      <h2>7. Резервно копие</h2>
-      <p>Всичко се пази само в браузъра на устройството (localStorage). От „Управление на съдържанието“ редовно изтегляй JSON резервно копие — особено след като добавиш много въпроси — за да не се загуби при смяна на телефон или изчистване на кеша. При нужда се качва обратно със „Качи JSON“.</p>
+      <h2>${UI("guide7Title")}</h2>
+      <p>${UI("guide7Desc")}</p>
     </div>
 
     <div class="card">
-      <h2>Важно за авторските права</h2>
-      <p>Никога не преписвай въпрос дословно, дума по дума от книгата, в текст, който би могъл да стане публичен (сайтът е публично видим). Препиши го със свои думи, докато го учиш — снимката служи само като лична памет и не се публикува. Така помагалото расте без да нарушава правата на автора на двете книги.</p>
+      <h2>${UI("guideCopyrightTitle")}</h2>
+      <p>${UI("guideCopyrightDesc")}</p>
     </div>
   `;
 }
@@ -1202,13 +1197,13 @@ function importData(evt) {
   reader.onload = () => {
     try {
       const parsed = JSON.parse(reader.result);
-      if (!parsed.topics || !parsed.questions) throw new Error("Невалиден формат");
-      if (!confirm("Това ще замени текущото съдържание с файла, който качваш. Продължи?")) return;
+      if (!parsed.topics || !parsed.questions) throw new Error(UI("importInvalidFormat"));
+      if (!confirm(UI("importConfirm"))) return;
       state.data = parsed;
       saveData();
       renderAdmin();
     } catch (e) {
-      alert("Файлът не изглежда валиден JSON износ от това приложение.");
+      alert(UI("importInvalidAlert"));
     }
   };
   reader.readAsText(file);
@@ -1216,7 +1211,7 @@ function importData(evt) {
 }
 
 function resetToSeed() {
-  if (!confirm("Това ще изтрие текущото съдържание и ще върне примерните въпроси. Препоръчително е първо да изтеглиш резервно копие. Продължи?")) return;
+  if (!confirm(UI("resetSeedConfirm"))) return;
   state.data = structuredClone(SEED_DATA);
   saveData();
   clearAllPhotos();

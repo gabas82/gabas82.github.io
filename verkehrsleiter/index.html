@@ -11,10 +11,10 @@
   <div class="header-row">
     <div>
       <h1>Güterkraftverkehr — Verkehrsleiter</h1>
-      <p>Учебно помагало за подготовка за IHK-Fachkundeprüfung</p>
+      <p id="app-subtitle">Учебно помагало за подготовка за IHK-Fachkundeprüfung</p>
     </div>
     <div>
-      <div class="lang-toggle" id="lang-toggle" title="Език на въпросите, отговорите и обясненията">
+      <div class="lang-toggle" id="lang-toggle">
         <button type="button" data-lang="bg">БГ</button>
         <button type="button" data-lang="de">DE</button>
       </div>
@@ -24,11 +24,11 @@
 </header>
 
 <nav class="tabs">
-  <button data-view="study" class="active">Учи</button>
-  <button data-view="admin">Управление на съдържанието</button>
-  <button data-view="stats">Статистика</button>
-  <button data-view="own">Твой въпрос</button>
-  <button data-view="guide">Как се ползва</button>
+  <button data-view="study" class="active" id="nav-study">Учи</button>
+  <button data-view="admin" id="nav-admin">Управление на съдържанието</button>
+  <button data-view="stats" id="nav-stats">Статистика</button>
+  <button data-view="own" id="nav-own">Твой въпрос</button>
+  <button data-view="guide" id="nav-guide">Как се ползва</button>
 </nav>
 
 <main>
@@ -53,11 +53,12 @@
   </section>
 </main>
 
-<footer class="app-footer">
+<footer class="app-footer" id="app-footer">
   Данните се пазят локално в браузъра на това устройство. Изтегляй редовно резервно копие от „Управление на съдържанието“.
 </footer>
 
 <script src="seed-data.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
