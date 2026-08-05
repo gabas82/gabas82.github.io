@@ -91,6 +91,13 @@ header.app-header p {
   opacity: 1;
 }
 
+.lang-caption {
+  margin: .35rem 0 0;
+  font-size: .78rem;
+  opacity: .85;
+  text-align: right;
+}
+
 nav.tabs {
   display: flex;
   gap: .4rem;
