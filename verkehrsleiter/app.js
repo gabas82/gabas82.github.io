@@ -49,6 +49,14 @@ function getTopic(id) {
   return state.data.topics.find((t) => t.id === id);
 }
 
+function partLabel(part) {
+  return part === 2 ? "Част 2 (Teil 2)" : "Част 1 (Teil 1)";
+}
+
+function topicsByPart(part) {
+  return state.data.topics.filter((t) => (t.part || 1) === part);
+}
+
 function getQuestion(id) {
   return state.data.questions.find((q) => q.id === id);
 }
@@ -74,6 +82,63 @@ function shuffle(arr) {
   return a;
 }
 
+/* ---------- Лични снимки за справка (само този браузър, никога не се публикуват) ----------
+   Съхраняват се в IndexedDB на устройството, ключувани по ID на въпроса.
+   Умишлено НЕ участват в exportData() / importData() / git — служат само като
+   временна памет, докато въпросът се преписва със свои думи в текстовите полета. */
+
+const PHOTO_DB_NAME = "vl_photos_v1";
+const PHOTO_STORE = "photos";
+
+function openPhotoDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PHOTO_DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(PHOTO_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePhoto(questionId, dataUrl) {
+  const db = await openPhotoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, "readwrite");
+    tx.objectStore(PHOTO_STORE).put(dataUrl, questionId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getPhoto(questionId) {
+  const db = await openPhotoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, "readonly");
+    const req = tx.objectStore(PHOTO_STORE).get(questionId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function deletePhoto(questionId) {
+  const db = await openPhotoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, "readwrite");
+    tx.objectStore(PHOTO_STORE).delete(questionId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function clearAllPhotos() {
+  const db = await openPhotoDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PHOTO_STORE, "readwrite");
+    tx.objectStore(PHOTO_STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 /* ---------- Tabs ---------- */
 
 function initTabs() {
@@ -95,12 +160,17 @@ function switchView(view) {
 function renderStudySetup() {
   const container = document.getElementById("study-container");
   const totalQuestions = state.data.questions.filter((q) => !q.parentId).length;
-  const topicOptions = state.data.topics
-    .map((t) => {
-      const count = topLevelQuestions(t.id).length;
-      return `<option value="${t.id}">${escapeHtml(t.name)} (${count})</option>`;
-    })
-    .join("");
+
+  function optionsForPart(part) {
+    return topicsByPart(part)
+      .map((t) => {
+        const count = topLevelQuestions(t.id).length;
+        return `<option value="${t.id}">${escapeHtml(t.name)} (${count})</option>`;
+      })
+      .join("");
+  }
+
+  const EXAM_SIZE = 30;
 
   container.innerHTML = `
     <div class="card">
@@ -109,7 +179,8 @@ function renderStudySetup() {
         <label>Тема</label>
         <select id="study-topic">
           <option value="__all__">Всички теми — смесен тест (${totalQuestions})</option>
-          ${topicOptions}
+          <optgroup label="${partLabel(1)}">${optionsForPart(1)}</optgroup>
+          <optgroup label="${partLabel(2)}">${optionsForPart(2)}</optgroup>
         </select>
       </div>
       <div class="row" style="margin-bottom:.8rem;">
@@ -122,10 +193,16 @@ function renderStudySetup() {
       </div>
       <button class="btn" id="start-quiz-btn">Започни</button>
     </div>
+    <div class="card">
+      <h2>Пробен изпит</h2>
+      <p class="muted">Избира ${EXAM_SIZE} въпроса от всички теми (Част 1 и Част 2) на ротационен принцип — така че при повторни пробни изпити приоритет имат въпросите, които отдавна не си виждала, докато базата расте. В момента общо разполагаеми: ${totalQuestions}.</p>
+      <button class="btn secondary" id="start-exam-btn">Започни пробен изпит (${EXAM_SIZE} въпроса)</button>
+    </div>
     <div id="quiz-area"></div>
   `;
 
   document.getElementById("start-quiz-btn").addEventListener("click", startQuiz);
+  document.getElementById("start-exam-btn").addEventListener("click", startMockExam);
 }
 
 function startQuiz() {
@@ -156,6 +233,44 @@ function startQuiz() {
     correctCount: 0,
     totalAnswered: 0,
     followUpQueue: [],
+    isExam: false,
+  };
+  renderQuizQuestion();
+}
+
+function startMockExam() {
+  const EXAM_SIZE = 30;
+  const allTop = state.data.topics.flatMap((t) => topLevelQuestions(t.id));
+
+  if (allTop.length === 0) {
+    document.getElementById("quiz-area").innerHTML =
+      '<div class="card muted">Все още няма въпроси в базата. Добави въпроси от "Управление на съдържанието".</div>';
+    return;
+  }
+
+  // Ротация: най-отдавна (или никога) явявалите се на пробен изпит въпроси излизат първи.
+  const sorted = allTop.slice().sort((a, b) => {
+    const at = (state.progress[a.id] && state.progress[a.id].lastExamAt) || 0;
+    const bt = (state.progress[b.id] && state.progress[b.id].lastExamAt) || 0;
+    return at - bt;
+  });
+  const selected = sorted.slice(0, Math.min(EXAM_SIZE, sorted.length));
+
+  const now = Date.now();
+  selected.forEach((q) => {
+    if (!state.progress[q.id]) state.progress[q.id] = { attempts: 0, correctCount: 0, lastResult: null };
+    state.progress[q.id].lastExamAt = now;
+  });
+  saveProgress();
+
+  state.quiz = {
+    queue: shuffle(selected).map((q) => q.id),
+    index: 0,
+    correctCount: 0,
+    totalAnswered: 0,
+    followUpQueue: [],
+    isExam: true,
+    examSize: selected.length,
   };
   renderQuizQuestion();
 }
@@ -295,10 +410,15 @@ function renderQuizSummary() {
   const quiz = state.quiz;
   const area = document.getElementById("quiz-area");
   const pct = quiz.totalAnswered ? Math.round((quiz.correctCount / quiz.totalAnswered) * 100) : 0;
+  const title = quiz.isExam ? `Резултат от пробния изпит (${quiz.examSize} въпроса)` : "Резултат";
+  const examNote = quiz.isExam
+    ? '<p class="muted">Прагът за успешен резултат зависи от актуалните изисквания на съответната IHK камара — провери го там. Направи нов пробен изпит по-късно, за да обходиш ротационно и останалите въпроси.</p>'
+    : "";
   area.innerHTML = `
     <div class="card">
-      <h2>Резултат</h2>
+      <h2>${title}</h2>
       <p>Верни отговори: <strong>${quiz.correctCount} / ${quiz.totalAnswered}</strong> (${pct}%)</p>
+      ${examNote}
       <div class="row">
         <button class="btn" id="restart-btn">Нов тест</button>
       </div>
@@ -311,32 +431,44 @@ function renderQuizSummary() {
 
 function renderAdmin() {
   const container = document.getElementById("admin-container");
-  const topicRows = state.data.topics
-    .map((t) => {
-      const count = state.data.questions.filter((q) => q.topicId === t.id).length;
-      return `
-        <div class="question-list-item">
-          <div class="row between">
-            <div>
-              <strong>${escapeHtml(t.name)}</strong>
-              <div class="muted">${escapeHtml(t.description || "")} · ${count} въпрос(а)</div>
-            </div>
-            <div class="row">
-              <button class="btn small secondary" data-manage-topic="${t.id}">Управлявай въпроси</button>
-              <button class="btn small danger" data-delete-topic="${t.id}">Изтрий темата</button>
-            </div>
+  function topicRow(t) {
+    const count = state.data.questions.filter((q) => q.topicId === t.id).length;
+    return `
+      <div class="question-list-item">
+        <div class="row between">
+          <div>
+            <strong>${escapeHtml(t.name)}</strong>
+            <div class="muted">${escapeHtml(t.description || "")} · ${count} въпрос(а)</div>
+          </div>
+          <div class="row">
+            <button class="btn small secondary" data-manage-topic="${t.id}">Управлявай въпроси</button>
+            <button class="btn small danger" data-delete-topic="${t.id}">Изтрий темата</button>
           </div>
         </div>
-      `;
-    })
-    .join("");
+      </div>
+    `;
+  }
+
+  function partSection(part) {
+    const topics = topicsByPart(part);
+    const rows = topics.map(topicRow).join("");
+    return `
+      <h3 style="margin-bottom:.5rem;">${partLabel(part)}</h3>
+      ${rows || '<p class="muted">Все още няма теми в тази част.</p>'}
+    `;
+  }
 
   container.innerHTML = `
     <div class="card">
       <h2>Теми</h2>
-      ${topicRows || '<p class="muted">Все още няма теми.</p>'}
-      <div class="row" style="margin-top:.8rem;">
+      ${partSection(1)}
+      ${partSection(2)}
+      <div class="row" style="margin-top:1rem;">
         <input type="text" id="new-topic-name" placeholder="Име на новата тема (напр. Straßenverkehrsrecht)" style="flex:1;min-width:220px;" />
+        <select id="new-topic-part" style="max-width:220px;">
+          <option value="1">${partLabel(1)}</option>
+          <option value="2">${partLabel(2)}</option>
+        </select>
         <button class="btn" id="add-topic-btn">+ Добави тема</button>
       </div>
     </div>
@@ -372,7 +504,8 @@ function addTopic() {
   const input = document.getElementById("new-topic-name");
   const name = input.value.trim();
   if (!name) return;
-  state.data.topics.push({ id: uid("t"), name, description: "" });
+  const part = Number(document.getElementById("new-topic-part").value) === 2 ? 2 : 1;
+  state.data.topics.push({ id: uid("t"), name, description: "", part });
   saveData();
   renderAdmin();
 }
@@ -380,9 +513,11 @@ function addTopic() {
 function deleteTopic(topicId) {
   const topic = getTopic(topicId);
   if (!confirm(`Да изтрия темата "${topic.name}" и всичките ѝ въпроси?`)) return;
+  const removedIds = state.data.questions.filter((q) => q.topicId === topicId).map((q) => q.id);
   state.data.questions = state.data.questions.filter((q) => q.topicId !== topicId);
   state.data.topics = state.data.topics.filter((t) => t.id !== topicId);
   saveData();
+  removedIds.forEach((id) => deletePhoto(id));
   renderAdmin();
 }
 
@@ -457,6 +592,7 @@ function deleteQuestion(qId) {
   }
   state.data.questions = state.data.questions.filter((q) => !toDelete.has(q.id));
   saveData();
+  toDelete.forEach((id) => deletePhoto(id));
   renderQuestionManager(activeManagedTopicId);
 }
 
@@ -478,10 +614,21 @@ function renderQuestionForm(editId) {
 
   const type = editing ? editing.type : "test";
   const options = editing && editing.options && editing.options.length ? editing.options : ["", ""];
+  const formId = editing ? editing.id : uid("q");
 
   wrap.innerHTML = `
     <div class="card" style="background:var(--accent-bg);margin-top:1rem;">
       <h2>${editing ? "Редактирай въпрос" : "Нов въпрос"}</h2>
+
+      <div class="field">
+        <label>Снимка на въпроса от книгата — за лична справка (по желание)</label>
+        <p class="muted" style="margin-top:0;">
+          Остава само в този браузър, на това устройство — НЕ се публикува никъде, НЕ влиза в резервното копие (JSON износ) и НЕ се качва в интернет. Служи само за твоя памет, докато преписваш въпроса със свои думи в полетата по-долу.
+        </p>
+        <input type="file" id="q-photo-input" accept="image/*" capture="environment" />
+        <div id="q-photo-preview" style="margin-top:.5rem;"></div>
+      </div>
+
       <div class="field">
         <label>Основен въпрос ли е, или свързан казус към друг въпрос?</label>
         <select id="q-parent">
@@ -497,7 +644,7 @@ function renderQuestionForm(editId) {
         </select>
       </div>
       <div class="field">
-        <label>Текст на въпроса</label>
+        <label>Текст на въпроса (препиши със свои думи, вдъхновен от снимката по-горе)</label>
         <textarea id="q-text">${editing ? escapeHtml(editing.question) : ""}</textarea>
       </div>
 
@@ -575,7 +722,36 @@ function renderQuestionForm(editId) {
   document.getElementById("q-type").addEventListener("change", toggleTypeFields);
   toggleTypeFields();
 
-  document.getElementById("cancel-question-btn").addEventListener("click", () => {
+  function renderPhotoPreview(dataUrl) {
+    const box = document.getElementById("q-photo-preview");
+    if (!dataUrl) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = `
+      <img src="${dataUrl}" alt="Снимка за лична справка" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;" />
+      <button type="button" class="btn small danger" id="remove-photo-btn" style="margin-top:.4rem;">Изтрий снимката</button>
+    `;
+    document.getElementById("remove-photo-btn").addEventListener("click", async () => {
+      await deletePhoto(formId);
+      renderPhotoPreview(null);
+    });
+  }
+  getPhoto(formId).then(renderPhotoPreview);
+
+  document.getElementById("q-photo-input").addEventListener("change", (evt) => {
+    const file = evt.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await savePhoto(formId, reader.result);
+      renderPhotoPreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById("cancel-question-btn").addEventListener("click", async () => {
+    if (!editing) await deletePhoto(formId);
     wrap.innerHTML = "";
   });
 
@@ -615,7 +791,7 @@ function renderQuestionForm(editId) {
     if (editing) {
       Object.assign(editing, payload);
     } else {
-      payload.id = uid("q");
+      payload.id = formId;
       state.data.questions.push(payload);
     }
     saveData();
@@ -628,30 +804,35 @@ function renderQuestionForm(editId) {
 
 function renderStats() {
   const container = document.getElementById("stats-container");
-  const rows = state.data.topics
-    .map((t) => {
-      const qs = topLevelQuestions(t.id).concat(
-        state.data.questions.filter((q) => q.topicId === t.id && q.parentId)
-      );
-      const answered = qs.filter((q) => state.progress[q.id]);
-      const correct = qs.filter((q) => state.progress[q.id] && state.progress[q.id].lastResult === "correct");
-      const pct = answered.length ? Math.round((correct.length / answered.length) * 100) : 0;
-      return `<tr>
-        <td>${escapeHtml(t.name)}</td>
-        <td>${qs.length}</td>
-        <td>${answered.length}</td>
-        <td>${correct.length}</td>
-        <td>${pct}%</td>
-      </tr>`;
-    })
-    .join("");
+
+  function rowFor(t) {
+    const qs = topLevelQuestions(t.id).concat(
+      state.data.questions.filter((q) => q.topicId === t.id && q.parentId)
+    );
+    const answered = qs.filter((q) => state.progress[q.id]);
+    const correct = qs.filter((q) => state.progress[q.id] && state.progress[q.id].lastResult === "correct");
+    const pct = answered.length ? Math.round((correct.length / answered.length) * 100) : 0;
+    return `<tr>
+      <td>${escapeHtml(t.name)}</td>
+      <td>${qs.length}</td>
+      <td>${answered.length}</td>
+      <td>${correct.length}</td>
+      <td>${pct}%</td>
+    </tr>`;
+  }
+
+  function rowsForPart(part) {
+    const topics = topicsByPart(part);
+    if (topics.length === 0) return "";
+    return `<tr><td colspan="5"><strong>${partLabel(part)}</strong></td></tr>` + topics.map(rowFor).join("");
+  }
 
   container.innerHTML = `
     <div class="card">
       <h2>Статистика по теми</h2>
       <table>
         <thead><tr><th>Тема</th><th>Общо въпроси</th><th>Отговорени</th><th>Последно верни</th><th>%</th></tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rowsForPart(1)}${rowsForPart(2)}</tbody>
       </table>
       <div class="row" style="margin-top:1rem;">
         <button class="btn danger" id="reset-progress-btn">Изчисти статистиката</button>
@@ -703,6 +884,7 @@ function resetToSeed() {
   if (!confirm("Това ще изтрие текущото съдържание и ще върне примерните въпроси. Препоръчително е първо да изтеглиш резервно копие. Продължи?")) return;
   state.data = structuredClone(SEED_DATA);
   saveData();
+  clearAllPhotos();
   renderAdmin();
 }
 

@@ -5,40 +5,55 @@
 // Истинските въпроси от книгите се въвеждат ръчно през "Управление на съдържанието".
 const SEED_DATA = {
   topics: [
+    // Teil 1 — Fragenkatalog Güterkraftverkehr, Teil 1
     {
       id: "t-national",
       name: "Nationaler Güterkraftverkehr",
       description: "Национален товарен автомобилен транспорт",
+      part: 1,
     },
     {
       id: "t-international",
       name: "Internationaler Güterkraftverkehr",
       description: "Международен товарен автомобилен транспорт",
+      part: 1,
     },
     {
       id: "t-zoll",
       name: "Zoll",
       description: "Митническо право",
+      part: 1,
     },
+    {
+      id: "t-gemischt",
+      name: "Gemischter Fragenkatalog",
+      description: "Смесен въпросник (обобщение на Част 1)",
+      part: 1,
+    },
+    // Teil 2 — Fragenkatalog Güterkraftverkehr, Teil 2
     {
       id: "t-strassenverkehrsrecht",
       name: "Straßenverkehrsrecht",
       description: "Пътнотранспортно право",
+      part: 2,
     },
     {
       id: "t-umweltschutz",
       name: "Umweltschutz",
       description: "Опазване на околната среда",
+      part: 2,
     },
     {
       id: "t-versicherungsrecht",
       name: "Versicherungsrecht",
       description: "Застрахователно право",
+      part: 2,
     },
     {
       id: "t-adr",
       name: "Gefahrguttransport / ADR-Recht",
       description: "Превоз на опасни товари / ADR",
+      part: 2,
     },
   ],
   questions: [
