@@ -58,6 +58,39 @@ header.app-header p {
   font-size: .9rem;
 }
 
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.lang-toggle {
+  display: inline-flex;
+  background: rgba(255,255,255,.15);
+  border-radius: 999px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.lang-toggle button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  padding: .35rem .85rem;
+  border-radius: 999px;
+  font-size: .85rem;
+  font-weight: 600;
+  opacity: .75;
+}
+
+.lang-toggle button.active {
+  background: var(--bg);
+  color: var(--primary-dark);
+  opacity: 1;
+}
+
 nav.tabs {
   display: flex;
   gap: .4rem;
@@ -233,8 +266,8 @@ th { color: var(--muted); font-weight: 600; }
 
 .field { margin-bottom: .8rem; }
 
-.option-input-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .4rem; }
-.option-input-row input[type=text] { flex: 1; }
+.option-input-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .4rem; flex-wrap: wrap; }
+.option-input-row input[type=text] { flex: 1; min-width: 140px; }
 
 footer.app-footer {
   text-align: center;
