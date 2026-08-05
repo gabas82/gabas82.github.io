@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Verkehrsleiter — подготовка за изпит</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="app-header">
+  <h1>Güterkraftverkehr — Verkehrsleiter</h1>
+  <p>Учебно помагало за подготовка за IHK-Fachkundeprüfung</p>
+</header>
+
+<nav class="tabs">
+  <button data-view="study" class="active">Учи</button>
+  <button data-view="admin">Управление на съдържанието</button>
+  <button data-view="stats">Статистика</button>
+</nav>
+
+<main>
+  <section id="view-study" class="view active">
+    <div id="study-container"></div>
+  </section>
+
+  <section id="view-admin" class="view">
+    <div id="admin-container"></div>
+  </section>
+
+  <section id="view-stats" class="view">
+    <div id="stats-container"></div>
+  </section>
+</main>
+
+<footer class="app-footer">
+  Данните се пазят локално в браузъра на това устройство. Изтегляй редовно резервно копие от „Управление на съдържанието“.
+</footer>
+
+<script src="seed-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
