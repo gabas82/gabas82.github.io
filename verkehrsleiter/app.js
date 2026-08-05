@@ -2,12 +2,59 @@
 
 const STORAGE_KEY = "vl_data_v1";
 const PROGRESS_KEY = "vl_progress_v1";
+const LANG_KEY = "vl_lang_v1";
 
 let state = {
   data: null,
   progress: null,
   quiz: null, // active quiz session
 };
+
+let currentView = "study";
+
+/* ---------- Език на съдържанието (БГ/DE) ----------
+   Управлява само СЪДЪРЖАНИЕТО на въпросите (текст, отговори, обяснения) —
+   интерфейсът на приложението си остава на български. При липсващ превод
+   за избрания език пада обратно към немския (основния) текст. */
+
+function getLang() {
+  return localStorage.getItem(LANG_KEY) === "bg" ? "bg" : "de";
+}
+
+function setLang(lang) {
+  localStorage.setItem(LANG_KEY, lang === "bg" ? "bg" : "de");
+}
+
+function t(q, field) {
+  if (getLang() === "bg") {
+    const bgVal = q[field + "Bg"];
+    if (bgVal) return bgVal;
+  }
+  return q[field] || "";
+}
+
+function tOptions(q) {
+  const base = q.options || [];
+  if (getLang() === "bg" && Array.isArray(q.optionsBg)) {
+    return base.map((opt, i) => q.optionsBg[i] || opt);
+  }
+  return base;
+}
+
+function initLangToggle() {
+  const box = document.getElementById("lang-toggle");
+  function refreshActive() {
+    box.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === getLang()));
+  }
+  box.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setLang(btn.dataset.lang);
+      refreshActive();
+      refreshCurrentView();
+    });
+  });
+  refreshActive();
+}
 
 function uid(prefix) {
   return prefix + "-" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -159,6 +206,7 @@ function initTabs() {
 }
 
 function switchView(view) {
+  currentView = view;
   document.querySelectorAll("nav.tabs button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "view-" + view));
   if (view === "study") renderStudySetup();
@@ -166,6 +214,24 @@ function switchView(view) {
   if (view === "stats") renderStats();
   if (view === "own") renderOwnQuestionsTab();
   if (view === "guide") renderGuide();
+}
+
+// Използва се само от превключвателя БГ/DE — презарежда текущия изглед със
+// съдържание на новия език, без да губи активен тест в процес на решаване.
+function refreshCurrentView() {
+  if (currentView === "study") {
+    if (state.quiz) renderQuizQuestion();
+    else renderStudySetup();
+  } else if (currentView === "admin") {
+    renderAdmin();
+    if (activeManagedTopicId) renderQuestionManager(activeManagedTopicId);
+  } else if (currentView === "stats") {
+    renderStats();
+  } else if (currentView === "own") {
+    renderOwnQuestionsTab();
+  } else if (currentView === "guide") {
+    renderGuide();
+  }
 }
 
 /* ---------- Study: setup ---------- */
@@ -324,7 +390,7 @@ function renderQuizQuestion() {
 
   let optionsHtml = "";
   if (q.type === "test") {
-    optionsHtml = q.options
+    optionsHtml = tOptions(q)
       .map(
         (opt, i) =>
           `<button class="option-btn" data-index="${i}">${String.fromCharCode(65 + i)}) ${escapeHtml(opt)}</button>`
@@ -342,7 +408,7 @@ function renderQuizQuestion() {
       <div class="progress-track"><div class="progress-fill" style="width:${progressPct}%"></div></div>
       <span class="pill">${escapeHtml(topic ? topic.name : q.own ? "Твой допълнителен въпрос" : "")}</span>
       ${isFollowUp ? '<span class="follow-up-tag">↳ Свързан казус към предходния въпрос</span>' : ""}
-      <h2 style="margin-top:.6rem;">${escapeHtml(q.question)}</h2>
+      <h2 style="margin-top:.6rem;">${escapeHtml(t(q, "question"))}</h2>
       <div id="options-wrap">${optionsHtml}</div>
       <div id="answer-feedback"></div>
       <div id="quiz-nav" style="margin-top:1rem;"></div>
@@ -407,17 +473,18 @@ function finishAnswer(q, isCorrect) {
 
   let modelAnswerHtml = "";
   if (q.type === "open") {
-    modelAnswerHtml = `<p><strong>Модел за верен отговор:</strong><br>${escapeHtml(q.modelAnswer || "(няма въведен)")}</p>`;
+    modelAnswerHtml = `<p><strong>Модел за верен отговор:</strong><br>${escapeHtml(t(q, "modelAnswer") || "(няма въведен)")}</p>`;
   }
   const ownNote = q.own
     ? '<p class="muted">Твой допълнителен въпрос — отговорът е от външен източник, който ти сама си записала, не от учебниците.</p>'
     : "";
+  const explanationText = t(q, "explanation");
 
   feedback.innerHTML = `
     ${bannerHtml}
     <div class="${boxClass}">
       ${modelAnswerHtml}
-      ${q.explanation ? `<p><strong>Обяснение:</strong><br>${escapeHtml(q.explanation)}</p>` : ""}
+      ${explanationText ? `<p><strong>Обяснение:</strong><br>${escapeHtml(explanationText)}</p>` : ""}
       ${ownNote}
     </div>
   `;
@@ -567,7 +634,7 @@ function renderQuestionManager(topicId) {
             <div class="row between">
               <div>
                 <span class="pill">${q.type === "test" ? "Тест" : "Отворен"}</span>
-                ${escapeHtml(q.question).slice(0, 100)}${q.question.length > 100 ? "…" : ""}
+                ${escapeHtml(t(q, "question")).slice(0, 100)}${t(q, "question").length > 100 ? "…" : ""}
               </div>
               <div class="row">
                 <button class="btn small secondary" data-edit-q="${q.id}">Редактирай</button>
@@ -637,13 +704,15 @@ function renderQuestionForm(editId) {
     .map(
       (q) =>
         `<option value="${q.id}" ${editing && editing.parentId === q.id ? "selected" : ""}>${escapeHtml(
-          q.question.slice(0, 60)
+          t(q, "question").slice(0, 60)
         )}</option>`
     )
     .join("");
 
   const type = editing ? editing.type : "test";
   const options = editing && editing.options && editing.options.length ? editing.options : ["", ""];
+  const optionsBgInit =
+    editing && editing.optionsBg && editing.optionsBg.length === options.length ? editing.optionsBg : options.map(() => "");
   const formId = editing ? editing.id : uid("q");
 
   wrap.innerHTML = `
@@ -674,24 +743,34 @@ function renderQuestionForm(editId) {
         </select>
       </div>
       <div class="field">
-        <label>Текст на въпроса (препиши със свои думи, вдъхновен от снимката по-горе)</label>
+        <label>Текст на въпроса — немски (препиши със свои думи, вдъхновен от снимката по-горе)</label>
         <textarea id="q-text">${editing ? escapeHtml(editing.question) : ""}</textarea>
+      </div>
+      <div class="field">
+        <label>Текст на въпроса — български (по желание, за бутона БГ/DE)</label>
+        <textarea id="q-text-bg">${editing ? escapeHtml(editing.questionBg || "") : ""}</textarea>
       </div>
 
       <div id="test-fields" class="field">
-        <label>Отговори (маркирай верния)</label>
+        <label>Отговори — немски (ляво) и български превод (дясно, по желание); маркирай верния</label>
         <div id="options-list"></div>
         <button type="button" class="btn small secondary" id="add-option-btn">+ Добави отговор</button>
       </div>
 
       <div id="open-fields" class="field hidden">
-        <label>Модел за верен отговор / резюме</label>
+        <label>Модел за верен отговор / резюме — немски</label>
         <textarea id="q-model-answer">${editing ? escapeHtml(editing.modelAnswer || "") : ""}</textarea>
+        <label style="margin-top:.6rem;">Модел за верен отговор — български (по желание)</label>
+        <textarea id="q-model-answer-bg">${editing ? escapeHtml(editing.modelAnswerBg || "") : ""}</textarea>
       </div>
 
       <div class="field">
-        <label>Обяснение (защо е верен отговорът; показва се винаги след отговор)</label>
+        <label>Обяснение — немски (защо е верен отговорът; показва се винаги след отговор)</label>
         <textarea id="q-explanation">${editing ? escapeHtml(editing.explanation || "") : ""}</textarea>
+      </div>
+      <div class="field">
+        <label>Обяснение — български (по желание)</label>
+        <textarea id="q-explanation-bg">${editing ? escapeHtml(editing.explanationBg || "") : ""}</textarea>
       </div>
 
       <div class="row">
@@ -703,6 +782,7 @@ function renderQuestionForm(editId) {
 
   const optionsListEl = document.getElementById("options-list");
   let currentOptions = options.slice();
+  let currentOptionsBg = optionsBgInit.slice();
   let correctIndex = editing && editing.correctIndex != null ? editing.correctIndex : 0;
 
   function renderOptions() {
@@ -711,16 +791,22 @@ function renderQuestionForm(editId) {
         (opt, i) => `
         <div class="option-input-row">
           <input type="radio" name="correct-opt" value="${i}" ${i === correctIndex ? "checked" : ""} title="Верен отговор" />
-          <input type="text" data-opt-index="${i}" value="${escapeHtml(opt)}" placeholder="Отговор ${String.fromCharCode(65 + i)}" />
+          <input type="text" data-opt-index="${i}" value="${escapeHtml(opt)}" placeholder="Отговор ${String.fromCharCode(65 + i)} — DE" />
+          <input type="text" data-opt-bg-index="${i}" value="${escapeHtml(currentOptionsBg[i] || "")}" placeholder="Отговор ${String.fromCharCode(65 + i)} — БГ (по желание)" />
           ${currentOptions.length > 2 ? `<button type="button" class="btn small danger" data-remove-opt="${i}">✕</button>` : ""}
         </div>
       `
       )
       .join("");
 
-    optionsListEl.querySelectorAll("input[type=text]").forEach((inp) => {
+    optionsListEl.querySelectorAll("input[data-opt-index]").forEach((inp) => {
       inp.addEventListener("input", () => {
         currentOptions[Number(inp.dataset.optIndex)] = inp.value;
+      });
+    });
+    optionsListEl.querySelectorAll("input[data-opt-bg-index]").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        currentOptionsBg[Number(inp.dataset.optBgIndex)] = inp.value;
       });
     });
     optionsListEl.querySelectorAll("input[name=correct-opt]").forEach((r) => {
@@ -732,6 +818,7 @@ function renderQuestionForm(editId) {
       btn.addEventListener("click", () => {
         const idx = Number(btn.dataset.removeOpt);
         currentOptions.splice(idx, 1);
+        currentOptionsBg.splice(idx, 1);
         if (correctIndex >= currentOptions.length) correctIndex = 0;
         renderOptions();
       });
@@ -741,13 +828,14 @@ function renderQuestionForm(editId) {
 
   document.getElementById("add-option-btn").addEventListener("click", () => {
     currentOptions.push("");
+    currentOptionsBg.push("");
     renderOptions();
   });
 
   function toggleTypeFields() {
-    const t = document.getElementById("q-type").value;
-    document.getElementById("test-fields").classList.toggle("hidden", t !== "test");
-    document.getElementById("open-fields").classList.toggle("hidden", t !== "open");
+    const qType = document.getElementById("q-type").value;
+    document.getElementById("test-fields").classList.toggle("hidden", qType !== "test");
+    document.getElementById("open-fields").classList.toggle("hidden", qType !== "open");
   }
   document.getElementById("q-type").addEventListener("change", toggleTypeFields);
   toggleTypeFields();
@@ -799,23 +887,31 @@ function renderQuestionForm(editId) {
       parentId,
       type: qType,
       question: questionText,
+      questionBg: document.getElementById("q-text-bg").value.trim(),
       explanation: document.getElementById("q-explanation").value.trim(),
+      explanationBg: document.getElementById("q-explanation-bg").value.trim(),
       order: editing ? editing.order : state.data.questions.length + 1,
     };
 
     if (qType === "test") {
-      const cleanOptions = currentOptions.map((o) => o.trim()).filter((o) => o.length > 0);
-      if (cleanOptions.length < 2) {
+      const cleanPairs = currentOptions
+        .map((o, i) => ({ de: o.trim(), bg: (currentOptionsBg[i] || "").trim() }))
+        .filter((p) => p.de.length > 0);
+      if (cleanPairs.length < 2) {
         alert("Добави поне два отговора.");
         return;
       }
-      payload.options = cleanOptions;
-      payload.correctIndex = Math.min(correctIndex, cleanOptions.length - 1);
+      payload.options = cleanPairs.map((p) => p.de);
+      payload.optionsBg = cleanPairs.map((p) => p.bg);
+      payload.correctIndex = Math.min(correctIndex, cleanPairs.length - 1);
       payload.modelAnswer = "";
+      payload.modelAnswerBg = "";
     } else {
       payload.options = [];
+      payload.optionsBg = [];
       payload.correctIndex = null;
       payload.modelAnswer = document.getElementById("q-model-answer").value.trim();
+      payload.modelAnswerBg = document.getElementById("q-model-answer-bg").value.trim();
     }
 
     if (editing) {
@@ -1036,33 +1132,39 @@ function renderGuide() {
         <li>Натисни „+ Добави въпрос“.</li>
         <li>По желание — прикачи снимка на страницата от книгата с бутона за снимка. Тя остава <strong>само на този телефон/браузър</strong>, само за твоя памет — никога не се публикува, не излиза в резервното копие и не се качва никъде.</li>
         <li>Гледайки въпроса в книгата (или снимката), препиши го със свои думи: избери „Тест с избор“ или „Отворен/обяснителен въпрос“, попълни отговорите (при тест) или модела за верен отговор (при отворен), и обяснението защо той е верен.</li>
+        <li>Всяко поле за текст има два реда — немски (основният, какъвто е на изпита) и български (по желание). Не е задължително да пълниш и двата веднага — можеш да довършиш българския превод по-късно.</li>
         <li>Ако от въпроса произлиза свързан казус, добави го като нов въпрос и в полето „Основен въпрос ли е, или свързан казус“ избери въпроса, към който принадлежи — ще излиза автоматично веднага след него.</li>
         <li>Натисни „Запази“. Въпросът вече е част от базата.</li>
       </ol>
     </div>
 
     <div class="card">
-      <h2>2. Учене</h2>
+      <h2>2. Бутон БГ/DE</h2>
+      <p>Горе вдясно в заглавието има превключвател „БГ / DE“. Той сменя само <strong>езика на съдържанието</strong> на въпросите, отговорите и обясненията (интерфейсът на приложението си остава на български, за да е удобно). Ако за даден въпрос няма въведен български превод, автоматично се показва немският текст. Полезно е да учиш на български, докато разбираш материала, и после да превключваш на немски, за да видиш и запомниш точната формулировка, каквато ще ти трябва на изпита.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. Учене</h2>
       <p>В „Учи“ избираш тема (или „Всички теми“), по желание разбъркване или само въпросите, на които преди си грешала, и натискаш „Започни“. При тест веднага виждаш кой отговор е верен (зелено) и кой си избрала грешно (червено), плюс обяснение защо. При отворен въпрос — пишеш (по желание) и показваш верния отговор.</p>
     </div>
 
     <div class="card">
-      <h2>3. Пробен изпит</h2>
+      <h2>4. Пробен изпит</h2>
       <p>Бутонът в „Учи“ прави тест от 30 въпроса от цялата база (Част 1 + Част 2 + твоите отговорени лични въпроси). С приоритет излизат тези, които никога не си пробвала или последно си сгрешила — за да се учат по-лесно. С времето, докато базата расте, обхваща постепенно всичко.</p>
     </div>
 
     <div class="card">
-      <h2>4. Твой допълнителен въпрос</h2>
+      <h2>5. Твой допълнителен въпрос</h2>
       <p>За неща извън двете книги, които не са ти ясни. Записваш въпроса в раздел „Твой въпрос“, задаваш го встрани (напр. на мен в чата), и после поставяш получения отговор обратно там. Остава завинаги в личната ти база и после излиза заедно с останалите въпроси в тестовете, ясно отбелязан като „твой допълнителен въпрос“ — за да е видно, че не е от учебниците.</p>
     </div>
 
     <div class="card">
-      <h2>5. Статистика</h2>
+      <h2>6. Статистика</h2>
       <p>Показва процент верни отговори по теми (и за твоите лични въпроси), с бутон за нулиране.</p>
     </div>
 
     <div class="card">
-      <h2>6. Резервно копие</h2>
+      <h2>7. Резервно копие</h2>
       <p>Всичко се пази само в браузъра на устройството (localStorage). От „Управление на съдържанието“ редовно изтегляй JSON резервно копие — особено след като добавиш много въпроси — за да не се загуби при смяна на телефон или изчистване на кеша. При нужда се качва обратно със „Качи JSON“.</p>
     </div>
 
@@ -1128,6 +1230,7 @@ function init() {
   state.data = loadData();
   state.progress = loadProgress();
   initTabs();
+  initLangToggle();
   switchView("study");
 }
 
