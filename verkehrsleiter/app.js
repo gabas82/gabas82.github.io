@@ -73,6 +73,17 @@ function followUpsOf(questionId) {
     .sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
+/* "Твои" въпроси — лични, странични питания, които тя сама задава (на Клод/другаде)
+   и после сама записва получения отговор. Не са обвързани с тема от Част 1/2,
+   ясно отбелязани като различни от съдържанието на учебниците. */
+function ownQuestions() {
+  return state.data.questions.filter((q) => q.own && !q.parentId);
+}
+
+function answeredOwnQuestions() {
+  return ownQuestions().filter((q) => q.answered);
+}
+
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -153,6 +164,8 @@ function switchView(view) {
   if (view === "study") renderStudySetup();
   if (view === "admin") renderAdmin();
   if (view === "stats") renderStats();
+  if (view === "own") renderOwnQuestionsTab();
+  if (view === "guide") renderGuide();
 }
 
 /* ---------- Study: setup ---------- */
@@ -195,7 +208,7 @@ function renderStudySetup() {
     </div>
     <div class="card">
       <h2>Пробен изпит</h2>
-      <p class="muted">Избира ${EXAM_SIZE} въпроса от всички теми (Част 1 и Част 2) на ротационен принцип — така че при повторни пробни изпити приоритет имат въпросите, които отдавна не си виждала, докато базата расте. В момента общо разполагаеми: ${totalQuestions}.</p>
+      <p class="muted">Избира ${EXAM_SIZE} въпроса от всички теми (Част 1 и Част 2, плюс отговорените ти лични въпроси). Приоритет имат тези, на които никога не си отговаряла, или последно си сгрешила — за да се учат по-лесно; след тях се допълва на ротационен принцип с останалите, отдавна невключвани. В момента общо разполагаеми: ${totalQuestions}.</p>
       <button class="btn secondary" id="start-exam-btn">Започни пробен изпит (${EXAM_SIZE} въпроса)</button>
     </div>
     <div id="quiz-area"></div>
@@ -212,7 +225,7 @@ function startQuiz() {
 
   let pool =
     topicId === "__all__"
-      ? state.data.topics.flatMap((t) => topLevelQuestions(t.id))
+      ? state.data.topics.flatMap((t) => topLevelQuestions(t.id)).concat(answeredOwnQuestions())
       : topLevelQuestions(topicId);
 
   if (wrongOnly) {
@@ -238,9 +251,19 @@ function startQuiz() {
   renderQuizQuestion();
 }
 
+// По-нисък приоритет = излиза по-рано в пробния изпит: 0 = никога пробван (в "Учи"),
+// 1 = последно грешен, 2 = последно верен. Целта е слабите/непознатите места да
+// изникват по-често, за да се учат и запомнят по-лесно.
+function examPriority(questionId) {
+  const p = state.progress[questionId];
+  if (!p || !p.lastResult) return 0;
+  if (p.lastResult === "wrong") return 1;
+  return 2;
+}
+
 function startMockExam() {
   const EXAM_SIZE = 30;
-  const allTop = state.data.topics.flatMap((t) => topLevelQuestions(t.id));
+  const allTop = state.data.topics.flatMap((t) => topLevelQuestions(t.id)).concat(answeredOwnQuestions());
 
   if (allTop.length === 0) {
     document.getElementById("quiz-area").innerHTML =
@@ -248,8 +271,11 @@ function startMockExam() {
     return;
   }
 
-  // Ротация: най-отдавна (или никога) явявалите се на пробен изпит въпроси излизат първи.
+  // Първо по приоритет (непробвани/грешни преди верните), после ротация по отдавна
+  // невключвани в пробен изпит — така базата постепенно се обхожда цялата.
   const sorted = allTop.slice().sort((a, b) => {
+    const prio = examPriority(a.id) - examPriority(b.id);
+    if (prio !== 0) return prio;
     const at = (state.progress[a.id] && state.progress[a.id].lastExamAt) || 0;
     const bt = (state.progress[b.id] && state.progress[b.id].lastExamAt) || 0;
     return at - bt;
@@ -314,7 +340,7 @@ function renderQuizQuestion() {
   area.innerHTML = `
     <div class="card">
       <div class="progress-track"><div class="progress-fill" style="width:${progressPct}%"></div></div>
-      <span class="pill">${escapeHtml(topic ? topic.name : "")}</span>
+      <span class="pill">${escapeHtml(topic ? topic.name : q.own ? "Твой допълнителен въпрос" : "")}</span>
       ${isFollowUp ? '<span class="follow-up-tag">↳ Свързан казус към предходния въпрос</span>' : ""}
       <h2 style="margin-top:.6rem;">${escapeHtml(q.question)}</h2>
       <div id="options-wrap">${optionsHtml}</div>
@@ -383,12 +409,16 @@ function finishAnswer(q, isCorrect) {
   if (q.type === "open") {
     modelAnswerHtml = `<p><strong>Модел за верен отговор:</strong><br>${escapeHtml(q.modelAnswer || "(няма въведен)")}</p>`;
   }
+  const ownNote = q.own
+    ? '<p class="muted">Твой допълнителен въпрос — отговорът е от външен източник, който ти сама си записала, не от учебниците.</p>'
+    : "";
 
   feedback.innerHTML = `
     ${bannerHtml}
     <div class="${boxClass}">
       ${modelAnswerHtml}
       ${q.explanation ? `<p><strong>Обяснение:</strong><br>${escapeHtml(q.explanation)}</p>` : ""}
+      ${ownNote}
     </div>
   `;
 
@@ -827,12 +857,22 @@ function renderStats() {
     return `<tr><td colspan="5"><strong>${partLabel(part)}</strong></td></tr>` + topics.map(rowFor).join("");
   }
 
+  function ownRow() {
+    const qs = answeredOwnQuestions();
+    if (qs.length === 0) return "";
+    const answered = qs.filter((q) => state.progress[q.id]);
+    const correct = qs.filter((q) => state.progress[q.id] && state.progress[q.id].lastResult === "correct");
+    const pct = answered.length ? Math.round((correct.length / answered.length) * 100) : 0;
+    return `<tr><td colspan="5"><strong>Твои допълнителни въпроси</strong></td></tr>
+      <tr><td>Твои въпроси</td><td>${qs.length}</td><td>${answered.length}</td><td>${correct.length}</td><td>${pct}%</td></tr>`;
+  }
+
   container.innerHTML = `
     <div class="card">
       <h2>Статистика по теми</h2>
       <table>
         <thead><tr><th>Тема</th><th>Общо въпроси</th><th>Отговорени</th><th>Последно верни</th><th>%</th></tr></thead>
-        <tbody>${rowsForPart(1)}${rowsForPart(2)}</tbody>
+        <tbody>${rowsForPart(1)}${rowsForPart(2)}${ownRow()}</tbody>
       </table>
       <div class="row" style="margin-top:1rem;">
         <button class="btn danger" id="reset-progress-btn">Изчисти статистиката</button>
@@ -845,6 +885,192 @@ function renderStats() {
     saveProgress();
     renderStats();
   });
+}
+
+/* ---------- Твой въпрос ---------- */
+
+function renderOwnQuestionsTab() {
+  const container = document.getElementById("own-container");
+  const pending = ownQuestions().filter((q) => !q.answered);
+  const answered = ownQuestions().filter((q) => q.answered);
+
+  function pendingItem(q) {
+    return `
+      <div class="question-list-item">
+        <p><strong>Въпрос:</strong> ${escapeHtml(q.question)}</p>
+        <div class="row">
+          <button type="button" class="btn small secondary" data-copy-own="${q.id}">Копирай въпроса</button>
+          <button type="button" class="btn small danger" data-delete-own="${q.id}">Изтрий</button>
+        </div>
+        <div class="field" style="margin-top:.6rem;">
+          <label>Постави отговора тук, когато го получиш</label>
+          <textarea data-answer-input="${q.id}" placeholder="Отговорът, който получи..."></textarea>
+        </div>
+        <div class="field">
+          <label>Бележка / обяснение (по желание)</label>
+          <textarea data-explanation-input="${q.id}"></textarea>
+        </div>
+        <button type="button" class="btn small" data-save-answer="${q.id}">Запази отговора</button>
+      </div>
+    `;
+  }
+
+  function answeredItem(q) {
+    return `
+      <div class="question-list-item">
+        <p><strong>Въпрос:</strong> ${escapeHtml(q.question)}</p>
+        <p><strong>Отговор:</strong> ${escapeHtml(q.modelAnswer || "")}</p>
+        ${q.explanation ? `<p><strong>Бележка:</strong> ${escapeHtml(q.explanation)}</p>` : ""}
+        <p class="muted">Вече излиза заедно с останалите въпроси във "Всички теми" и в пробния изпит.</p>
+        <button type="button" class="btn small danger" data-delete-own="${q.id}">Изтрий</button>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>Твой допълнителен въпрос</h2>
+      <p class="muted">
+        За неща, които не са ти ясни и не идват директно от двете книги. Записваш въпроса тук,
+        после го задаваш встрани (напр. на мен, в чата с Клод, или на друг източник), и накрая
+        поставяш получения отговор обратно тук. Той остава само в твоята лична база на това
+        устройство и после ще излиза заедно с останалите въпроси в тестовете — ясно отбелязан
+        като „твой допълнителен въпрос“, за да е видно, че не е от учебниците.
+      </p>
+      <div class="field">
+        <label>Нов въпрос</label>
+        <textarea id="own-q-text" placeholder="Напр.: Защо точно 45 часа седмична почивка, а не 24?"></textarea>
+      </div>
+      <button class="btn" id="save-own-question-btn">Запази въпроса</button>
+    </div>
+    <div class="card">
+      <h2>Чакат отговор (${pending.length})</h2>
+      ${pending.map(pendingItem).join("") || '<p class="muted">Няма чакащи въпроси.</p>'}
+    </div>
+    <div class="card">
+      <h2>Отговорени (${answered.length})</h2>
+      ${answered.map(answeredItem).join("") || '<p class="muted">Все още няма отговорени.</p>'}
+    </div>
+  `;
+
+  document.getElementById("save-own-question-btn").addEventListener("click", () => {
+    const text = document.getElementById("own-q-text").value.trim();
+    if (!text) return;
+    state.data.questions.push({
+      id: uid("own"),
+      topicId: null,
+      parentId: null,
+      type: "open",
+      own: true,
+      answered: false,
+      question: text,
+      options: [],
+      correctIndex: null,
+      modelAnswer: "",
+      explanation: "",
+      order: state.data.questions.length + 1,
+    });
+    saveData();
+    renderOwnQuestionsTab();
+  });
+
+  container.querySelectorAll("[data-copy-own]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const q = getQuestion(btn.dataset.copyOwn);
+      try {
+        await navigator.clipboard.writeText(q.question);
+        btn.textContent = "Копирано ✓";
+        setTimeout(() => (btn.textContent = "Копирай въпроса"), 1500);
+      } catch (e) {
+        alert("Не успях да копирам автоматично — маркирай текста на въпроса и го копирай ръчно.");
+      }
+    });
+  });
+
+  container.querySelectorAll("[data-save-answer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.saveAnswer;
+      const q = getQuestion(id);
+      const answer = container.querySelector(`[data-answer-input="${id}"]`).value.trim();
+      const note = container.querySelector(`[data-explanation-input="${id}"]`).value.trim();
+      if (!answer) {
+        alert("Постави отговора, преди да запазиш.");
+        return;
+      }
+      q.modelAnswer = answer;
+      q.explanation = note;
+      q.answered = true;
+      saveData();
+      renderOwnQuestionsTab();
+    });
+  });
+
+  container.querySelectorAll("[data-delete-own]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!confirm("Да изтрия този въпрос?")) return;
+      const id = btn.dataset.deleteOwn;
+      state.data.questions = state.data.questions.filter((q) => q.id !== id);
+      saveData();
+      deletePhoto(id);
+      renderOwnQuestionsTab();
+    });
+  });
+}
+
+/* ---------- Как се ползва ---------- */
+
+function renderGuide() {
+  const container = document.getElementById("guide-container");
+  container.innerHTML = `
+    <div class="card">
+      <h2>Как се ползва помагалото</h2>
+      <p class="muted">Кратка легенда — какво прави всеки бутон.</p>
+    </div>
+
+    <div class="card">
+      <h2>1. Вписване на въпроси от книгите</h2>
+      <p>Отиди в „Управление на съдържанието“:</p>
+      <ol>
+        <li>Темите вече са готови, разделени в „${partLabel(1)}“ и „${partLabel(2)}“ — точно като главите в двете книги. Ако ти трябва нова тема, пиши ѝ име долу и избери част 1 или 2.</li>
+        <li>Натисни „Управлявай въпроси“ на темата, по която точно четеш в момента.</li>
+        <li>Натисни „+ Добави въпрос“.</li>
+        <li>По желание — прикачи снимка на страницата от книгата с бутона за снимка. Тя остава <strong>само на този телефон/браузър</strong>, само за твоя памет — никога не се публикува, не излиза в резервното копие и не се качва никъде.</li>
+        <li>Гледайки въпроса в книгата (или снимката), препиши го със свои думи: избери „Тест с избор“ или „Отворен/обяснителен въпрос“, попълни отговорите (при тест) или модела за верен отговор (при отворен), и обяснението защо той е верен.</li>
+        <li>Ако от въпроса произлиза свързан казус, добави го като нов въпрос и в полето „Основен въпрос ли е, или свързан казус“ избери въпроса, към който принадлежи — ще излиза автоматично веднага след него.</li>
+        <li>Натисни „Запази“. Въпросът вече е част от базата.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>2. Учене</h2>
+      <p>В „Учи“ избираш тема (или „Всички теми“), по желание разбъркване или само въпросите, на които преди си грешала, и натискаш „Започни“. При тест веднага виждаш кой отговор е верен (зелено) и кой си избрала грешно (червено), плюс обяснение защо. При отворен въпрос — пишеш (по желание) и показваш верния отговор.</p>
+    </div>
+
+    <div class="card">
+      <h2>3. Пробен изпит</h2>
+      <p>Бутонът в „Учи“ прави тест от 30 въпроса от цялата база (Част 1 + Част 2 + твоите отговорени лични въпроси). С приоритет излизат тези, които никога не си пробвала или последно си сгрешила — за да се учат по-лесно. С времето, докато базата расте, обхваща постепенно всичко.</p>
+    </div>
+
+    <div class="card">
+      <h2>4. Твой допълнителен въпрос</h2>
+      <p>За неща извън двете книги, които не са ти ясни. Записваш въпроса в раздел „Твой въпрос“, задаваш го встрани (напр. на мен в чата), и после поставяш получения отговор обратно там. Остава завинаги в личната ти база и после излиза заедно с останалите въпроси в тестовете, ясно отбелязан като „твой допълнителен въпрос“ — за да е видно, че не е от учебниците.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. Статистика</h2>
+      <p>Показва процент верни отговори по теми (и за твоите лични въпроси), с бутон за нулиране.</p>
+    </div>
+
+    <div class="card">
+      <h2>6. Резервно копие</h2>
+      <p>Всичко се пази само в браузъра на устройството (localStorage). От „Управление на съдържанието“ редовно изтегляй JSON резервно копие — особено след като добавиш много въпроси — за да не се загуби при смяна на телефон или изчистване на кеша. При нужда се качва обратно със „Качи JSON“.</p>
+    </div>
+
+    <div class="card">
+      <h2>Важно за авторските права</h2>
+      <p>Никога не преписвай въпрос дословно, дума по дума от книгата, в текст, който би могъл да стане публичен (сайтът е публично видим). Препиши го със свои думи, докато го учиш — снимката служи само като лична памет и не се публикува. Така помагалото расте без да нарушава правата на автора на двете книги.</p>
+    </div>
+  `;
 }
 
 /* ---------- Export / Import / Reset ---------- */
