@@ -215,6 +215,41 @@ async function clearAllPhotos() {
   });
 }
 
+/* ---------- OCR (разпознаване на текст от снимка) ----------
+   Обработката е изцяло локална, в браузъра (Tesseract.js, WASM) — самата снимка
+   никога не се изпраща към сървър. Основната библиотека е вградена в repo-то
+   (vendor/tesseract/); ядрото (WASM) и езиковите данни се теглят от Tesseract.js
+   при първо използване (само тогава, и само това, не и снимката). */
+
+let tesseractLoadPromise = null;
+
+function loadTesseractLib() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "vendor/tesseract/tesseract.min.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("tesseract-load-failed"));
+    document.head.appendChild(script);
+  });
+  return tesseractLoadPromise;
+}
+
+async function runOcr(dataUrl, lang, onProgress) {
+  await loadTesseractLib();
+  const worker = await Tesseract.createWorker(lang, undefined, {
+    workerPath: "vendor/tesseract/worker.min.js",
+    logger: (m) => onProgress && onProgress(m),
+  });
+  try {
+    const { data } = await worker.recognize(dataUrl);
+    return data.text;
+  } finally {
+    await worker.terminate();
+  }
+}
+
 /* ---------- Tabs ---------- */
 
 function initTabs() {
@@ -861,10 +896,49 @@ function renderQuestionForm(editId) {
     box.innerHTML = `
       <img src="${dataUrl}" alt="${UI("photoAlt")}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;" />
       <button type="button" class="btn small danger" id="remove-photo-btn" style="margin-top:.4rem;">${UI("removePhotoBtn")}</button>
+      <div class="field" style="margin-top:.7rem;">
+        <label>${UI("ocrLabel")}</label>
+        <p class="muted" style="margin-top:0;">${UI("ocrHint")}</p>
+        <div class="row">
+          <select id="ocr-lang" style="max-width:160px;">
+            <option value="deu">${UI("ocrLangDe")}</option>
+            <option value="bul">${UI("ocrLangBg")}</option>
+          </select>
+          <button type="button" class="btn small secondary" id="run-ocr-btn">${UI("runOcrBtn")}</button>
+        </div>
+        <p class="muted" id="ocr-status" style="margin-top:.4rem;"></p>
+        <textarea id="ocr-result" class="hidden" style="margin-top:.4rem;"></textarea>
+      </div>
     `;
     document.getElementById("remove-photo-btn").addEventListener("click", async () => {
       await deletePhoto(formId);
       renderPhotoPreview(null);
+    });
+    document.getElementById("run-ocr-btn").addEventListener("click", async () => {
+      const btn = document.getElementById("run-ocr-btn");
+      const status = document.getElementById("ocr-status");
+      const resultBox = document.getElementById("ocr-result");
+      const lang = document.getElementById("ocr-lang").value;
+      btn.disabled = true;
+      resultBox.classList.add("hidden");
+      status.textContent = UI("ocrLoading");
+      try {
+        const text = await runOcr(dataUrl, lang, (m) => {
+          if (m.status === "recognizing text") {
+            status.textContent = UI("ocrProgress", Math.round((m.progress || 0) * 100));
+          } else if (m.status) {
+            status.textContent = UI("ocrLoading");
+          }
+        });
+        status.textContent = UI("ocrDone");
+        resultBox.value = text.trim();
+        resultBox.classList.remove("hidden");
+      } catch (e) {
+        status.textContent = UI("ocrError");
+        console.warn(e);
+      } finally {
+        btn.disabled = false;
+      }
     });
   }
   getPhoto(formId).then(renderPhotoPreview);

@@ -151,6 +151,27 @@ const UI_STRINGS = {
   },
   removePhotoBtn: { bg: "Изтрий снимката", de: "Foto löschen" },
   photoAlt: { bg: "Снимка за лична справка", de: "Foto zur persönlichen Referenz" },
+  ocrLabel: {
+    bg: "Разпознаване на текст от снимката (OCR)",
+    de: "Texterkennung aus dem Foto (OCR)",
+  },
+  ocrHint: {
+    bg: "Обработката става изцяло в браузъра — снимката не се изпраща никъде в интернет. Разпознаването не е перфектно (особено при ъгъл/отблясъци или букви като ä, ö, ü, ß) — прегледай резултата и копирай нужните части в полетата по-долу.",
+    de: "Die Verarbeitung erfolgt vollständig im Browser — das Foto wird nirgendwo ins Internet gesendet. Die Erkennung ist nicht perfekt (besonders bei Winkel/Reflexionen oder Buchstaben wie ä, ö, ü, ß) — prüfe das Ergebnis und kopiere die benötigten Teile in die Felder unten.",
+  },
+  ocrLangDe: { bg: "Немски", de: "Deutsch" },
+  ocrLangBg: { bg: "Български", de: "Bulgarisch" },
+  runOcrBtn: { bg: "Разпознай текст", de: "Text erkennen" },
+  ocrLoading: { bg: "Зарежда се разпознаването...", de: "Texterkennung wird geladen..." },
+  ocrProgress: { bg: (p) => `Разпознаване... ${p}%`, de: (p) => `Erkennung läuft... ${p}%` },
+  ocrDone: {
+    bg: "Готово — провери текста по-долу за грешки, после копирай нужните части в полетата:",
+    de: "Fertig — bitte den Text unten auf Fehler prüfen und die benötigten Teile in die Felder kopieren:",
+  },
+  ocrError: {
+    bg: "Грешка при разпознаването — провери интернет връзката и опитай пак.",
+    de: "Fehler bei der Texterkennung — Internetverbindung prüfen und erneut versuchen.",
+  },
   parentLabel: {
     bg: "Основен въпрос ли е, или свързан казус към друг въпрос?",
     de: "Ist es eine eigenständige Frage oder ein verknüpfter Fall zu einer anderen Frage?",
@@ -265,6 +286,7 @@ const UI_STRINGS = {
       "Натисни „Управлявай въпроси“ на темата, по която точно четеш в момента.",
       "Натисни „+ Добави въпрос“.",
       "По желание — прикачи снимка на страницата от книгата с бутона за снимка. Тя остава <strong>само на този телефон/браузър</strong>, само за твоя памет — никога не се публикува, не излиза в резервното копие и не се качва никъде.",
+      "По желание — след като прикачиш снимката, натисни „Разпознай текст“ (избери немски или български), за да получиш автоматично разпознат текст от нея (обработва се само в браузъра, не се качва никъде). Разпознаването не е перфектно — прегледай го за грешки и копирай нужните части в полетата по-долу, вместо да пишеш всичко от нулата.",
       "Гледайки въпроса в книгата (или снимката), препиши го със свои думи: избери „Тест с избор“ или „Отворен/обяснителен въпрос“, попълни отговорите (при тест) или модела за верен отговор (при отворен), и обяснението защо той е верен.",
       "Всяко поле за текст има два реда — немски (основният, какъвто е на изпита) и български (по желание). Не е задължително да пълниш и двата веднага — можеш да довършиш българския превод по-късно.",
       "Ако от въпроса произлиза свързан казус, добави го като нов въпрос и в полето „Основен въпрос ли е, или свързан казус“ избери въпроса, към който принадлежи — ще излиза автоматично веднага след него.",
@@ -275,6 +297,7 @@ const UI_STRINGS = {
       "Klicke auf „Fragen verwalten“ bei dem Thema, das du gerade liest.",
       "Klicke auf „+ Frage hinzufügen“.",
       "Optional — hänge ein Foto der Buchseite über den Foto-Button an. Es bleibt <strong>nur auf diesem Telefon/Browser</strong>, nur als Gedächtnisstütze — wird nie veröffentlicht, erscheint nicht im Backup und wird nirgendwo hochgeladen.",
+      "Optional — klicke nach dem Anhängen des Fotos auf „Text erkennen“ (Deutsch oder Bulgarisch wählen), um automatisch erkannten Text daraus zu erhalten (wird nur im Browser verarbeitet, nirgendwo hochgeladen). Die Erkennung ist nicht perfekt — prüfe sie auf Fehler und kopiere die benötigten Teile in die Felder unten, statt alles von Grund auf zu schreiben.",
       "Schau dir die Frage im Buch (oder auf dem Foto) an und schreibe sie mit eigenen Worten: wähle „Multiple-Choice-Test“ oder „Offene/erklärende Frage“, fülle die Antworten (bei Test) oder die Musterantwort (bei offen) aus, sowie die Erklärung, warum sie richtig ist.",
       "Jedes Textfeld hat zwei Zeilen — Deutsch (die Hauptsprache, wie in der Prüfung) und Bulgarisch (optional). Du musst nicht beide sofort ausfüllen — die bulgarische Übersetzung kannst du auch später ergänzen.",
       "Wenn sich aus der Frage ein verknüpfter Fall ergibt, füge ihn als neue Frage hinzu und wähle im Feld „Ist es eine eigenständige Frage oder ein verknüpfter Fall“ die Frage aus, zu der er gehört — er erscheint dann automatisch direkt danach.",
