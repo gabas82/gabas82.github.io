@@ -2088,6 +2088,25 @@ async function loadComeback(forceRefresh){
       wcAlive=await getWCAliveTeamIds();
     }catch(e){}
 
+    // Ефбет Лига, Сюпер Лиг и 2. Бундеслига не се покриват от football-data.org
+    // (виж generalMatches по-горе) - допълваме ги отделно през api-sports.io,
+    // аналогично на ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ/LIVE другаде в кода.
+    try{
+      const season=currentSeasonYear();
+      const extraResults=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=30')));
+      extraResults.forEach(r=>{
+        if(r.status!=='fulfilled')return;
+        (r.value.response||[])
+          .filter(f=>['FT','AET','PEN','AWD','WO'].includes(f.fixture?.status?.short))
+          .forEach(f=>{
+            const m=asFixtureToMatch(f);
+            const cid=m.competition.id;
+            if(!allMatchesByComp[cid])allMatchesByComp[cid]=[];
+            allMatchesByComp[cid].push(m);
+          });
+      });
+    }catch(e){}
+
     comebackStatsCache=buildComebackStats(allMatchesByComp, wcAlive);
     renderComebackStats(comebackStatsCache);
   }catch(e){
@@ -2103,7 +2122,12 @@ function renderComebackStats(statsByComp){
     return;
   }
   let html='';
-  COMPS.forEach(comp=>{
+  const COMEBACK_EXTRA_COMPS=[
+    {id:'as_172',name:'Ефбет Лига',flag:'🇧🇬'},
+    {id:'as_203',name:'Сюпер Лиг',flag:'🇹🇷'},
+    {id:'as_79',name:'2. Бундеслига',flag:'🇩🇪'}
+  ];
+  [...COMPS,...COMEBACK_EXTRA_COMPS].forEach(comp=>{
     const teams=statsByComp[comp.id];
     if(!teams||!teams.length)return;
     const suffix=comp.id===2000?' <span style="font-size:9px;color:var(--muted);margin-left:8px">само оставащите в турнира отбори</span>':'';
