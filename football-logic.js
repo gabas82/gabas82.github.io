@@ -3,6 +3,16 @@
 // браузъра чрез <script src="football-logic.js"> (класически script, споделя глобален scope).
 
 function getToday(){return new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Berlin'});}
+// api-sports.io кодира "сезон" по годината, в която ЗАПОЧВА (напр. "2025" = сезон
+// 2025-2026, авг 2025 - май 2026) - за разлика от календарната година. Юли е
+// прагът (не 1 януари), за да покрие ранните квалификации на ШЛ/ЛЕ/ЛК, които
+// стартират преди самите първенства. Без тази граница заявките към api-sports
+// сочат грешен/несъществуващ сезон от януари до юли всяка година.
+function currentSeasonYear(now){
+  const d=now||new Date();
+  const y=d.getFullYear(), m=d.getMonth()+1;
+  return m>=7?y:y-1;
+}
 function getDateMinus(d){const dt=new Date();dt.setDate(dt.getDate()-d);return dt.toISOString().split('T')[0];}
 function getDatePlus(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
 function calcPct(h,a){const hn=parseInt(h)||0,an=parseInt(a)||0,t=hn+an||1;return Math.round(hn/t*100);}
@@ -87,6 +97,62 @@ function findTeamTopScorer(list,teamId,teamName){
   return found||null;
 }
 
+// "Вероятен голмайстор" за конкретен мач: първо пробва World Cup голмайсторски
+// списък (по teamId, с fallback по фъзи съвпадение на името на отбора - виж
+// findTeamTopScorer за същия trick), а ако няма такъв - брои голове от goals[]
+// масива на последните завършени мачове на всеки от двата отбора (recentGoals
+// = голове от последните 2 мача, ползва се за "тренд" индикатора в UI-я).
+function calcTopScorers(match, allMatches, wcScorers){
+  const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
+  if(!hId||!aId)return [];
+  const hn2=match.homeTeam?.name||'';
+  const an2=match.awayTeam?.name||'';
+  const playerStats={};
+
+  const finishedMatches=allMatches.filter(m=>m.status==='FINISHED').sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
+  const teamFinishedMatches={
+    [hId]: finishedMatches.filter(m=>m.homeTeam?.id===hId||m.awayTeam?.id===hId),
+    [aId]: finishedMatches.filter(m=>m.homeTeam?.id===aId||m.awayTeam?.id===aId)
+  };
+  const teamMatchCount={};
+  teamMatchCount[hId]=teamFinishedMatches[hId].length;
+  teamMatchCount[aId]=teamFinishedMatches[aId].length;
+
+  if(wcScorers&&wcScorers.length){
+    wcScorers.forEach(s=>{
+      if(!s.name)return;
+      const isHomeById=s.teamId===hId;
+      const isAwayById=s.teamId===aId;
+      const isHomeByName=s.teamName&&(s.teamName===hn2||hn2.includes(s.teamName)||s.teamName.includes(hn2));
+      const isAwayByName=s.teamName&&(s.teamName===an2||an2.includes(s.teamName)||s.teamName.includes(an2));
+      const isHome=isHomeById||isHomeByName;
+      const isAway=isAwayById||isAwayByName;
+      if(!isHome&&!isAway)return;
+      const realTeamId=isHome?hId:aId;
+      const key=s.id||s.name;
+      playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0,recentGoals:0,matchesPlayed:teamMatchCount[realTeamId]||1};
+    });
+  }
+
+  if(!Object.keys(playerStats).length){
+    [hId,aId].forEach(tid=>{
+      teamFinishedMatches[tid].forEach((m,idxInTeamMatches)=>{
+        (m.goals||[]).forEach(g=>{
+          if(g.type==='OWN')return;
+          const pid=g.scorer?.id;const gTid=g.team?.id;
+          if(!pid||!gTid||gTid!==tid)return;
+          const key=pid;
+          if(!playerStats[key]){playerStats[key]={id:pid,name:g.scorer?.name||'—',teamId:gTid,goals:0,recentGoals:0,matchesPlayed:teamMatchCount[tid]||1};}
+          playerStats[key].goals++;
+          if(idxInTeamMatches<2)playerStats[key].recentGoals++;
+        });
+      });
+    });
+  }
+
+  return Object.values(playerStats).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals).slice(0,5);
+}
+
 // v3.25: computeRegularScore() връща 90-минутния резултат само когато мачът
 // не е решен с продължения/дузпи (score.duration). Ако е решен след 90-та
 // минута, връща null — тогава кодът показва бележка вместо да сравнява
@@ -100,6 +166,29 @@ function durationBadge(m){
   const dur=m.score?.duration;
   if(!dur||dur==='REGULAR')return'';
   return dur==='PENALTY_SHOOTOUT'?' · ДЗ':' · ПРОДЪЛЖ.';
+}
+
+// Намира записа, който съвпада с даден мач: първо по точен ID сред ЦЕЛИЯ списък
+// кандидати (не спира на първия попаднал по име), а само ако няма ID съвпадение —
+// по двойка имена на отборите (пробва всеки подаден вариант на името - shortName
+// и пълно име). При няколко кандидата със същите имена на отборите (напр. реванш
+// между едни и същи два отбора в кратък период) избира най-близкия по дата, за да
+// не сдвои прогноза с грешния мач. candidates трябва да са с форма {id,home,away,date}.
+function findMatchingRecord(candidates, targetId, homeNames, awayNames, targetDate){
+  const byId=(candidates||[]).find(c=>targetId!=null&&String(c.id)===String(targetId));
+  if(byId)return byId;
+  const hSet=(homeNames||[]).filter(Boolean);
+  const aSet=(awayNames||[]).filter(Boolean);
+  if(!hSet.length||!aSet.length)return null;
+  const pool=(candidates||[]).filter(c=>hSet.includes(c.home)&&aSet.includes(c.away));
+  if(!pool.length)return null;
+  if(pool.length===1||!targetDate)return pool[0];
+  const target=new Date(targetDate).getTime();
+  return pool.reduce((best,c)=>{
+    const cd=Math.abs(new Date(c.date).getTime()-target);
+    const bd=Math.abs(new Date(best.date).getTime()-target);
+    return cd<bd?c:best;
+  });
 }
 
 const HIST_KEY='football_pred_history_v2';
@@ -226,10 +315,11 @@ function calcConfidence(pred, odds){
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    getToday, getDateMinus, getDatePlus, calcPct, poissonProb, calcGoalMarkets,
+    getToday, getDateMinus, getDatePlus, currentSeasonYear, calcPct, poissonProb, calcGoalMarkets,
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
     saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
-    calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer
+    calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
+    calcTopScorers
   };
 }

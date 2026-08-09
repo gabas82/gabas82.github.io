@@ -2,10 +2,118 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   calcPct, poissonProb, calcGoalMarkets, goalBefore10, computeRegularScore,
   durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory,
-  calcForm, buildPrediction, calcConfidence, formatMatchDateTime,
+  calcForm, formDotsHtml, buildPrediction, calcConfidence, formatMatchDateTime,
   normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
-  calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer
+  calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer,
+  currentSeasonYear, findMatchingRecord, calcTopScorers
 } from './football-logic.js';
+
+describe('calcTopScorers', () => {
+  const match = { homeTeam: { id: 1, name: 'Домакин' }, awayTeam: { id: 2, name: 'Гост' } };
+  it('връща [], ако липсва id на някой от отборите', () => {
+    expect(calcTopScorers({ homeTeam: {}, awayTeam: { id: 2 } }, [], [])).toEqual([]);
+  });
+  it('ползва World Cup голмайсторски списък по teamId, когато е наличен', () => {
+    const wcScorers = [{ id: 'p1', name: 'Играч А', teamId: 1, teamName: 'Домакин', goals: 3 }];
+    const res = calcTopScorers(match, [], wcScorers);
+    expect(res).toEqual([{ id: 'p1', name: 'Играч А', teamId: 1, goals: 3, recentGoals: 0, matchesPlayed: 1 }]);
+  });
+  it('пада към броене на голове от allMatches, когато няма wcScorers', () => {
+    const allMatches = [
+      { status: 'FINISHED', utcDate: '2026-01-10', homeTeam: { id: 1 }, awayTeam: { id: 9 },
+        goals: [{ scorer: { id: 'p2', name: 'Играч Б' }, team: { id: 1 }, type: 'REGULAR' }] },
+      { status: 'FINISHED', utcDate: '2026-01-17', homeTeam: { id: 1 }, awayTeam: { id: 9 },
+        goals: [{ scorer: { id: 'p2', name: 'Играч Б' }, team: { id: 1 }, type: 'REGULAR' }] },
+    ];
+    const res = calcTopScorers(match, allMatches, []);
+    expect(res[0]).toMatchObject({ id: 'p2', name: 'Играч Б', teamId: 1, goals: 2 });
+  });
+  it('игнорира автоголове (type OWN)', () => {
+    const allMatches = [
+      { status: 'FINISHED', utcDate: '2026-01-10', homeTeam: { id: 1 }, awayTeam: { id: 9 },
+        goals: [{ scorer: { id: 'p3', name: 'Играч В' }, team: { id: 1 }, type: 'OWN' }] },
+    ];
+    expect(calcTopScorers(match, allMatches, [])).toEqual([]);
+  });
+  it('брои recentGoals само от последните 2 (по дата) завършени мача на отбора', () => {
+    const allMatches = [
+      { status: 'FINISHED', utcDate: '2026-01-01', homeTeam: { id: 1 }, awayTeam: { id: 9 },
+        goals: [{ scorer: { id: 'p4', name: 'Играч Г' }, team: { id: 1 }, type: 'REGULAR' }] },
+      { status: 'FINISHED', utcDate: '2026-01-08', homeTeam: { id: 1 }, awayTeam: { id: 9 },
+        goals: [{ scorer: { id: 'p4', name: 'Играч Г' }, team: { id: 1 }, type: 'REGULAR' }] },
+      { status: 'FINISHED', utcDate: '2026-01-15', homeTeam: { id: 1 }, awayTeam: { id: 9 },
+        goals: [{ scorer: { id: 'p4', name: 'Играч Г' }, team: { id: 1 }, type: 'REGULAR' }] },
+    ];
+    const res = calcTopScorers(match, allMatches, []);
+    expect(res[0]).toMatchObject({ goals: 3, recentGoals: 2, matchesPlayed: 3 });
+  });
+  it('сортира по голове низходящо и връща максимум 5', () => {
+    const wcScorers = Array.from({ length: 7 }, (_, i) => ({
+      id: 'p' + i, name: 'Играч ' + i, teamId: 1, teamName: 'Домакин', goals: i + 1,
+    }));
+    const res = calcTopScorers(match, [], wcScorers);
+    expect(res.length).toBe(5);
+    expect(res[0].goals).toBe(7);
+    expect(res[4].goals).toBe(3);
+  });
+});
+
+describe('findMatchingRecord', () => {
+  it('дава приоритет на точно ID съвпадение дори когато по-ранен кандидат съвпада само по имена', () => {
+    const candidates = [
+      { id: 'wrong-leg', home: 'Реал', away: 'Байерн', date: '2026-02-01' },
+      { id: 'right-leg', home: 'Реал', away: 'Байерн', date: '2026-04-15' },
+    ];
+    const found = findMatchingRecord(candidates, 'right-leg', ['Реал'], ['Байерн'], '2026-04-15');
+    expect(found.id).toBe('right-leg');
+  });
+  it('при липса на ID пада към единствения кандидат по двойка имена', () => {
+    const candidates = [{ id: 'a1', home: 'Арсенал', away: 'Челси', date: '2026-03-01' }];
+    const found = findMatchingRecord(candidates, 'no-such-id', ['Арсенал'], ['Челси'], '2026-03-01');
+    expect(found.id).toBe('a1');
+  });
+  it('при реванш (два кандидата със същите отбори) избира най-близкия по дата', () => {
+    const candidates = [
+      { id: 'leg1', home: 'Ливърпул', away: 'Милан', date: '2026-01-10' },
+      { id: 'leg2', home: 'Ливърпул', away: 'Милан', date: '2026-03-20' },
+    ];
+    const found = findMatchingRecord(candidates, null, ['Ливърпул'], ['Милан'], '2026-03-18');
+    expect(found.id).toBe('leg2');
+  });
+  it('пробва всеки подаден вариант на името на отбора (shortName и пълно име)', () => {
+    const candidates = [{ id: 'x', home: 'Man City', away: 'Man Utd', date: '2026-05-01' }];
+    const found = findMatchingRecord(candidates, null, ['MCFC', 'Man City'], ['MUFC', 'Man Utd'], '2026-05-01');
+    expect(found.id).toBe('x');
+  });
+  it('връща null без ID и без съвпадение по имена', () => {
+    const candidates = [{ id: 'a', home: 'X', away: 'Y', date: '2026-01-01' }];
+    expect(findMatchingRecord(candidates, null, ['Z'], ['W'], null)).toBeNull();
+  });
+});
+
+describe('currentSeasonYear', () => {
+  it('връща текущата година, когато сме от юли нататък (началото на новия сезон)', () => {
+    expect(currentSeasonYear(new Date('2026-08-09'))).toBe(2026);
+    expect(currentSeasonYear(new Date('2026-07-01'))).toBe(2026);
+  });
+  it('връща предходната година, когато сме преди юли (сезонът стартирал предната есен още тече)', () => {
+    expect(currentSeasonYear(new Date('2026-06-30'))).toBe(2025);
+    expect(currentSeasonYear(new Date('2026-01-15'))).toBe(2025);
+  });
+});
+
+describe('formDotsHtml', () => {
+  it('връща индикатор "няма данни" за празна форма', () => {
+    expect(formDotsHtml([])).toContain('няма данни');
+  });
+  it('рендира по една точка на резултат, в реда на подадения масив', () => {
+    const html = formDotsHtml(['W', 'D', 'L']);
+    expect((html.match(/class="fd /g) || []).length).toBe(3);
+    expect(html).toContain('fd W');
+    expect(html).toContain('fd D');
+    expect(html).toContain('fd L');
+  });
+});
 
 describe('calcPct', () => {
   it('изчислява процент коректно от два числови низа', () => {

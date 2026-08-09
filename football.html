@@ -107,13 +107,6 @@
   .bet-pill { background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 7px 4px; text-align: center; }
   .bet-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; }
   .bet-value { font-family: 'Rajdhani',sans-serif; font-size: 13px; font-weight: 700; }
-  .odds-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); }
-  .odds-pill { background: var(--card2); border: 1px solid rgba(0,229,255,0.2); border-radius: 8px; padding: 7px 4px; text-align: center; }
-  .odds-label { font-size: 9px; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 3px; }
-  .odds-val { font-family: 'Rajdhani',sans-serif; font-size: 15px; font-weight: 700; color: var(--cyan); }
-  .odds-impl { font-size: 9px; color: var(--muted); margin-top: 2px; }
-  .value-badge { display: inline-block; background: rgba(0,230,118,0.2); border: 1px solid var(--green); color: var(--green); font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; letter-spacing: 1px; }
-  .odds-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--cyan); letter-spacing: 2px; padding: 6px 12px 4px; border-top: 1px solid var(--border); background: rgba(0,229,255,0.03); }
   .lineup-section { padding: 8px 12px 10px; border-top: 1px solid var(--border); }
   .lineup-title { font-family: 'Rajdhani',sans-serif; font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: 2px; margin-bottom: 8px; }
   .lineup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -309,7 +302,7 @@ const COMPS=[
   {id:2003,name:'Eredivisie',flag:'🇳🇱'},
   {id:2013,name:'Бразилия Série A',flag:'🇧🇷'},
 ];
-const STANDINGS_IDS=[2000,2021,2002,2019,2014,2015,2003,2013];
+const STANDINGS_IDS=[2000,2021,2002,2019,2014,2015,2016,2003,2013];
 const COMPS_AS_MAP={2000:1,2021:39,2002:78,2019:135,2014:140,2015:61,2001:2,2018:3,2016:172,2003:88,2013:71};
 // Тези 4 състезания се теглят изцяло през api-sports.io (не football-data.org),
 // защото football-data.org или няма Лига Европа изобщо, или още не публикува
@@ -366,7 +359,7 @@ async function fetchCompScorersList(compId){
   try{
     if(key.startsWith('as_')){
       const leagueId=key.replace('as_','');
-      const season=new Date().getFullYear();
+      const season=currentSeasonYear();
       let d=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+season);
       let list=normalizeApiSportsScorers(d);
       if(!list.length){
@@ -550,7 +543,7 @@ async function updateHistoryResultsAS(hist){
   if(!toUpdate.length)return false;
   let changed=false;
   try{
-    const season=new Date().getFullYear();
+    const season=currentSeasonYear();
     const results=await Promise.allSettled(AS_LEAGUES.map(l=>apiFetchAS('/fixtures?league='+l.id+'&season='+season+'&last=30')));
     const allFixtures=[];
     results.forEach(r=>{if(r.status==='fulfilled')allFixtures.push(...(r.value.response||[]));});
@@ -580,13 +573,23 @@ async function updateHistoryResults(){
     const general=d1.status==='fulfilled'?(d1.value.matches||[]):[];
     const wcAll=d2.status==='fulfilled'?(d2.value.matches||[]).filter(m=>m.status==='FINISHED'):[];
     const all=[...general,...wcAll];
+    // За всеки мач генерираме ред за всяка комбинация shortName/пълно име на
+    // отборите (обикновено 1 ред, макс 4), за да можем да съпоставим независимо
+    // от това с кой вариант на името е бил запазен историческия запис.
+    const allNorm=[];
+    all.forEach(f=>{
+      const hVariants=[...new Set([f.homeTeam?.shortName,f.homeTeam?.name].filter(Boolean))];
+      const aVariants=[...new Set([f.awayTeam?.shortName,f.awayTeam?.name].filter(Boolean))];
+      (hVariants.length?hVariants:[undefined]).forEach(hv=>{
+        (aVariants.length?aVariants:[undefined]).forEach(av=>{
+          allNorm.push({id:f.id,home:hv,away:av,date:f.utcDate,_raw:f});
+        });
+      });
+    });
     toUpdate.forEach(h=>{
       if(String(h.id).startsWith('as_'))return;
-      const m=all.find(f=>
-        String(f.id)===String(h.id)||
-        ((f.homeTeam?.shortName===h.home||f.homeTeam?.name===h.home)&&
-         (f.awayTeam?.shortName===h.away||f.awayTeam?.name===h.away))
-      );
+      const found=findMatchingRecord(allNorm, h.id, [h.home], [h.away], h.date);
+      const m=found?found._raw:null;
       if(m&&m.score?.fullTime?.home!=null){
         const rs=computeRegularScore(m);
         if(rs&&rs.home!=null&&rs.away!=null){
@@ -741,57 +744,6 @@ function confidenceHtml(conf, hn, an){
   </div>`;
 }
 
-function calcTopScorers(match, allMatches, wcScorers){
-  const hId=match.homeTeam?.id, aId=match.awayTeam?.id;
-  if(!hId||!aId)return [];
-  const hn2=match.homeTeam?.name||'';
-  const an2=match.awayTeam?.name||'';
-  const playerStats={};
-
-  const finishedMatches=allMatches.filter(m=>m.status==='FINISHED').sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
-  const teamFinishedMatches={
-    [hId]: finishedMatches.filter(m=>m.homeTeam?.id===hId||m.awayTeam?.id===hId),
-    [aId]: finishedMatches.filter(m=>m.homeTeam?.id===aId||m.awayTeam?.id===aId)
-  };
-  const teamMatchCount={};
-  teamMatchCount[hId]=teamFinishedMatches[hId].length;
-  teamMatchCount[aId]=teamFinishedMatches[aId].length;
-
-  if(wcScorers&&wcScorers.length){
-    wcScorers.forEach(s=>{
-      if(!s.name)return;
-      const isHomeById=s.teamId===hId;
-      const isAwayById=s.teamId===aId;
-      const isHomeByName=s.teamName&&(s.teamName===hn2||hn2.includes(s.teamName)||s.teamName.includes(hn2));
-      const isAwayByName=s.teamName&&(s.teamName===an2||an2.includes(s.teamName)||s.teamName.includes(an2));
-      const isHome=isHomeById||isHomeByName;
-      const isAway=isAwayById||isAwayByName;
-      if(!isHome&&!isAway)return;
-      const realTeamId=isHome?hId:aId;
-      const key=s.id||s.name;
-      playerStats[key]={id:s.id,name:s.name,teamId:realTeamId,goals:s.goals||0,recentGoals:0,matchesPlayed:teamMatchCount[realTeamId]||1};
-    });
-  }
-
-  if(!Object.keys(playerStats).length){
-    [hId,aId].forEach(tid=>{
-      teamFinishedMatches[tid].forEach((m,idxInTeamMatches)=>{
-        (m.goals||[]).forEach(g=>{
-          if(g.type==='OWN')return;
-          const pid=g.scorer?.id;const gTid=g.team?.id;
-          if(!pid||!gTid||gTid!==tid)return;
-          const key=pid;
-          if(!playerStats[key]){playerStats[key]={id:pid,name:g.scorer?.name||'—',teamId:gTid,goals:0,recentGoals:0,matchesPlayed:teamMatchCount[tid]||1};}
-          playerStats[key].goals++;
-          if(idxInTeamMatches<2)playerStats[key].recentGoals++;
-        });
-      });
-    });
-  }
-
-  return Object.values(playerStats).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals).slice(0,5);
-}
-
 function topScorerHtml(players, match, hf, af){
   if(!players||!players.length)return '';
   const hId=match.homeTeam?.id;
@@ -854,7 +806,7 @@ function scorerBetSuggestionHtml(players, hf, af, hId){
   </div>`;
 }
 
-function buildBetBuilder(pred, odds, hn, an, hf, af, topScorers, hId, aId){
+function buildBetBuilder(pred, hn, an, hf, af, topScorers, hId, aId){
   if(!pred)return '';
 
   const favorH=pred.hWin>=60;
@@ -925,106 +877,6 @@ function buildBetBuilder(pred, odds, hn, an, hf, af, topScorers, hId, aId){
       <span style="font-size:10px;color:var(--muted)">Комбинирана вероятност</span>
       <span style="font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;color:var(--yellow)">${combPct}%</span>
     </div>
-  </div>`;
-}
-
-function surpriseDetectorHtml(pred, odds, hn, an, hf, af){
-  if(!pred||!odds||!odds.homeWin||!odds.awayWin)return '';
-
-  const hOdds=odds.homeWin, aOdds=odds.awayWin, dOdds=odds.draw;
-  const hImpl=Math.round(100/hOdds);
-  const aImpl=Math.round(100/aOdds);
-
-  let surpriseTeam=null, surpriseType=null, surpriseOdds=null;
-  let factors=[];
-
-  if(aOdds>=3.50){
-    const modelEdge=pred.aWin-aImpl;
-    const formScore=pred.aForm?pred.aForm.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0):0;
-    let score=0;
-    if(aOdds>=5.00){score+=3;factors.push('Висок коеф.');}
-    else if(aOdds>=3.50){score+=2;factors.push('Добър коеф.');}
-    if(modelEdge>5){score+=2;factors.push('Подценен от букмейкъра');}
-    if(pred.btts>=45){score+=1;factors.push('Г/Г вероятно');}
-    if(formScore>=3){score+=2;factors.push('Добра форма');}
-    if(pred.draw>=25){score+=1;factors.push('Равен реален');}
-    if(score>=4){
-      surpriseTeam=an;
-      surpriseType='X2';
-      surpriseOdds=aOdds;
-    }
-  }
-
-  if(!surpriseTeam&&hOdds>=3.50){
-    const modelEdge=pred.hWin-hImpl;
-    const formScore=pred.hForm?pred.hForm.reduce((s,f)=>s+(f==='W'?3:f==='D'?1:0),0):0;
-    let score=0;
-    if(hOdds>=5.00){score+=3;}else if(hOdds>=3.50){score+=2;}
-    if(modelEdge>5){score+=2;}
-    if(pred.btts>=45){score+=1;}
-    if(formScore>=3){score+=2;}
-    if(score>=4){
-      surpriseTeam=hn;
-      surpriseType='1X';
-      surpriseOdds=hOdds;
-    }
-  }
-
-  if(!surpriseTeam)return '';
-
-  const dcPct=surpriseType==='X2'
-    ?Math.min(85,pred.draw+pred.aWin)
-    :Math.min(85,pred.hWin+pred.draw);
-  const bttsBonus=pred.btts>=45;
-  const combPct=bttsBonus?Math.round(dcPct*(pred.btts/100)):null;
-
-  const flag=surpriseType==='X2'?af:hf;
-
-  return `<div style="margin:8px 0;background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.3);border-radius:10px;padding:10px 12px;">
-    <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--purple);letter-spacing:2px;margin-bottom:8px">🔮 ИЗНЕНАДА ДЕТЕКТОР</div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <div>
-        <div style="font-size:12px;color:var(--text);font-weight:600">${flag} ${surpriseTeam} — ${surpriseType}</div>
-        <div style="font-size:9px;color:var(--muted);margin-top:2px">${factors.join(' · ')}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-family:'Rajdhani',sans-serif;font-size:20px;font-weight:700;color:var(--purple)">${dcPct}%</div>
-        <div style="font-size:9px;color:var(--muted)">${surpriseType} вероятност</div>
-      </div>
-    </div>
-    ${bttsBonus?`<div style="padding:6px 8px;background:rgba(192,132,252,0.08);border:1px solid rgba(192,132,252,0.2);border-radius:8px">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:11px;color:var(--text)">✅ ${surpriseType} + Г/Г комбинация</span>
-        <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--purple)">${combPct}%</span>
-      </div>
-      <div style="font-size:9px;color:var(--muted);margin-top:2px">препоръчана комбинация за Bet Builder</div>
-    </div>`:''}
-    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">базирано на коефициент · форма · модел · Г/Г потенциал</div>
-  </div>`;
-}
-
-function valueBetsHtml(pred, odds, hn, an, hf, af){
-  if(!pred||!odds||!odds.homeWin)return '';
-  const values=[];
-  const hImpl=Math.round(100/odds.homeWin);
-  const dImpl=Math.round(100/odds.draw);
-  const aImpl=Math.round(100/odds.awayWin);
-  if(pred.hWin>=65&&pred.hWin>hImpl+10) values.push({label:`${hf} ${hn} победа`,model:pred.hWin,impl:hImpl,edge:pred.hWin-hImpl,odds:odds.homeWin});
-  if(pred.draw>=35&&pred.draw>dImpl+10) values.push({label:'Равен',model:pred.draw,impl:dImpl,edge:pred.draw-dImpl,odds:odds.draw});
-  if(pred.aWin>=65&&pred.aWin>aImpl+10) values.push({label:`${af} ${an} победа`,model:pred.aWin,impl:aImpl,edge:pred.aWin-aImpl,odds:odds.awayWin});
-  if(!values.length)return '';
-  return `<div style="margin:8px 0;background:rgba(255,214,0,0.05);border:1px solid rgba(255,214,0,0.3);border-radius:10px;padding:10px 12px;">
-    <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--yellow);letter-spacing:2px;margin-bottom:8px">💰 VALUE BETS</div>
-    ${values.map(v=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.4)">
-      <div>
-        <div style="font-size:11px;color:var(--text);font-weight:600">${v.label}</div>
-        <div style="font-size:9px;color:var(--muted)">Модел: ${v.model}% | Букмейкър: ${v.impl}% | Edge: +${v.edge}%</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;color:var(--yellow)">${v.odds.toFixed(2)}</div>
-        <div class="value-badge">VALUE ✓</div>
-      </div>
-    </div>`).join('')}
   </div>`;
 }
 
@@ -1107,21 +959,6 @@ function lineupHtml(m,hf,af){
 
 function refereeHtml(m){const ref=m.referees?.[0];if(!ref)return '';return `<div class="referee-section"><span class="referee-label">🟨 СЪДИЯ:</span><span class="referee-name">${ref.name||'—'}</span>${ref.nationality?`<span class="referee-stats">(${ref.nationality})</span>`:''}</div>`;}
 
-function oddsHtml(odds,pred){
-  if(!odds)return '';
-  const h=odds.homeWin,d=odds.draw,a=odds.awayWin;
-  if(!h||!d||!a)return '';
-  const hI=Math.round(100/h),dI=Math.round(100/d),aI=Math.round(100/a);
-  const hV=pred&&pred.hWin>hI+5,dV=pred&&pred.draw>dI+5,aV=pred&&pred.aWin>aI+5;
-  let cHtml='';
-  if(pred&&pred.cornersOver&&pred.expCorners){
-    const cV=pred.cornersOver>68;
-    cHtml=`<div style="padding:6px 12px 8px;border-top:1px solid var(--border)"><div class="pred-title">⚽ КОРНЕРИ НАД 9.5</div><div class="pred-grid"><div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value info">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div>${cV?'<div class="value-badge">VALUE ✓</div>':''}</div><div class="pred-pill"><div class="pred-label">КОРНЕРИ ПОД 9.5</div><div class="pred-value ${pred.cornersOver<50?'good':'neutral'}">${100-pred.cornersOver}%</div><div class="pred-pct">базирано на Poisson</div></div></div></div>`;
-  }
-  return `<div class="odds-title">📊 БУКМЕЙКЪР КОЕФИЦИЕНТИ</div><div class="odds-row"><div class="odds-pill"><div class="odds-label">1 ДОМАКИН</div><div class="odds-val">${h.toFixed(2)}</div><div class="odds-impl">implied ${hI}%</div>${hV?'<div class="value-badge">VALUE ✓</div>':''}</div><div class="odds-pill"><div class="odds-label">X РАВЕН</div><div class="odds-val">${d.toFixed(2)}</div><div class="odds-impl">implied ${dI}%</div>${dV?'<div class="value-badge">VALUE ✓</div>':''}</div><div class="odds-pill"><div class="odds-label">2 ГОСТ</div><div class="odds-val">${a.toFixed(2)}</div><div class="odds-impl">implied ${aI}%</div>${aV?'<div class="value-badge">VALUE ✓</div>':''}</div></div>${cHtml}`;
-}
-
-function extractOdds(m){try{const o=m.odds;if(!o)return null;return{homeWin:o.homeWin,draw:o.draw,awayWin:o.awayWin};}catch(e){return null;}}
 function liveStatsHtml(stats,hn,an){
   if(!stats)return '';
   const ph=stats.possession_h!=null&&stats.possession_h!==undefined?stats.possession_h:null;
@@ -1147,18 +984,17 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
   const sh=parseInt(stats&&stats.shotsOn_h)||0,sa=parseInt(stats&&stats.shotsOn_a)||0;
   const th=parseInt(stats&&stats.shots_h)||0,ta=parseInt(stats&&stats.shots_a)||0;
   const ch=parseInt(stats&&stats.corners_h)||0,ca=parseInt(stats&&stats.corners_a)||0;
-  const ath=parseInt(stats&&stats.attacks_h)||0,ata=parseInt(stats&&stats.attacks_a)||0;
-  const dh=parseInt(stats&&stats.dangerous_h)||0,da=parseInt(stats&&stats.dangerous_a)||0;
   const ph=parseFloat(stats&&stats.possession_h)||0,pa=parseFloat(stats&&stats.possession_a)||0;
 
-  const hasStats=(sh+sa+th+ta+ch+ca+ath+ata+dh+da)>0;
+  const hasStats=(sh+sa+th+ta+ch+ca)>0;
   let xh,xa;
 
+  // Нито api-sports.io, нито football-data.org дават "атаки"/"опасни атаки" за
+  // live мачове, затова моделът разчита само на удари/притежание/корнери
+  // (тежестите са пренормирани спрямо оригиналните 0.20/0.10/0.05, за да сумират 1.0).
   if(hasStats){
-    const dangerH=dh>0?dh:ath*0.3;
-    const dangerA=da>0?da:ata*0.3;
-    xh = dangerH*0.40 + ath*0.25 + sh*0.20 + (ph>0?(ph/100)*10:0)*0.10 + ch*0.05;
-    xa = dangerA*0.40 + ata*0.25 + sa*0.20 + (pa>0?(pa/100)*10:0)*0.10 + ca*0.05;
+    xh = sh*0.57 + (ph>0?(ph/100)*10:0)*0.29 + ch*0.14;
+    xa = sa*0.57 + (pa>0?(pa/100)*10:0)*0.29 + ca*0.14;
     if(xh+xa<0.5){xh=1;xa=1;}
   } else {
     xh=1.05; xa=1.0;
@@ -1185,7 +1021,7 @@ function nextGoalHtml(stats,minute,hn,an,hf,af,hScore,aScore){
   const pH=Math.round(xh/tot*100),pA=100-pH;
   const src=hasStats?'':'*';
   const srcLabel=hasStats
-    ?`<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:2px">атаки · притежание · удари · резултат</div>`
+    ?`<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:2px">удари · притежание · корнери · резултат</div>`
     :`<div style="text-align:center;font-size:9px;color:var(--muted);margin-top:2px">*базирано на резултат и минута</div>`;
   return `<div class="next-goal-section"><div class="next-goal-title">⚡ СЛЕДВАЩ ГОЛ${src}</div><div class="next-goal-bar-wrap"><div class="next-goal-bar-h" style="width:${pH}%"><span class="next-goal-pct">${pH}%</span></div><div class="next-goal-bar-a" style="width:${pA}%"><span class="next-goal-pct">${pA}%</span></div></div><div class="next-goal-teams"><span>${hf} ${hn}</span><span>${an} ${af}</span></div>${srcLabel}</div>`;
 }
@@ -1201,22 +1037,17 @@ function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
   let baseRate=0.028;
 
   const sh=parseInt(stats&&stats.shotsOn_h)||0,sa=parseInt(stats&&stats.shotsOn_a)||0;
-  const dh=parseInt(stats&&stats.dangerous_h)||0,da=parseInt(stats&&stats.dangerous_a)||0;
-  const ath=parseInt(stats&&stats.attacks_h)||0,ata=parseInt(stats&&stats.attacks_a)||0;
-  const hasStats=(sh+sa+dh+da+ath+ata)>0;
+  const hasStats=(sh+sa)>0;
 
+  // Нито api-sports.io, нито football-data.org дават "атаки"/"опасни атаки" за
+  // live мачове - интензивността разчита само на удари в рамката (тежестта е
+  // пренормирана спрямо оригиналната 0.8 от общо 2.6, за да запази скàлата).
   let intensityFactor=1.0;
   if(hasStats){
-    const totalDanger=dh+da;
-    const totalAttacks=ath+ata;
     const totalShots=sh+sa;
     const minsPlayed=Math.max(min,1);
-    const dangerPerMin=totalDanger/minsPlayed;
-    const attacksPerMin=totalAttacks/minsPlayed;
     const shotsPerMin=totalShots/minsPlayed;
-    intensityFactor=Math.min(2.5,Math.max(0.5,
-      dangerPerMin*1.5 + attacksPerMin*0.3 + shotsPerMin*0.8
-    ));
+    intensityFactor=Math.min(2.5,Math.max(0.5, shotsPerMin*2.6));
   }
 
   let situationBonus=1.0;
@@ -1278,7 +1109,7 @@ function liveGoalCalcHtml(stats, minute, hScore, aScore, hn, an, hf, af){
       }).join('')}
     </div>
     ${recHtml}
-    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">Poisson · атаки · резултат · оставащо време</div>
+    <div style="font-size:9px;color:var(--muted);margin-top:6px;text-align:center">Poisson · удари · резултат · оставащо време</div>
   </div>`;
 }
 
@@ -1295,22 +1126,17 @@ function liveGoalCalcHtHtml(stats, minute, hScore, aScore, hn, an, hf, af){
   let baseRate=0.028;
 
   const sh=parseInt(stats&&stats.shotsOn_h)||0,sa=parseInt(stats&&stats.shotsOn_a)||0;
-  const dh=parseInt(stats&&stats.dangerous_h)||0,da=parseInt(stats&&stats.dangerous_a)||0;
-  const ath=parseInt(stats&&stats.attacks_h)||0,ata=parseInt(stats&&stats.attacks_a)||0;
-  const hasStats=(sh+sa+dh+da+ath+ata)>0;
+  const hasStats=(sh+sa)>0;
 
+  // Нито api-sports.io, нито football-data.org дават "атаки"/"опасни атаки" за
+  // live мачове - интензивността разчита само на удари в рамката (тежестта е
+  // пренормирана спрямо оригиналната 0.8 от общо 2.6, за да запази скàлата).
   let intensityFactor=1.0;
   if(hasStats){
-    const totalDanger=dh+da;
-    const totalAttacks=ath+ata;
     const totalShots=sh+sa;
     const minsPlayed=Math.max(min,1);
-    const dangerPerMin=totalDanger/minsPlayed;
-    const attacksPerMin=totalAttacks/minsPlayed;
     const shotsPerMin=totalShots/minsPlayed;
-    intensityFactor=Math.min(2.5,Math.max(0.5,
-      dangerPerMin*1.5 + attacksPerMin*0.3 + shotsPerMin*0.8
-    ));
+    intensityFactor=Math.min(2.5,Math.max(0.5, shotsPerMin*2.6));
   }
 
   let situationBonus=1.0;
@@ -1392,8 +1218,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     if(rsMain){
     const total=rsMain.home+rsMain.away,gg=rsMain.home>0&&rsMain.away>0,over=total>2.5,winner=rsMain.home>rsMain.away?'1':rsMain.away>rsMain.home?'2':'X';
     const winnerLabel=winner==='1'?hn:winner==='2'?an:'Равен';
-    const histEntry=getHistory().find(h=>String(h.id)===String(m.id)||
-      ((h.home===hn||h.home===(m.homeTeam?.name))&&(h.away===an||h.away===(m.awayTeam?.name))));
+    const histEntry=findMatchingRecord(getHistory(), m.id, [hn,m.homeTeam?.name], [an,m.awayTeam?.name], m.utcDate);
     let histPredHtml='';
     if(histEntry&&histEntry.pred){
       const p=histEntry.pred;
@@ -1476,25 +1301,20 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
   let predHtml='';
   if(showPred&&allMatches){
     const pred=buildPrediction(m,allMatches);
-    const odds=extractOdds(m);
     const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
     if(pred){
       savePrediction(m,pred);
-      const conf=calcConfidence(pred,odds);
+      const conf=calcConfidence(pred);
       const dcPred=calcDoubleChance(pred.hWin,pred.draw,pred.aWin);
       const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
       const scorerHtml=topScorerHtml(scorerPlayers,m,hf,af);
       const scorerBetHtml=scorerBetSuggestionHtml(scorerPlayers,hf,af,hId);
-      const betBuilder=buildBetBuilder(pred,odds,hn,an,hf,af,scorerPlayers,hId,aId);
-      const valueBets=valueBetsHtml(pred,odds,hn,an,hf,af);
-      const surpriseHtml=surpriseDetectorHtml(pred,odds,hn,an,hf,af);
+      const betBuilder=buildBetBuilder(pred,hn,an,hf,af,scorerPlayers,hId,aId);
       predHtml=`<div class="pred-section">
         ${confidenceHtml(conf,hn,an)}
         ${betBuilder}
         ${scorerBetHtml}
-        ${surpriseHtml}
         ${scorerHtml}
-        ${valueBets}
         <div class="pred-title" style="margin-top:8px">🔮 ПРОГНОЗА</div>
         <div class="pred-grid-3">
           <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${pred.hWin}%</div><div class="conf-bar"><div class="conf-fill" style="width:${pred.hWin}%;background:var(--green)"></div></div><div class="pred-pct">сезон W%: ${pred.hWinRatePct}%</div></div>
@@ -1531,66 +1351,9 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
           <div style="flex:1"><div class="pred-label" style="padding:4px 0">ФОРМА ${af}</div>${formDotsHtml(pred.aForm)}</div>
         </div>
       </div>
-      ${oddsHtml(odds,pred)}
       ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
       ${form5Html(allMatches,hId,aId,hn,an,hf,af,m.competition?.id)}
       ${htTrendHtml(allMatches,hId,aId,hn,an,hf,af)}
-      ${lineupHtml(m,hf,af)}
-      ${refereeHtml(m)}`;
-    }else if(odds&&odds.homeWin&&odds.draw&&odds.awayWin){
-      const h=odds.homeWin,d=odds.draw,a=odds.awayWin;
-      const hI=Math.round(100/h),dI=Math.round(100/d),aI=Math.round(100/a);
-      const tot2=hI+dI+aI;
-      const hW=Math.round(hI/tot2*100),dW=Math.round(dI/tot2*100),aW=100-hW-dW;
-      const expH=h<1.5?2.5:h<2.5?1.5:1.0,expA=a<1.5?2.5:a<2.5?1.5:1.0;
-      const gm=calcGoalMarkets(expH,expA);
-      const o25=gm.over25,u25=100-o25;
-      function pB(){let p=0;for(let hg=1;hg<=10;hg++)for(let ag=1;ag<=10;ag++)p+=poissonProb(expH,hg)*poissonProb(expA,ag);return Math.min(85,Math.max(15,Math.round(p*100)));}
-      const bP=pB();
-      let sc=[];for(let hg=0;hg<=4;hg++)for(let ag=0;ag<=4;ag++)sc.push({h:hg,a:ag,p:poissonProb(expH,hg)*poissonProb(expA,ag)*100});sc.sort((x,y)=>y.p-x.p);
-      let htS2=[];for(let hg=0;hg<=2;hg++)for(let ag=0;ag<=2;ag++)htS2.push({h:hg,a:ag,p:poissonProb(expH*0.45,hg)*poissonProb(expA*0.45,ag)*100});htS2.sort((x,y)=>y.p-x.p);
-      const eC=Math.round((expH+expA)*1.8+5.5);
-      const cO=Math.min(80,Math.max(20,eC>=10?Math.round(50+(eC-10)*8):Math.round(50-(10-eC)*8)));
-      const fP={hId,aId,hWin:hW,draw:dW,aWin:aW,over25:o25,btts:bP,noBtts:100-bP,g10:goalBefore10(expH,expA),cornersOver:cO,expCorners:eC,gm,hForm:[],aForm:[]};
-      savePrediction(m,fP);
-      const fConf=calcConfidence(fP,odds);
-      const dcPredF=calcDoubleChance(hW,dW,aW);
-      const fScorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
-      const fScorerBetHtml=scorerBetSuggestionHtml(fScorerPlayers,hf,af,hId);
-      const fBetBuilder=buildBetBuilder(fP,odds,hn,an,hf,af,fScorerPlayers,hId,aId);
-      const fValueBets=valueBetsHtml(fP,odds,hn,an,hf,af);
-      const fScorerHtml=topScorerHtml(fScorerPlayers,m,hf,af);
-      predHtml=`<div class="pred-section">
-        ${confidenceHtml(fConf,hn,an)}
-        ${fBetBuilder}
-        ${fScorerBetHtml}
-        ${fScorerHtml}
-        ${fValueBets}
-        <div class="pred-title">🔮 ПРОГНОЗА (букмейкър)</div>
-        <div class="pred-grid-3">
-          <div class="pred-pill"><div class="pred-label">1 (${hn})</div><div class="pred-value good">${hW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${hW}%;background:var(--green)"></div></div></div>
-          <div class="pred-pill"><div class="pred-label">X РАВЕН</div><div class="pred-value neutral">${dW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${dW}%;background:var(--yellow)"></div></div></div>
-          <div class="pred-pill"><div class="pred-label">2 (${an})</div><div class="pred-value bad">${aW}%</div><div class="conf-bar"><div class="conf-fill" style="width:${aW}%;background:var(--red)"></div></div></div>
-        </div>
-        <div class="pred-grid" style="grid-template-columns:1fr">
-          <div class="pred-pill"><div class="pred-label">ДВОЕН ШАНС</div><div class="pred-value good">${doubleChanceLabel(dcPredF.pick)}</div><div class="pred-pct">${dcPredF.pct}% вероятност</div></div>
-        </div>
-        <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">НАД 2.5 ГОЛА</div><div class="pred-value ${o25>50?'good':'bad'}">${o25}%</div><div class="pred-pct">Оч. голове: ${expH.toFixed(1)} — ${expA.toFixed(1)}</div></div>
-          <div class="pred-pill"><div class="pred-label">ПОД 2.5 ГОЛА</div><div class="pred-value ${u25>50?'good':'bad'}">${u25}%</div><div class="pred-pct">Poisson модел</div></div>
-        </div>
-        <div class="pred-grid">
-          <div class="pred-pill"><div class="pred-label">Г/Г (И ДВАТА)</div><div class="pred-value ${bP>50?'good':'bad'}">${bP}%</div><div class="pred-pct">и двата отбора вкарват</div></div>
-          <div class="pred-pill"><div class="pred-label">БЕЗ Г/Г</div><div class="pred-value ${100-bP>50?'good':'bad'}">${100-bP}%</div><div class="pred-pct">поне един не вкарва</div></div>
-        </div>
-        ${goalMarketsHtml(gm,hn,an,hf,af)}
-        <div class="pred-title" style="margin-top:8px">🎯 ТОЧЕН РЕЗУЛТАТ</div>
-        <div class="pred-grid">${sc.slice(0,4).map(s=>`<div class="pred-pill"><div class="pred-label">${s.h}:${s.a}</div><div class="pred-value info">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
-        <div class="pred-title" style="margin-top:8px">⏱ РЕЗУЛТАТ ПОЛУВРЕМЕ</div>
-        <div class="pred-grid">${htS2.slice(0,4).map(s=>`<div class="pred-pill"><div class="pred-label">П/В ${s.h}:${s.a}</div><div class="pred-value purple">${s.p.toFixed(1)}%</div></div>`).join('')}</div>
-      </div>
-      ${oddsHtml(odds,fP)}
-      ${h2hHtml(h2hMatches,m.homeTeam?.name,m.awayTeam?.name)}
       ${lineupHtml(m,hf,af)}
       ${refereeHtml(m)}`;
     }else{
@@ -1676,8 +1439,7 @@ async function loadFinished(){
       const hn=m.homeTeam?.shortName||m.homeTeam?.name||'—';
       const an=m.awayTeam?.shortName||m.awayTeam?.name||'—';
       const hg=m.score?.fullTime?.home,ag=m.score?.fullTime?.away;
-      const histEntry=hist.find(h=>String(h.id)===String(m.id)||
-        ((h.home===hn||h.home===m.homeTeam?.name)&&(h.away===an||h.away===m.awayTeam?.name)));
+      const histEntry=findMatchingRecord(hist, m.id, [hn,m.homeTeam?.name], [an,m.awayTeam?.name], m.utcDate);
       const hf=getFlag(m.homeTeam?.name),af=getFlag(m.awayTeam?.name);
       const hHT=m.score?.halfTime?.home,aHT=m.score?.halfTime?.away;
       const rs=computeRegularScore(m);
@@ -1744,25 +1506,30 @@ async function loadUpcoming(){
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
+    for(const k in groups)groups[k].matches.sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
+    // Историята между двата отбора (h2h) за всеки мач се тегли паралелно вместо
+    // последователно - едно по едно през 20-30 мача можеше видимо да забави
+    // зареждането на таба.
+    async function fetchH2H(m){
+      const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
+      if(!hId||!aId)return [];
+      try{
+        const d=await apiFetch('/matches?competitions='+m.competition?.id+'&teams='+hId+'&teams='+aId+'&status=FINISHED');
+        const raw=d.matches||[];
+        return raw.filter(mm=>{
+          const ids=[mm.homeTeam?.id,mm.awayTeam?.id];
+          return ids.includes(hId)&&ids.includes(aId);
+        });
+      }catch(e){return [];}
+    }
+    const h2hByMatchId=new Map();
+    await Promise.all(upcoming.map(async m=>{h2hByMatchId.set(m.id,await fetchH2H(m));}));
     let html='';
     for(const k in groups){
       const g=groups[k];const comp=COMPS.find(c=>c.id==k);
-      g.matches.sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
       html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`;
       for(const m of g.matches){
-        let h2h=[];
-        try{
-          const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
-          if(hId&&aId){
-            const d=await apiFetch('/matches?competitions='+m.competition?.id+'&teams='+hId+'&teams='+aId+'&status=FINISHED');
-            const raw=d.matches||[];
-            h2h=raw.filter(mm=>{
-              const ids=[mm.homeTeam?.id,mm.awayTeam?.id];
-              return ids.includes(hId)&&ids.includes(aId);
-            });
-          }
-        }catch(e){}
-        html+=renderMatch(m,true,allMatches,h2h,null);
+        html+=renderMatch(m,true,allMatches,h2hByMatchId.get(m.id)||[],null);
       }
     }
     c.innerHTML=html;
@@ -1776,18 +1543,25 @@ async function loadStandings(){
   for(const id of STANDINGS_IDS){
     const comp=COMPS.find(c=>c.id===id);
     if(!comp)continue;
+    // Ефбет Лига (България) не се покрива от football-data.org - тегли се
+    // директно през api-sports.io, аналогично на Сюпер Лиг/ШЛ/ЛЕ/ЛК другаде в кода.
+    if(id===2016){
+      try{
+        const leagueId=COMPS_AS_MAP[2016];
+        const asData=await apiFetchAS('/standings?league='+leagueId+'&season='+currentSeasonYear());
+        const table=asData?.response?.[0]?.league?.standings?.[0]||[];
+        if(!table.length)continue;
+        html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;
+        html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;
+        table.forEach(row=>{html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.rank}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.name}</div><div class="num">${row.all?.played??0}</div><div class="num">${row.all?.win??0}</div><div class="num">${row.all?.lose??0}</div><div class="num">${row.all?.goals?.for??0}:${row.all?.goals?.against??0}</div><div class="pts">${row.points}</div></div>`;});
+        html+='</div>';
+      }catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}
+      continue;
+    }
     try{
       const data=await apiFetch('/competitions/'+id+'/standings');
       const standings=data.standings||[];
       if(!standings.length)continue;
-      if(id===2016){
-        const firstTeam=standings[0]?.table?.[0]?.team?.name||'';
-        const englishKeywords=['City','United','Town','Wednesday','Forest','Rovers','Athletic'];
-        if(englishKeywords.some(k=>firstTeam.includes(k))){
-          html+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Класирането за България не е налично в момента</div>`;
-          continue;
-        }
-      }
       if(id===2000){
         html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">🔒 груповата фаза приключи — архив</span></div>`;
       } else {
@@ -1945,6 +1719,41 @@ async function loadKnockout(){
   }
 }
 
+// Общ хелпър за голмайстори на състезание, което се тегли изцяло през
+// api-sports.io (football-data.org не го покрива) - виж Сюпер Лиг блока по-долу
+// за оригиналния embed вариант; тук е изведен, за да се преизползва за ЛЕ/ЛК.
+async function apiSportsScorersBlockHtml(leagueId, flag, name){
+  try{
+    const season=currentSeasonYear();
+    let data=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+season);
+    let arr=data.response||[];
+    if(!arr.length){
+      data=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1));
+      arr=data.response||[];
+    }
+    if(!arr.length)return '';
+    const cols='28px 1fr 60px 30px 30px';
+    let h=`<div class="comp-header">${flag} ${name}</div>
+    <div class="big-table">
+      <div class="big-header" style="grid-template-columns:${cols}">
+        <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
+        <div style="color:var(--green)">⚽</div>
+        <div style="color:var(--cyan)">🎯</div>
+      </div>`;
+    arr.slice(0,20).forEach((p,i)=>{
+      const stat=p.statistics?.[0]||{};
+      h+=`<div class="big-row" style="grid-template-columns:${cols}">
+        <div class="s-pos">${i+1}</div>
+        <div class="s-name">${p.player?.name||'—'}</div>
+        <div class="s-team">${getFlag(stat.team?.name)} ${stat.team?.name||'—'}</div>
+        <div class="s-goals">${stat.goals?.total||0}</div>
+        <div class="s-ast">${stat.goals?.assists!=null?stat.goals.assists:'—'}</div>
+      </div>`;
+    });
+    h+='</div>';
+    return h;
+  }catch(e){return '';}
+}
 async function loadScorers(){
   const c=document.getElementById('scorers-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
@@ -2048,7 +1857,7 @@ async function loadScorers(){
   // Сюпер Лиг (Турция) не се покрива от football-data.org — тегли се директно
   // през api-sports.io, аналогично на ШЛ/ЛЕ/ЛК/ЕФБЕТ моделите другаде в кода.
   try{
-    const season=new Date().getFullYear();
+    const season=currentSeasonYear();
     let slData=await apiFetchAS('/players/topscorers?league=203&season='+season);
     let slArr=slData.response||[];
     if(!slArr.length){
@@ -2078,6 +1887,11 @@ async function loadScorers(){
     }
   }catch(e){}
 
+  // Лига Европа и Лига на конференциите също не се покриват от football-data.org
+  // (виж skip-а на 2018 в цикъла по-горе) - теглят се през api-sports.io.
+  html+=await apiSportsScorersBlockHtml(3,'🟠','Лига Европа');
+  html+=await apiSportsScorersBlockHtml(848,'🔵','Лига на конференциите');
+
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
 
@@ -2085,7 +1899,7 @@ async function loadCards(){
   const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');
   yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   let yHtml='',rHtml='';
-  const season=new Date().getFullYear();
+  const season=currentSeasonYear();
   const seasonPrev=season-1;
   const CARD_COMPS=[...COMPS,{id:'tr_superlig',name:'Сюпер Лиг',flag:'🇹🇷'}];
   const CARD_AS_MAP={...COMPS_AS_MAP,tr_superlig:203};
@@ -2282,32 +2096,11 @@ function renderComebackStats(statsByComp){
   c.innerHTML=html||'<div class="no-data">Няма достатъчно данни за изчисление.</div>';
 }
 
-async function loadEuroLeague(tab, compId, title){
-  const c=document.getElementById(tab+'-content');
-  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  try{
-    const ts=Date.now();
-    const data=await apiFetch('/competitions/'+compId+'/matches?_t='+ts);
-    let allCompMatches=(data.matches||[]).filter(m=>m.competition?.id===compId);
-    const scheduled=allCompMatches.filter(m=>['SCHEDULED','TIMED'].includes(m.status)).slice(0,20);
-    const finished=allCompMatches.filter(m=>m.status==='FINISHED');
-    const all=[...finished.slice(-5).reverse(),...scheduled.slice(0,15)];
-    if(!all.length){
-      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-      return;
-    }
-    const allMatches=[...finished,...scheduled];
-    c.innerHTML=all.map(m=>renderMatch(m,!['FINISHED'].includes(m.status),allMatches,null,null)).join('');
-  }catch(e){
-    c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-  }
-}
-
 async function loadASLeagueTab(tabId, leagueId, icon, title){
   const c=document.getElementById(tabId+'-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
-    const season=new Date().getFullYear();
+    const season=currentSeasonYear();
     const[nextRes,lastRes,liveRes,prevRes]=await Promise.allSettled([
       apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
       apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
