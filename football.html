@@ -1919,29 +1919,21 @@ async function loadCards(){
   yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   let yHtml='',rHtml='';
   const season=currentSeasonYear();
-  const seasonPrev=season-1;
   const CARD_COMPS=[...COMPS,{id:'tr_superlig',name:'Сюпер Лиг',flag:'🇹🇷'}];
   const CARD_AS_MAP={...COMPS_AS_MAP,tr_superlig:203};
   for(const comp of CARD_COMPS){
     const asLeagueId=CARD_AS_MAP[comp.id];
     if(!asLeagueId)continue;
     try{
-      let yData=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season);
-      let yArr=(yData.response||[]);
-      let yStale=false;
-      if(!yArr.length){
-        yData=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+seasonPrev);
-        yArr=(yData.response||[]);
-        yStale=true;
-      }
-      let rData=await apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+season);
-      let rArr=(rData.response||[]);
-      let rStale=false;
-      if(!rArr.length){
-        rData=await apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+seasonPrev);
-        rArr=(rData.response||[]);
-        rStale=true;
-      }
+      // Само текущия сезон - без fallback към миналия. Ако новият сезон още
+      // няма изиграни картони, показваме изрично "няма данни", вместо да
+      // подменяме тихо с миналогодишна класация.
+      const[yData,rData]=await Promise.all([
+        apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season),
+        apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+season)
+      ]);
+      const yArr=(yData.response||[]);
+      const rArr=(rData.response||[]);
       const parseCardPlayers=(arr)=>arr.map(p=>{
         const stat=p.statistics?.[0]||{};
         return{
@@ -1954,23 +1946,20 @@ async function loadCards(){
       const yParsed=parseCardPlayers(yArr).filter(p=>p.yellow>0).slice(0,8);
       const rParsed=parseCardPlayers(rArr).filter(p=>p.red>0).slice(0,5);
       const cols='24px 1fr 50px 30px 30px';
-      // Ако новият сезон още няма картони, пада към последния завършен сезон -
-      // етикетираме, за да не изглежда като закачени/грешни данни (виж същия
-      // проблем при голмайсторите).
-      const seasonNote=` <span style="font-size:9px;color:var(--muted)">· сезон ${seasonPrev}/${String(season).slice(-2)} — предишен</span>`;
+      const noDataNote=`<div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Сезон ${season}/${String(season+1).slice(-2)} все още няма картонна статистика за ${comp.name} — появява се с изиграните мачове.</div>`;
       if(yParsed.length){
-        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}${yStale?seasonNote:''}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
+        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
         yParsed.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
         yHtml+='</div>';
-      } else if(comp.id===2000){
-        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Дисциплинарни данни за Световното първенство все още не са налични — обикновено се появяват с напредването на турнира.</div>`;
+      } else {
+        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>${noDataNote}`;
       }
       if(rParsed.length){
-        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}${rStale?seasonNote:''}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
+        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
         rParsed.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
         rHtml+='</div>';
-      } else if(comp.id===2000){
-        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Дисциплинарни данни за Световното първенство все още не са налични — обикновено се появяват с напредването на турнира.</div>`;
+      } else {
+        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>${noDataNote}`;
       }
     }catch(e){
       yHtml+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;
