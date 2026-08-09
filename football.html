@@ -1617,8 +1617,18 @@ async function loadStandings(){
       const data=await apiFetch('/competitions/'+id+'/standings');
       const standings=data.standings||[];
       if(!standings.length)continue;
+      // football-data.org понякога превключва различните първенства към новия
+      // сезон с дни/седмици разлика - дотогава "текущата" класация, която
+      // връщат, всъщност е финалната от МИНАЛИЯ сезон (season.endDate е в
+      // миналото). Без този етикет изглежда като текуща, макар да не е.
+      const seasonEndDate=data.season?.endDate?new Date(data.season.endDate):null;
+      const seasonEnded=seasonEndDate&&seasonEndDate<new Date();
       if(id===2000){
         html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">🔒 груповата фаза приключи — архив</span></div>`;
+      } else if(seasonEnded){
+        const startY=(data.season.startDate||'').slice(0,4);
+        const endY=(data.season.endDate||'').slice(2,4);
+        html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">🔒 сезон ${startY}/${endY} приключи — новият още не е зареден от football-data.org</span></div>`;
       } else {
         html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;
       }
