@@ -211,6 +211,7 @@
   <div class="tab" onclick="switchTab('laliga')">🇪🇸 ЛА ЛИГА</div>
   <div class="tab" onclick="switchTab('ligue1')">🇫🇷 ЛИГ 1</div>
   <div class="tab" onclick="switchTab('superlig')">🇹🇷 СЮПЕР ЛИГ</div>
+  <div class="tab" onclick="switchTab('bl2')">🇩🇪 БУНДЕСЛИГА 2</div>
 </div>
 <div id="tab-live" class="tab-content active"><div class="section-title" style="margin-top:12px">LIVE МАЧОВЕ</div><div id="live-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div></div>
 <div id="tab-today" class="tab-content"><div class="section-title" style="margin-top:12px">МАЧОВЕ ДНЕС</div><div id="today-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div></div>
@@ -283,6 +284,10 @@
   <div class="section-title" style="margin-top:12px">🇹🇷 СЮПЕР ЛИГ</div>
   <div id="superlig-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
+<div id="tab-bl2" class="tab-content">
+  <div class="section-title" style="margin-top:12px">🇩🇪 БУНДЕСЛИГА 2</div>
+  <div id="bl2-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
+</div>
 <div class="last-update">ОБНОВЕНО: <span id="update-time">—</span> · AUTO 60s</div>
 <div class="footer">football-data.org · api-sports.io · ПРОЕКТ ФУТБОЛ v3.28</div>
 <script src="football-logic.js"></script>
@@ -317,7 +322,8 @@ const AS_LEAGUES=[
   {id:135,tab:'seriea',icon:'🇮🇹',title:'Серия А'},
   {id:140,tab:'laliga',icon:'🇪🇸',title:'Ла Лига'},
   {id:61,tab:'ligue1',icon:'🇫🇷',title:'Лиг 1'},
-  {id:203,tab:'superlig',icon:'🇹🇷',title:'Сюпер Лиг'}
+  {id:203,tab:'superlig',icon:'🇹🇷',title:'Сюпер Лиг'},
+  {id:79,tab:'bl2',icon:'🇩🇪',title:'2. Бундеслига'}
 ];
 const FLAGS={
   'Mexico':'🇲🇽','Brazil':'🇧🇷','Argentina':'🇦🇷','France':'🇫🇷','Germany':'🇩🇪',
@@ -443,7 +449,7 @@ async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Erro
 async function apiFetchAS(p){const r=await fetch(WORKER_AS+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 function switchTab(name){
   currentTab=name;
-  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig'];
+  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig','bl2'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -474,6 +480,7 @@ async function loadCurrentTab(){
   else if(currentTab==='laliga')loadLaLigaAS();
   else if(currentTab==='ligue1')loadLigue1AS();
   else if(currentTab==='superlig')loadSuperLigAS();
+  else if(currentTab==='bl2')loadBundesliga2AS();
 }
 function updateTime(){document.getElementById('update-time').textContent=new Date().toLocaleTimeString('bg-BG');}
 function savePrediction(m,pred){
@@ -1503,6 +1510,27 @@ async function loadUpcoming(){
       const existingIds=new Set(upcoming.map(m=>String(m.id)));
       wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
     }catch(e){}
+    // Ефбет Лига, Сюпер Лиг и 2. Бундеслига не се покриват от football-data.org,
+    // затова таб ПРОГНОЗИ пропускаше и трите изцяло - тук ги добавяме отделно
+    // през api-sports.io, аналогично на моделите за отделните им табове.
+    try{
+      const season=currentSeasonYear();
+      const extraLeagueIds=[172,203,79];
+      const extraResults=await Promise.allSettled(extraLeagueIds.map(id=>Promise.all([
+        apiFetchAS('/fixtures?league='+id+'&season='+season+'&next=15'),
+        apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=15')
+      ])));
+      const existingIds2=new Set(upcoming.map(m=>String(m.id)));
+      extraResults.forEach(r=>{
+        if(r.status!=='fulfilled')return;
+        const[nextD,lastD]=r.value;
+        (nextD.response||[]).forEach(f=>{
+          const m=asFixtureToMatch(f);
+          if(!existingIds2.has(String(m.id))){upcoming.push(m);existingIds2.add(String(m.id));}
+        });
+        (lastD.response||[]).forEach(f=>allMatches.push(asFixtureToMatch(f)));
+      });
+    }catch(e){}
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
@@ -1514,6 +1542,10 @@ async function loadUpcoming(){
       const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
       if(!hId||!aId)return [];
       try{
+        if(String(m.id).startsWith('as_')){
+          const d=await apiFetchAS('/fixtures/headtohead?h2h='+hId+'-'+aId);
+          return (d.response||[]).map(asFixtureToMatch);
+        }
         const d=await apiFetch('/matches?competitions='+m.competition?.id+'&teams='+hId+'&teams='+aId+'&status=FINISHED');
         const raw=d.matches||[];
         return raw.filter(mm=>{
@@ -1526,8 +1558,11 @@ async function loadUpcoming(){
     await Promise.all(upcoming.map(async m=>{h2hByMatchId.set(m.id,await fetchH2H(m));}));
     let html='';
     for(const k in groups){
-      const g=groups[k];const comp=COMPS.find(c=>c.id==k);
-      html+=`<div class="comp-header">${comp?.flag||'🏟️'} ${g.name}</div>`;
+      const g=groups[k];
+      const comp=COMPS.find(c=>c.id==k)||AS_LEAGUES.find(l=>'as_'+l.id===k);
+      const flag=comp?.flag||comp?.icon||'🏟️';
+      const name=comp?.title||g.name||comp?.name||'';
+      html+=`<div class="comp-header">${flag} ${name}</div>`;
       for(const m of g.matches){
         html+=renderMatch(m,true,allMatches,h2hByMatchId.get(m.id)||[],null);
       }
@@ -2101,16 +2136,18 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const season=currentSeasonYear();
-    const[nextRes,lastRes,liveRes,prevRes]=await Promise.allSettled([
+    const[nextRes,lastRes,liveRes,prevRes,scorersHtml]=await Promise.allSettled([
       apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
       apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
       apiFetchAS('/fixtures?live=all'),
-      apiFetchAS('/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25')
+      apiFetchAS('/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25'),
+      apiSportsScorersBlockHtml(leagueId, icon, title+' — ГОЛМАЙСТОРИ')
     ]);
     const upcomingRaw=(nextRes.status==='fulfilled'?(nextRes.value.response||[]):[]);
     const finishedRaw=(lastRes.status==='fulfilled'?(lastRes.value.response||[]):[]);
     const liveRaw=(liveRes.status==='fulfilled'?(liveRes.value.response||[]):[]);
     const prevSeasonRaw=(prevRes.status==='fulfilled'?(prevRes.value.response||[]):[]);
+    const scorersBlock=scorersHtml.status==='fulfilled'?scorersHtml.value:'';
     const liveFixtures=liveRaw.filter(f=>f.league?.id===leagueId);
     const liveIds=new Set(liveFixtures.map(f=>f.fixture?.id));
 
@@ -2119,7 +2156,7 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
     const allRaw=[...finished,...liveFixtures,...upcoming];
 
     if(!allRaw.length){
-      c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
+      c.innerHTML=scorersBlock+`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
       return;
     }
 
@@ -2134,7 +2171,7 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
       groups[r].push(f);
     });
 
-    let html='';
+    let html=scorersBlock;
     order.forEach(r=>{
       html+=`<div class="comp-header">${icon} ${r}</div>`;
       groups[r].forEach(f=>{
@@ -2160,6 +2197,7 @@ async function loadSerieAAS(){await loadASLeagueTab('seriea',135,'🇮🇹','С�
 async function loadLaLigaAS(){await loadASLeagueTab('laliga',140,'🇪🇸','Ла Лига');}
 async function loadLigue1AS(){await loadASLeagueTab('ligue1',61,'🇫🇷','Лиг 1');}
 async function loadSuperLigAS(){await loadASLeagueTab('superlig',203,'🇹🇷','Сюпер Лиг');}
+async function loadBundesliga2AS(){await loadASLeagueTab('bl2',79,'🇩🇪','2. Бундеслига');}
 switchTab('live');
 
 // Непрекъснато сверяване на прогнози срещу реалност: работи във фонов режим
