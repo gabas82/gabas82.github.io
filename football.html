@@ -1762,13 +1762,22 @@ async function apiSportsScorersBlockHtml(leagueId, flag, name){
     const season=currentSeasonYear();
     let data=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+season);
     let arr=data.response||[];
+    let usedSeason=season;
     if(!arr.length){
       data=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1));
       arr=data.response||[];
+      usedSeason=season-1;
     }
     if(!arr.length)return '';
+    // Ако новият сезон още няма вкарани голове (типично между края на юли и
+    // старта на първенството), пада към последния завършен сезон - иначе
+    // блокът щеше да изчезва точно преди началото на сезона. Етикетът прави
+    // ясно кой сезон вижда потребителят, вместо да изглежда като закачени данни.
+    const staleNote=usedSeason<season
+      ?` <span style="font-size:9px;color:var(--muted)">· сезон ${usedSeason}/${String(usedSeason+1).slice(-2)} — предишен, новият още няма статистика</span>`
+      :'';
     const cols='28px 1fr 60px 30px 30px';
-    let h=`<div class="comp-header">${flag} ${name}</div>
+    let h=`<div class="comp-header">${flag} ${name}${staleNote}</div>
     <div class="big-table">
       <div class="big-header" style="grid-template-columns:${cols}">
         <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
