@@ -360,8 +360,9 @@ const compTopScorersCache={};
 async function fetchCompScorersList(compId){
   const key=String(compId);
   const cached=compTopScorersCache[key];
-  if(cached&&cached.ts>Date.now()-3600000)return cached.data;
+  if(cached&&cached.ts>Date.now()-3600000)return cached;
   let data=cached?cached.data:[];
+  let stale=false;
   try{
     if(key.startsWith('as_')){
       const leagueId=key.replace('as_','');
@@ -371,6 +372,7 @@ async function fetchCompScorersList(compId){
       if(!list.length){
         d=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1));
         list=normalizeApiSportsScorers(d);
+        stale=true;
       }
       data=list;
     }else{
@@ -378,8 +380,8 @@ async function fetchCompScorersList(compId){
       data=normalizeFootballDataScorers(d);
     }
   }catch(e){}
-  compTopScorersCache[key]={data,ts:Date.now()};
-  return data;
+  compTopScorersCache[key]={data,stale,ts:Date.now()};
+  return compTopScorersCache[key];
 }
 // Периодично сканира DOM-а за все още незапълнени "⚽ Голмайстори" слотове (виж
 // renderMatch()) и ги попълва — независимо кой таб ги е добавил. Така не се
@@ -390,7 +392,7 @@ function pollCompScorers(){
   const ids=new Set();
   slots.forEach(el=>ids.add(el.dataset.compScorersId));
   ids.forEach(async id=>{
-    const list=await fetchCompScorersList(id);
+    const{data:list,stale}=await fetchCompScorersList(id);
     document.querySelectorAll('[data-comp-scorers-id="'+id+'"]').forEach(el=>{
       el.setAttribute('data-comp-scorers-done','1');
       const homeId=el.dataset.homeId?Number(el.dataset.homeId):null;
@@ -403,7 +405,10 @@ function pollCompScorers(){
       const parts=[];
       if(hs)parts.push('🥇 '+homeName+': '+hs.name+' ('+hs.goals+'⚽)');
       if(as)parts.push('🥈 '+awayName+': '+as.name+' ('+as.goals+'⚽)');
-      el.innerHTML='⚽ '+parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+      // "stale"=новият сезон още няма голове, показва предишния - маркираме
+      // компактно (мач картичките нямат място за пълен етикет като в табовете).
+      const staleTag=stale?' <span style="color:var(--muted)">· мин. сезон</span>':'';
+      el.innerHTML='⚽ '+parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;')+staleTag;
     });
   });
 }
@@ -1898,41 +1903,11 @@ async function loadScorers(){
     }catch(e){}
   }
 
-  // Сюпер Лиг (Турция) не се покрива от football-data.org — тегли се директно
-  // през api-sports.io, аналогично на ШЛ/ЛЕ/ЛК/ЕФБЕТ моделите другаде в кода.
-  try{
-    const season=currentSeasonYear();
-    let slData=await apiFetchAS('/players/topscorers?league=203&season='+season);
-    let slArr=slData.response||[];
-    if(!slArr.length){
-      slData=await apiFetchAS('/players/topscorers?league=203&season='+(season-1));
-      slArr=slData.response||[];
-    }
-    if(slArr.length){
-      const cols='28px 1fr 60px 30px 30px';
-      html+=`<div class="comp-header">🇹🇷 Сюпер Лиг</div>
-      <div class="big-table">
-        <div class="big-header" style="grid-template-columns:${cols}">
-          <div>#</div><div>ИГРАЧ</div><div>ОТБОР</div>
-          <div style="color:var(--green)">⚽</div>
-          <div style="color:var(--cyan)">🎯</div>
-        </div>`;
-      slArr.slice(0,20).forEach((p,i)=>{
-        const stat=p.statistics?.[0]||{};
-        html+=`<div class="big-row" style="grid-template-columns:${cols}">
-          <div class="s-pos">${i+1}</div>
-          <div class="s-name">${p.player?.name||'—'}</div>
-          <div class="s-team">${getFlag(stat.team?.name)} ${stat.team?.name||'—'}</div>
-          <div class="s-goals">${stat.goals?.total||0}</div>
-          <div class="s-ast">${stat.goals?.assists!=null?stat.goals.assists:'—'}</div>
-        </div>`;
-      });
-      html+='</div>';
-    }
-  }catch(e){}
-
-  // Лига Европа и Лига на конференциите също не се покриват от football-data.org
-  // (виж skip-а на 2018 в цикъла по-горе) - теглят се през api-sports.io.
+  // Сюпер Лиг, Лига Европа и Лига на конференциите не се покриват от
+  // football-data.org (виж skip-а на 2018 в цикъла по-горе) - теглят се през
+  // api-sports.io, със същия хелпър, който вече отбелязва кога показва
+  // предишен сезон (защото новият още няма голове).
+  html+=await apiSportsScorersBlockHtml(203,'🇹🇷','Сюпер Лиг');
   html+=await apiSportsScorersBlockHtml(3,'🟠','Лига Европа');
   html+=await apiSportsScorersBlockHtml(848,'🔵','Лига на конференциите');
 
@@ -1953,15 +1928,19 @@ async function loadCards(){
     try{
       let yData=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season);
       let yArr=(yData.response||[]);
+      let yStale=false;
       if(!yArr.length){
         yData=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+seasonPrev);
         yArr=(yData.response||[]);
+        yStale=true;
       }
       let rData=await apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+season);
       let rArr=(rData.response||[]);
+      let rStale=false;
       if(!rArr.length){
         rData=await apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+seasonPrev);
         rArr=(rData.response||[]);
+        rStale=true;
       }
       const parseCardPlayers=(arr)=>arr.map(p=>{
         const stat=p.statistics?.[0]||{};
@@ -1975,15 +1954,19 @@ async function loadCards(){
       const yParsed=parseCardPlayers(yArr).filter(p=>p.yellow>0).slice(0,8);
       const rParsed=parseCardPlayers(rArr).filter(p=>p.red>0).slice(0,5);
       const cols='24px 1fr 50px 30px 30px';
+      // Ако новият сезон още няма картони, пада към последния завършен сезон -
+      // етикетираме, за да не изглежда като закачени/грешни данни (виж същия
+      // проблем при голмайсторите).
+      const seasonNote=` <span style="font-size:9px;color:var(--muted)">· сезон ${seasonPrev}/${String(season).slice(-2)} — предишен</span>`;
       if(yParsed.length){
-        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
+        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}${yStale?seasonNote:''}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
         yParsed.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
         yHtml+='</div>';
       } else if(comp.id===2000){
         yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Дисциплинарни данни за Световното първенство все още не са налични — обикновено се появяват с напредването на турнира.</div>`;
       }
       if(rParsed.length){
-        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
+        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}${rStale?seasonNote:''}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
         rParsed.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
         rHtml+='</div>';
       } else if(comp.id===2000){
@@ -2169,7 +2152,8 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
       return;
     }
 
-    const historyPool=finished.length>=4?allRaw:[...allRaw,...prevSeasonRaw];
+    const blendingPrevSeason=finished.length<4&&prevSeasonRaw.length>0;
+    const historyPool=blendingPrevSeason?[...allRaw,...prevSeasonRaw]:allRaw;
     const allMatches=historyPool.map(asFixtureToMatch);
 
     const groups={};
@@ -2180,7 +2164,12 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
       groups[r].push(f);
     });
 
-    let html=scorersBlock;
+    // Сезонът е в начален стадий (под 4 изиграни мача) - прогнозите примесват
+    // и мачове от предишния сезон за по-стабилен сигнал (виж seasonRate() в
+    // football-logic.js). "сезон W%" в прогнозите не е чисто за новия сезон,
+    // докато този банер се показва.
+    const blendNote=blendingPrevSeason?`<div style="padding:8px 12px;font-size:9px;color:var(--muted);text-align:center;border-bottom:1px solid var(--border)">ℹ️ Сезон ${season}/${String(season+1).slice(-2)} е в начален стадий — статистиките "сезон W%" в прогнозите временно включват и част от миналия сезон, за по-стабилен модел.</div>`:'';
+    let html=scorersBlock+blendNote;
     order.forEach(r=>{
       html+=`<div class="comp-header">${icon} ${r}</div>`;
       groups[r].forEach(f=>{
