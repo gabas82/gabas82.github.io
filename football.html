@@ -1622,13 +1622,26 @@ async function loadStandings(){
       // връщат, всъщност е финалната от МИНАЛИЯ сезон (season.endDate е в
       // миналото). Без този етикет изглежда като текуща, макар да не е.
       const seasonEndDate=data.season?.endDate?new Date(data.season.endDate):null;
-      const seasonEnded=seasonEndDate&&seasonEndDate<new Date();
+      const seasonStartDate=data.season?.startDate?new Date(data.season.startDate):null;
+      // По-коварен вариант на същия проблем: football-data.org вече е обявил
+      // МЕТАДАННИТЕ на новия сезон (startDate/endDate за следващата година, т.е.
+      // endDate вече не е в миналото), но таблицата под тях все още е старата
+      // финална от миналия сезон - реален нов сезон не може да има отбор с >3
+      // изиграни мача само дни след обявения му старт.
+      const maxPlayedGames=Math.max(0,...standings.flatMap(g=>(g.table||[]).map(r=>r.playedGames||0)));
+      const daysSinceSeasonStart=seasonStartDate?(Date.now()-seasonStartDate.getTime())/86400000:null;
+      const tableLooksStale=daysSinceSeasonStart!=null&&daysSinceSeasonStart>=0&&daysSinceSeasonStart<21&&maxPlayedGames>3;
+      const seasonEnded=(seasonEndDate&&seasonEndDate<new Date())||tableLooksStale;
       if(id===2000){
         html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">🔒 груповата фаза приключи — архив</span></div>`;
       } else if(seasonEnded){
-        const startY=(data.season.startDate||'').slice(0,4);
-        const endY=(data.season.endDate||'').slice(2,4);
-        html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">🔒 сезон ${startY}/${endY} приключи — новият още не е зареден от football-data.org</span></div>`;
+        // При tableLooksStale season.startDate/endDate вече сочат новия сезон,
+        // затова текстът е генеричен - "сезон X/Y приключи" би бил безсмислен,
+        // когато X/Y всъщност е обявеният нов, все още непочнал сезон.
+        const label=tableLooksStale
+          ?'🔒 класацията все още не е обновена за новия сезон от football-data.org'
+          :(()=>{const startY=(data.season.startDate||'').slice(0,4);const endY=(data.season.endDate||'').slice(2,4);return`🔒 сезон ${startY}/${endY} приключи — новият още не е зареден от football-data.org`;})();
+        html+=`<div class="comp-header">${comp.flag} ${comp.name} <span style="font-size:9px;color:var(--muted);margin-left:8px">${label}</span></div>`;
       } else {
         html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>`;
       }
