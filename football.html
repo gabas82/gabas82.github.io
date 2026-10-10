@@ -515,6 +515,62 @@ async function apiFetchAS(p){
 let asForegroundActiveCount=0;
 function beginAsForeground(){asForegroundActiveCount++;}
 function endAsForeground(){asForegroundActiveCount=Math.max(0,asForegroundActiveCount-1);}
+// PR B (виж discussion-а "единна сезонна история за API-Sports лигите") -
+// fetchAsLeagueSeasonHistory() заменя last=15 (loadUpcoming) и last=20
+// (loadASLeagueTab) за ИСТОРИЯТА, подавана на buildPrediction/calcForm, с
+// пълния сезонен from/to прозорец от PR A (buildAsSeasonHistoryQuery) -
+// league-wide last=N пропуска отбори при отложени/разместени мачове (виж
+// доказателствения анализ с Левски София). Табовете си продължават с
+// отделните next=/last=20/live=all заявки НЕПРОМЕНЕНИ за самия РЕНДЕР на
+// картите - тук се пипа само входът на прогнозния модел.
+//
+// Умишлено НЕ се ползва от updateHistoryResultsAS() (PR #29) - фонът там
+// трябва да вижда ВИНАГИ пресни данни, за да не забави откриването на току-що
+// приключил мач с до 5 мин. updateHistoryResultsAS() си остава на директен,
+// некеширан apiFetchAS() (вече с request-level dedup от PR #29, без TTL).
+const AS_SEASON_HISTORY_FRESH_MS=5*60*1000;
+const asSeasonHistoryCache={};    // key: `${leagueId}_${season}` -> {data,ts}
+const asSeasonHistoryInflight={}; // същия key space - защита срещу едновременни дублирани заявки
+async function fetchAsSeasonFixtures(leagueId,season,query){
+  const key=leagueId+'_'+season;
+  const cached=asSeasonHistoryCache[key];
+  if(cached&&cached.ts>Date.now()-AS_SEASON_HISTORY_FRESH_MS)return cached.data;
+  if(asSeasonHistoryInflight[key])return asSeasonHistoryInflight[key];
+  const promise=(async()=>{
+    try{
+      const data=await apiFetchAS(query);
+      const response=data.response||[];
+      asSeasonHistoryCache[key]={data:response,ts:Date.now()};
+      return response;
+    }catch(e){
+      // НЕ трием валиден кеш при грешка (мрежова/rate-limit) - връщаме
+      // последните известни данни, ако ги имаме; иначе пропагираме грешката
+      // (извикващият вече минава през Promise.allSettled навсякъде).
+      if(cached)return cached.data;
+      throw e;
+    }
+  })();
+  asSeasonHistoryInflight[key]=promise;
+  try{return await promise;}finally{delete asSeasonHistoryInflight[key];}
+}
+async function fetchAsLeagueSeasonHistory(leagueId){
+  const season=currentSeasonYear();
+  const currentRaw=await fetchAsSeasonFixtures(leagueId,season,'/fixtures?'+buildAsSeasonHistoryQuery(leagueId));
+  // Запазен съществуващ fallback (виж loadASLeagueTab, непроменена логика) -
+  // "недостатъчно приключили мачове" вече се брои коректно спрямо реалния
+  // FT/AET/PEN/AWD/WO статус (от/до прозорецът може да съдържа и отложени/
+  // насрочени записи, за разлика от last=N, което почти винаги връщаше вече
+  // изиграни мачове) - без тази корекция прагът "<4" би бил подвеждащ.
+  const finishedCount=currentRaw.filter(f=>['FT','AET','PEN','AWD','WO'].includes(f.fixture?.status?.short)).length;
+  let blendingPrevSeason=false,matches=currentRaw;
+  if(finishedCount<4){
+    try{
+      const prevRaw=await fetchAsSeasonFixtures(leagueId,season-1,'/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25');
+      if(prevRaw.length>0){blendingPrevSeason=true;matches=[...currentRaw,...prevRaw];}
+    }catch(e){} // best-effort fallback - провал тук не трябва да събори основните данни
+  }
+  return{matches,blendingPrevSeason};
+}
 function switchTab(name){
   currentTab=name;
   const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig','bl2'];
@@ -1715,19 +1771,32 @@ async function loadUpcoming(){
     // през api-sports.io, аналогично на моделите за отделните им табове.
     try{
       const season=currentSeasonYear();
-      const extraResults=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>Promise.all([
-        apiFetchAS('/fixtures?league='+id+'&season='+season+'&next=15'),
-        apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=15')
-      ])));
+      // PR B - историята (за allMatches) вече идва от fetchAsLeagueSeasonHistory()
+      // (пълен сезонен from/to прозорец + запазен prev-season blend fallback,
+      // споделен с loadASLeagueTab), вместо отделна last=15 заявка тук. next=
+      // (за списъка с предстоящи мачове) остава непроменена. Вътрешен
+      // Promise.allSettled за двете на лига - провал на историята не трябва
+      // да маха лигата от предстоящите мачове, и обратно.
+      const extraResults=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(async id=>{
+        const[nextD,histD]=await Promise.allSettled([
+          apiFetchAS('/fixtures?league='+id+'&season='+season+'&next=15'),
+          fetchAsLeagueSeasonHistory(id)
+        ]);
+        return{nextD,histD};
+      }));
       const existingIds2=new Set(upcoming.map(m=>String(m.id)));
       extraResults.forEach(r=>{
         if(r.status!=='fulfilled')return;
-        const[nextD,lastD]=r.value;
-        (nextD.response||[]).forEach(f=>{
-          const m=asFixtureToMatch(f);
-          if(!existingIds2.has(String(m.id))){upcoming.push(m);existingIds2.add(String(m.id));}
-        });
-        (lastD.response||[]).forEach(f=>allMatches.push(asFixtureToMatch(f)));
+        const{nextD,histD}=r.value;
+        if(nextD.status==='fulfilled'){
+          (nextD.value.response||[]).forEach(f=>{
+            const m=asFixtureToMatch(f);
+            if(!existingIds2.has(String(m.id))){upcoming.push(m);existingIds2.add(String(m.id));}
+          });
+        }
+        if(histD.status==='fulfilled'){
+          histD.value.matches.forEach(f=>allMatches.push(asFixtureToMatch(f)));
+        }
       });
     }catch(e){}
     // F2a ХРОНОЛОГИЧНО СОРТИРАНЕ (виж discussion-а "прогнозите не трябва да
@@ -2406,17 +2475,21 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
   const c=document.getElementById(tabId+'-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   const season=currentSeasonYear();
-  const[nextRes,lastRes,liveRes,prevRes,scorersHtml]=await Promise.allSettled([
+  // PR B - fetchAsLeagueSeasonHistory() (пълен сезонен from/to прозорец +
+  // запазен prev-season blend fallback, споделен с loadUpcoming) замества
+  // отделната last=25 заявка за историята/прогнозите. next=20/last=20/live=all
+  // остават непроменени - продължават да захранват САМО рендерирания списък
+  // мачове в този таб (allRaw/groups по-долу), не allMatches.
+  const[nextRes,lastRes,liveRes,scorersHtml,seasonHistoryRes]=await Promise.allSettled([
     apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
     apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
     apiFetchAS('/fixtures?live=all'),
-    apiFetchAS('/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25'),
-    apiSportsScorersBlockHtml(leagueId, icon, title+' — ГОЛМАЙСТОРИ')
+    apiSportsScorersBlockHtml(leagueId, icon, title+' — ГОЛМАЙСТОРИ'),
+    fetchAsLeagueSeasonHistory(leagueId)
   ]);
   const upcomingRaw=(nextRes.status==='fulfilled'?(nextRes.value.response||[]):[]);
   const finishedRaw=(lastRes.status==='fulfilled'?(lastRes.value.response||[]):[]);
   const liveRaw=(liveRes.status==='fulfilled'?(liveRes.value.response||[]):[]);
-  const prevSeasonRaw=(prevRes.status==='fulfilled'?(prevRes.value.response||[]):[]);
   const scorersBlock=scorersHtml.status==='fulfilled'?scorersHtml.value:'';
   const liveFixtures=liveRaw.filter(f=>f.league?.id===leagueId);
   const liveIds=new Set(liveFixtures.map(f=>f.fixture?.id));
@@ -2443,9 +2516,15 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
   }
 
   try{
-    const blendingPrevSeason=finished.length<4&&prevSeasonRaw.length>0;
-    const historyPool=blendingPrevSeason?[...allRaw,...prevSeasonRaw]:allRaw;
-    const allMatches=historyPool.map(asFixtureToMatch);
+    // PR B - allMatches (вход на buildPrediction/calcForm) вече идва от
+    // fetchAsLeagueSeasonHistory() (пълен сезонен прозорец + prev-season
+    // blend при <4 реално приключили мача), не от last=20 allRaw-то, което
+    // служи само за рендерирания списък по-горе. Провал на историята (рядко,
+    // Promise.allSettled) пада на allRaw - не по-лошо от поведението преди
+    // PR B, никога не събаря целия таб.
+    const seasonHistory=seasonHistoryRes.status==='fulfilled'?seasonHistoryRes.value:{matches:allRaw,blendingPrevSeason:false};
+    const blendingPrevSeason=seasonHistory.blendingPrevSeason;
+    const allMatches=seasonHistory.matches.map(asFixtureToMatch);
 
     const groups={};
     const order=[];

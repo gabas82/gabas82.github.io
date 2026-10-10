@@ -34,12 +34,12 @@ const TEST_COMPS = [
 const TEST_EXTRA_AS_LEAGUE_IDS = [999];
 const TEST_AS_LEAGUES = [{ id: 999, icon: '🧪', title: 'Тест Екстра Лига' }];
 
-function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21, maxPerComp = 10, beginAsForeground, endAsForeground }) {
+function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21, maxPerComp = 10, beginAsForeground, endAsForeground, fetchAsLeagueSeasonHistory }) {
   const fn = new Function(
     'getToday', 'getDatePlus', 'apiFetch', 'getDateMinus', 'apiFetchAS', 'currentSeasonYear',
     'EXTRA_AS_LEAGUE_IDS', 'asFixtureToMatch', 'sortMatchesByDate', 'COMPS', 'AS_LEAGUES', 'renderMatch',
     'UPCOMING_WINDOW_DAYS', 'UPCOMING_MAX_PER_COMP', 'limitSortedUpcoming', 'hasRecentFinishedActivity', 'buildEmptyWindowMessage',
-    'beginAsForeground', 'endAsForeground',
+    'beginAsForeground', 'endAsForeground', 'fetchAsLeagueSeasonHistory',
     code + `\nreturn loadUpcoming;`
   );
   return fn(
@@ -47,7 +47,8 @@ function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21,
     TEST_EXTRA_AS_LEAGUE_IDS, (f) => ({ id: 'as_' + f.fixture.id, status: 'SCHEDULED', utcDate: f.fixture.date, competition: { id: 'as_' + f.league.id, name: f.league.name }, homeTeam: f.teams?.home, awayTeam: f.teams?.away }),
     sortMatchesByDate, TEST_COMPS, TEST_AS_LEAGUES, renderMatch || (() => '<div>MATCH</div>'),
     windowDays, maxPerComp, limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage,
-    beginAsForeground || (() => {}), endAsForeground || (() => {})
+    beginAsForeground || (() => {}), endAsForeground || (() => {}),
+    fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false }))
   );
 }
 
@@ -221,5 +222,35 @@ describe('loadUpcoming - без промяна в извикваните endpoin
     expect(calls.filter(p => p.includes('status=SCHEDULED,TIMED')).length).toBe(1);
     expect(calls.filter(p => p.includes('status=FINISHED')).length).toBe(1);
     expect(calls.filter(p => p.includes('/competitions/2000/matches'))).toHaveLength(1);
+  });
+});
+
+describe('loadUpcoming - PR B wiring: fetchAsLeagueSeasonHistory() захранва allMatches', () => {
+  it('матчовете от fetchAsLeagueSeasonHistory() за extra-AS лигата достигат до allMatches (renderMatch)', async () => {
+    const seasonMatch = { fixture: { id: 777, date: '2026-01-05T00:00:00Z' }, league: { id: 999 }, teams: {} };
+    const fetchAsLeagueSeasonHistory = async (id) => {
+      if (id === 999) return { matches: [seasonMatch], blendingPrevSeason: false };
+      return { matches: [], blendingPrevSeason: false };
+    };
+    let capturedAllMatches = null;
+    const upcomingMatch = { id: 1, utcDate: '2026-01-10', status: 'SCHEDULED', homeTeam: { id: 1 }, awayTeam: { id: 2 }, competition: { id: 2021 } };
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [upcomingMatch] });
+      return Promise.resolve({ matches: [] });
+    };
+    const renderMatch = (m, showPred, allMatches) => { if (showPred) capturedAllMatches = allMatches; return '<div>MATCH</div>'; };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch, fetchAsLeagueSeasonHistory });
+    await loadUpcoming();
+    expect(capturedAllMatches).not.toBeNull();
+    expect(capturedAllMatches.some(m => m.id === 'as_777')).toBe(true);
+  });
+  it('провал на fetchAsLeagueSeasonHistory() за ЕДНА лига не маха upcoming мачовете на тази лига (изолирани Promise.allSettled)', async () => {
+    const nextFixture = { fixture: { id: 1, date: '2026-01-05T00:00:00Z' }, league: { id: 999 }, teams: {} };
+    const apiFetchAS = (p) => (p.includes('next=15') ? Promise.resolve({ response: [nextFixture] }) : emptyAS());
+    const fetchAsLeagueSeasonHistory = async () => { throw new Error('rate limit'); };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch: () => Promise.resolve({ matches: [] }), apiFetchAS, renderMatch: () => '<div>MATCH</div>', fetchAsLeagueSeasonHistory });
+    await loadUpcoming();
+    const html = document.getElementById('upcoming-content').innerHTML;
+    expect(html).toContain('MATCH'); // upcoming мачът пак се рендерира, въпреки провалената история
   });
 });
