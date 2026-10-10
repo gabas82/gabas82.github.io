@@ -883,11 +883,26 @@ describe('classifyAsLeagueTabEmptyState', () => {
     const res = [{ status: 'rejected' }, { status: 'rejected' }, { status: 'rejected' }];
     expect(classifyAsLeagueTabEmptyState(res)).toBe('FETCH_ERROR');
   });
-  it('празен масив -> EMPTY_SEASON (защитен default, не хвърля)', () => {
-    expect(classifyAsLeagueTabEmptyState([])).toBe('EMPTY_SEASON');
+  // Празен/невалиден вход НЕ е доказателство за празен сезон - преди
+  // връщаше EMPTY_SEASON по подразбиране, което погрешно твърдеше "сезонът
+  // не е започнал", докато всъщност просто нямаме надеждна информация.
+  it('празен масив -> UNKNOWN_ERROR (не е доказателство за празен сезон)', () => {
+    expect(classifyAsLeagueTabEmptyState([])).toBe('UNKNOWN_ERROR');
   });
-  it('null/undefined вход -> EMPTY_SEASON, не хвърля', () => {
-    expect(classifyAsLeagueTabEmptyState(null)).toBe('EMPTY_SEASON');
-    expect(classifyAsLeagueTabEmptyState(undefined)).toBe('EMPTY_SEASON');
+  it('null/undefined вход -> UNKNOWN_ERROR, не хвърля', () => {
+    expect(classifyAsLeagueTabEmptyState(null)).toBe('UNKNOWN_ERROR');
+    expect(classifyAsLeagueTabEmptyState(undefined)).toBe('UNKNOWN_ERROR');
+  });
+  it('вход, който не е масив (напр. обект) -> UNKNOWN_ERROR', () => {
+    expect(classifyAsLeagueTabEmptyState({ status: 'fulfilled' })).toBe('UNKNOWN_ERROR');
+  });
+  it('масив с развален запис (null елемент, липсващ/невалиден status) -> UNKNOWN_ERROR, дори другите да са валидни fulfilled', () => {
+    expect(classifyAsLeagueTabEmptyState([{ status: 'fulfilled' }, null])).toBe('UNKNOWN_ERROR');
+    expect(classifyAsLeagueTabEmptyState([{ status: 'fulfilled' }, {}])).toBe('UNKNOWN_ERROR');
+    expect(classifyAsLeagueTabEmptyState([{ status: 'fulfilled' }, { status: 'pending' }])).toBe('UNKNOWN_ERROR');
+  });
+  it('EMPTY_SEASON се връща само при валиден непразен масив, изцяло от успешни (fulfilled) резултати', () => {
+    const res = [{ status: 'fulfilled', value: { response: [] } }, { status: 'fulfilled', value: { response: [] } }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('EMPTY_SEASON');
   });
 });

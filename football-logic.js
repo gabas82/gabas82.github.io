@@ -574,8 +574,17 @@ function buildCalibrationReport(history,compsAsMap){
 // (fetch rejected - мрежа/API недостъпност) или ДЕЙСТВИТЕЛНО празен сезон
 // (fulfilled с празни масиви). Чиста функция - testable без DOM/fetch/мрежа,
 // не променя кои заявки се пращат, само как се ИНТЕРПРЕТИРА резултатът им.
+// EMPTY_SEASON се връща САМО когато входът е валиден масив и ВСИЧКИ елементи
+// са валидни, успешно "fulfilled" резултати - отсъствие/невалидна форма на
+// входа (null/undefined/[]/развален запис) НЕ е доказателство за празен
+// сезон, затова се връща отделно UNKNOWN_ERROR, а не EMPTY_SEASON.
 function classifyAsLeagueTabEmptyState(settledResults){
-  const anyRejected=(settledResults||[]).some(r=>r&&r.status==='rejected');
+  if(!Array.isArray(settledResults)||settledResults.length===0)return 'UNKNOWN_ERROR';
+  let anyRejected=false;
+  for(const r of settledResults){
+    if(!r||typeof r!=='object'||(r.status!=='fulfilled'&&r.status!=='rejected'))return 'UNKNOWN_ERROR';
+    if(r.status==='rejected')anyRejected=true;
+  }
   return anyRejected?'FETCH_ERROR':'EMPTY_SEASON';
 }
 
