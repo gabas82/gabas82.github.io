@@ -9,7 +9,8 @@ import {
   currentSeasonYear, findMatchingRecord, calcTopScorers,
   calibrationBucket, calcCalibration,
   isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint
+  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
+  classifyAsLeagueTabEmptyState
 } from './football-logic.js';
 
 // Същата двойка, която football.html държи в COMPS_AS_MAP - копирана тук, за
@@ -863,5 +864,45 @@ describe('buildCalibrationReport', () => {
     const res = buildCalibrationReport([legacy], TEST_COMPS_AS_MAP);
     expect(res.reliableCount).toBe(1);
     expect(res.excludedDuplicate).toBe(0);
+  });
+});
+
+// F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
+// автоматично за незапочнал сезон") - loadASLeagueTab() в football.html ползва
+// тази чиста функция, за да различи реално празен сезон от провалена заявка.
+describe('classifyAsLeagueTabEmptyState', () => {
+  it('всичките fulfilled -> EMPTY_SEASON (действително празен сезон)', () => {
+    const res = [{ status: 'fulfilled', value: {} }, { status: 'fulfilled', value: {} }, { status: 'fulfilled', value: {} }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('EMPTY_SEASON');
+  });
+  it('поне едно rejected -> FETCH_ERROR, дори другите да са fulfilled', () => {
+    const res = [{ status: 'fulfilled', value: {} }, { status: 'rejected', reason: new Error('boom') }, { status: 'fulfilled', value: {} }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('FETCH_ERROR');
+  });
+  it('всичките rejected -> FETCH_ERROR', () => {
+    const res = [{ status: 'rejected' }, { status: 'rejected' }, { status: 'rejected' }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('FETCH_ERROR');
+  });
+  // Празен/невалиден вход НЕ е доказателство за празен сезон - преди
+  // връщаше EMPTY_SEASON по подразбиране, което погрешно твърдеше "сезонът
+  // не е започнал", докато всъщност просто нямаме надеждна информация.
+  it('празен масив -> UNKNOWN_ERROR (не е доказателство за празен сезон)', () => {
+    expect(classifyAsLeagueTabEmptyState([])).toBe('UNKNOWN_ERROR');
+  });
+  it('null/undefined вход -> UNKNOWN_ERROR, не хвърля', () => {
+    expect(classifyAsLeagueTabEmptyState(null)).toBe('UNKNOWN_ERROR');
+    expect(classifyAsLeagueTabEmptyState(undefined)).toBe('UNKNOWN_ERROR');
+  });
+  it('вход, който не е масив (напр. обект) -> UNKNOWN_ERROR', () => {
+    expect(classifyAsLeagueTabEmptyState({ status: 'fulfilled' })).toBe('UNKNOWN_ERROR');
+  });
+  it('масив с развален запис (null елемент, липсващ/невалиден status) -> UNKNOWN_ERROR, дори другите да са валидни fulfilled', () => {
+    expect(classifyAsLeagueTabEmptyState([{ status: 'fulfilled' }, null])).toBe('UNKNOWN_ERROR');
+    expect(classifyAsLeagueTabEmptyState([{ status: 'fulfilled' }, {}])).toBe('UNKNOWN_ERROR');
+    expect(classifyAsLeagueTabEmptyState([{ status: 'fulfilled' }, { status: 'pending' }])).toBe('UNKNOWN_ERROR');
+  });
+  it('EMPTY_SEASON се връща само при валиден непразен масив, изцяло от успешни (fulfilled) резултати', () => {
+    const res = [{ status: 'fulfilled', value: { response: [] } }, { status: 'fulfilled', value: { response: [] } }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('EMPTY_SEASON');
   });
 });
