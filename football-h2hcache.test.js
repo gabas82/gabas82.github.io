@@ -235,3 +235,172 @@ describe('loadUpcoming() wiring - H2H кеш през СЪЩИЯ реален fe
     expect(h2hCalls.some(p => p.includes('teams=30') && p.includes('teams=40'))).toBe(true);
   });
 });
+
+// --- 3. Корекция: грешка визуално разграничена от легитимно празно H2H ---
+describe('h2hHtml() - реалната функция от football.html, 3 разграничени състояния', () => {
+  function buildH2hHtml() {
+    const src = extractBraced(html, 'function h2hHtml(');
+    return new Function(src + '\nreturn h2hHtml;')();
+  }
+
+  it('успешен H2H с мачове -> нормален HEAD-TO-HEAD блок', () => {
+    const h2hHtml = buildH2hHtml();
+    const matches = [{ utcDate: '2026-01-01', homeTeam: { name: 'A' }, awayTeam: { name: 'B' }, score: { fullTime: { home: 2, away: 1 } } }];
+    const out = h2hHtml(matches, 'A', 'B');
+    expect(out).toContain('HEAD-TO-HEAD');
+    expect(out).not.toContain('⚠️ H2H данните временно не са налични.');
+  });
+
+  it('валиден празен масив (без .h2hError) -> запазено старо поведение, без H2H блок', () => {
+    const h2hHtml = buildH2hHtml();
+    const out = h2hHtml([], 'A', 'B');
+    expect(out).toBe('');
+  });
+
+  it('масив маркиран с .h2hError -> кратко, ненатрапчиво съобщение, НЕ "error-box"', () => {
+    const h2hHtml = buildH2hHtml();
+    const errArr = []; errArr.h2hError = true;
+    const out = h2hHtml(errArr, 'A', 'B');
+    expect(out).toContain('⚠️ H2H данните временно не са налични.');
+    expect(out).not.toContain('error-box');
+    expect(out).not.toContain('HEAD-TO-HEAD');
+  });
+});
+
+describe('fetchH2H() wiring (през loadUpcoming) - end-to-end разграничение данни/празно/грешка', () => {
+  const combinedSrc = [
+    extractStatement(html, 'const COMPS=['),
+    extractStatement(html, 'const AS_LEAGUES=['),
+    extractStatement(html, 'const EXTRA_AS_LEAGUE_IDS='),
+    extractStatement(html, 'const H2H_FRESH_MS='),
+    extractStatement(html, 'const h2hCache='),
+    extractStatement(html, 'const h2hInflight='),
+    extractBraced(html, 'async function fetchH2HCached('),
+    extractBraced(html, 'async function loadUpcoming('),
+  ].join('\n');
+
+  function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, fetchAsLeagueSeasonHistory }) {
+    const fn = new Function(
+      'getToday', 'getDatePlus', 'apiFetch', 'getDateMinus', 'apiFetchAS', 'currentSeasonYear',
+      'asFixtureToMatch', 'sortMatchesByDate', 'renderMatch',
+      'UPCOMING_WINDOW_DAYS', 'UPCOMING_MAX_PER_COMP', 'limitSortedUpcoming', 'hasRecentFinishedActivity',
+      'buildEmptyWindowMessage', 'beginAsForeground', 'endAsForeground', 'fetchAsLeagueSeasonHistory',
+      combinedSrc + `\nreturn loadUpcoming;`
+    );
+    return fn(
+      () => '2026-10-10', (d) => `2026-10-${String(10 + d).padStart(2, '0')}`, apiFetch, () => '2026-04-01', apiFetchAS, () => 2026,
+      (f) => ({ id: 'as_' + f.fixture.id, status: 'SCHEDULED', utcDate: f.fixture?.date, competition: { id: 'as_' + f.league?.id, name: f.league?.name }, homeTeam: f.teams?.home, awayTeam: f.teams?.away }),
+      sortMatchesByDate, renderMatch || (() => '<div>MATCH</div>'),
+      21, 10, limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage,
+      () => {}, () => {},
+      fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false }))
+    );
+  }
+
+  function emptyFd() { return Promise.resolve({ matches: [] }); }
+  function emptyAS() { return Promise.resolve({ response: [] }); }
+
+  beforeEach(() => { document.body.innerHTML = '<div id="upcoming-content"></div>'; });
+
+  it('успешен H2H с реален мач -> h2hMatches подаден на renderMatch е нормален масив с данни (без .h2hError)', async () => {
+    const plMatch = { id: 1, utcDate: '2026-10-15', status: 'SCHEDULED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, competition: { id: 2021 } };
+    const h2hMatch = { id: 99, utcDate: '2025-05-01', status: 'FINISHED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, score: { fullTime: { home: 1, away: 0 } } };
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [plMatch] });
+      if (p.includes('teams=10') && p.includes('teams=20')) return Promise.resolve({ matches: [h2hMatch] });
+      return emptyFd();
+    };
+    let captured = null;
+    const renderMatch = (m, showPred, allMatches, h2hMatches) => { if (m.id === 1) captured = h2hMatches; return '<div>MATCH</div>'; };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch });
+    await loadUpcoming();
+    expect(captured).toEqual([h2hMatch]);
+    expect(captured.h2hError).toBeUndefined();
+  });
+
+  it('валиден празен H2H отговор -> h2hMatches е обикновен празен масив, без .h2hError', async () => {
+    const plMatch = { id: 1, utcDate: '2026-10-15', status: 'SCHEDULED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, competition: { id: 2021 } };
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [plMatch] });
+      if (p.includes('teams=10') && p.includes('teams=20')) return Promise.resolve({ matches: [] });
+      return emptyFd();
+    };
+    let captured = null;
+    const renderMatch = (m, showPred, allMatches, h2hMatches) => { if (m.id === 1) captured = h2hMatches; return '<div>MATCH</div>'; };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch });
+    await loadUpcoming();
+    expect(captured).toEqual([]);
+    expect(captured.h2hError).toBeUndefined();
+  });
+
+  it('H2H API грешка -> h2hMatches подаден на renderMatch е маркиран с .h2hError=true', async () => {
+    const plMatch = { id: 1, utcDate: '2026-10-15', status: 'SCHEDULED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, competition: { id: 2021 } };
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [plMatch] });
+      if (p.includes('teams=10') && p.includes('teams=20')) return Promise.reject(new Error('h2h boom'));
+      return emptyFd();
+    };
+    let captured = null;
+    const renderMatch = (m, showPred, allMatches, h2hMatches) => { if (m.id === 1) captured = h2hMatches; return '<div>MATCH</div>'; };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch });
+    await loadUpcoming();
+    expect(captured.h2hError).toBe(true);
+    expect(captured.length).toBe(0);
+  });
+
+  it('изолация - H2H грешка за мач А не засяга h2hMatches на мач Б (различен чифт отбори)', async () => {
+    const mA = { id: 1, utcDate: '2026-10-11', status: 'SCHEDULED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, competition: { id: 2021 } };
+    const mB = { id: 2, utcDate: '2026-10-12', status: 'SCHEDULED', homeTeam: { id: 30, name: 'C' }, awayTeam: { id: 40, name: 'D' }, competition: { id: 2021 } };
+    const h2hMatchB = { id: 98, utcDate: '2025-05-01', status: 'FINISHED', homeTeam: { id: 30, name: 'C' }, awayTeam: { id: 40, name: 'D' }, score: { fullTime: { home: 2, away: 2 } } };
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [mA, mB] });
+      if (p.includes('teams=10') && p.includes('teams=20')) return Promise.reject(new Error('h2h boom for A'));
+      if (p.includes('teams=30') && p.includes('teams=40')) return Promise.resolve({ matches: [h2hMatchB] });
+      return emptyFd();
+    };
+    const captured = {};
+    const renderMatch = (m, showPred, allMatches, h2hMatches) => { captured[m.id] = h2hMatches; return '<div>MATCH</div>'; };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch });
+    await loadUpcoming();
+    expect(captured[1].h2hError).toBe(true); // мач А - грешка, маркирана
+    expect(captured[2]).toEqual([h2hMatchB]); // мач Б - напълно нормален резултат, незасегнат
+    const htmlOut = document.getElementById('upcoming-content').innerHTML;
+    expect(htmlOut).not.toContain('error-box'); // секционен error-box не се появява заради H2H грешка на един мач
+  });
+
+  it('повторен опит след H2H грешка - следващото зареждане прави НОВА мрежова заявка (грешката не е кеширана)', async () => {
+    const plMatch = { id: 1, utcDate: '2026-10-15', status: 'SCHEDULED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, competition: { id: 2021 } };
+    let attempt = 0;
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [plMatch] });
+      if (p.includes('teams=10') && p.includes('teams=20')) {
+        attempt++;
+        if (attempt === 1) return Promise.reject(new Error('h2h boom'));
+        return Promise.resolve({ matches: [{ id: 99, score: { fullTime: { home: 1, away: 1 } }, homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, utcDate: '2025-01-01' }] });
+      }
+      return emptyFd();
+    };
+    const captured = [];
+    const renderMatch = (m, showPred, allMatches, h2hMatches) => { captured.push(h2hMatches); return '<div>MATCH</div>'; };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch });
+    await loadUpcoming(); // 1-ви опит - грешка
+    await loadUpcoming(); // 2-ри опит - успех (нов опит, не кеширан провал)
+    expect(attempt).toBe(2);
+    expect(captured[0].h2hError).toBe(true);
+    expect(captured[1].h2hError).toBeUndefined();
+    expect(captured[1].length).toBe(1);
+  });
+
+  it('липса на допълнителни API заявки - точно 1 H2H заявка на видим мач, независимо от успех/грешка (без дублиране от корекцията)', async () => {
+    const plMatch = { id: 1, utcDate: '2026-10-15', status: 'SCHEDULED', homeTeam: { id: 10, name: 'A' }, awayTeam: { id: 20, name: 'B' }, competition: { id: 2021 } };
+    let h2hRequestCount = 0;
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [plMatch] });
+      if (p.includes('teams=10') && p.includes('teams=20')) { h2hRequestCount++; return Promise.reject(new Error('h2h boom')); }
+      return emptyFd();
+    };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch: () => '<div>MATCH</div>' });
+    await loadUpcoming();
+    expect(h2hRequestCount).toBe(1); // 1 видим мач -> точно 1 H2H заявка, корекцията не добавя втора "проверка"
+  });
+});

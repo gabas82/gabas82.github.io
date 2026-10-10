@@ -1224,6 +1224,12 @@ function goalMarketsHtHtml(gmHt,hn,an,hf,af){
 }
 
 function h2hHtml(matches,hName,aName){
+  // D3 корекция (виж discussion-а "H2H грешка не трябва да изглежда като
+  // честно празна история") - matches.h2hError (маркиран от fetchH2H() при
+  // провалена заявка, виж по-долу) носи кратко, ненатрапчиво съобщение САМО
+  // в картата на засегнатия мач - НЕ пипа секционния error-box механизъм
+  // (s.errorMessage в loadUpcoming()), НЕ пречи на останалите видими мачове.
+  if(matches&&matches.h2hError)return '<div class="no-pred-box">⚠️ H2H данните временно не са налични.</div>';
   if(!matches||!matches.length)return '';
   const last5=matches.slice(-5);
   let hW=0,aW=0,dr=0;
@@ -1975,7 +1981,15 @@ async function loadUpcoming(){
             return ids.includes(hId)&&ids.includes(aId);
           });
         });
-      }catch(e){return [];}
+      }catch(e){
+        // D3 корекция - грешка (мрежова/невалиден отговор) връща ПРАЗЕН масив
+        // с маркер h2hError=true (виж h2hHtml()) - разграничимо от легитимно
+        // празна история (обикновен [] без маркера), без да се кешира (виж
+        // fetchH2HCached() по-горе - хвърлянето става преди записа в кеша).
+        const errArr=[];
+        errArr.h2hError=true;
+        return errArr;
+      }
     }
     const h2hByMatchId=new Map();
     await Promise.all(visibleMatches.map(async m=>{h2hByMatchId.set(m.id,await fetchH2H(m));}));
