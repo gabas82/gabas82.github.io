@@ -22,10 +22,11 @@ function extractFunction(src, name) {
 const html = fs.readFileSync('./football.html', 'utf8');
 const code = extractFunction(html, 'loadASLeagueTab');
 
-function buildLoadASLeagueTab({ apiFetchAS, apiSportsScorersBlockHtml, asFixtureToMatch, extractASLiveStats, renderMatch, beginAsForeground, endAsForeground }) {
+function buildLoadASLeagueTab({ apiFetchAS, apiSportsScorersBlockHtml, asFixtureToMatch, extractASLiveStats, renderMatch, beginAsForeground, endAsForeground, fetchAsLeagueSeasonHistory }) {
   const fn = new Function(
     'currentSeasonYear', 'apiFetchAS', 'apiSportsScorersBlockHtml', 'classifyAsLeagueTabEmptyState',
     'asFixtureToMatch', 'extractASLiveStats', 'renderMatch', 'beginAsForeground', 'endAsForeground',
+    'fetchAsLeagueSeasonHistory',
     code + `\nreturn loadASLeagueTab;`
   );
   return fn(
@@ -33,7 +34,8 @@ function buildLoadASLeagueTab({ apiFetchAS, apiSportsScorersBlockHtml, asFixture
     asFixtureToMatch || (f => ({ id: 'as_' + f.fixture.id, status: 'SCHEDULED' })),
     extractASLiveStats || (() => ({})),
     renderMatch || (() => '<div>MATCH</div>'),
-    beginAsForeground || (() => {}), endAsForeground || (() => {})
+    beginAsForeground || (() => {}), endAsForeground || (() => {}),
+    fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false }))
   );
 }
 
@@ -118,5 +120,47 @@ describe('loadASLeagueTab - F1 диагностика', () => {
     expect(html).toContain('Кръг 1');
     expect(html).not.toContain('error-box');
     expect(html).not.toContain('Сезонът още не е започнал');
+  });
+});
+
+describe('loadASLeagueTab - PR B wiring: fetchAsLeagueSeasonHistory() захранва allMatches, не рендера', () => {
+  it('allMatches (подаден на renderMatch) идва от fetchAsLeagueSeasonHistory(), не от last=20', async () => {
+    const fixture = { fixture: { id: 1, date: '2026-01-01T00:00:00Z' }, league: { id: 2, round: 'Кръг 1' } };
+    const seasonHistoryMatch = { fixture: { id: 999, status: { short: 'FT' } }, league: { id: 2 }, goals: { home: 2, away: 1 } };
+    let capturedAllMatches = null;
+    const loadASLeagueTab = buildLoadASLeagueTab({
+      apiFetchAS: (p) => p.includes('next=20') ? Promise.resolve({ response: [fixture] }) : emptyAS(),
+      apiSportsScorersBlockHtml: () => Promise.resolve(''),
+      renderMatch: (m, showPred, allMatches) => { capturedAllMatches = allMatches; return '<div>MATCH</div>'; },
+      fetchAsLeagueSeasonHistory: async () => ({ matches: [seasonHistoryMatch], blendingPrevSeason: false }),
+    });
+    await loadASLeagueTab('cl', 2, '⭐', 'Шампионска лига');
+    expect(capturedAllMatches).not.toBeNull();
+    expect(capturedAllMatches.some(m => m.id === 'as_999')).toBe(true);
+  });
+  it('blendingPrevSeason:true от fetchAsLeagueSeasonHistory() показва банера "в начален стадий"', async () => {
+    const fixture = { fixture: { id: 1, date: '2026-01-01T00:00:00Z' }, league: { id: 2, round: 'Кръг 1' } };
+    const loadASLeagueTab = buildLoadASLeagueTab({
+      apiFetchAS: (p) => p.includes('next=20') ? Promise.resolve({ response: [fixture] }) : emptyAS(),
+      apiSportsScorersBlockHtml: () => Promise.resolve(''),
+      renderMatch: () => '<div>MATCH</div>',
+      fetchAsLeagueSeasonHistory: async () => ({ matches: [], blendingPrevSeason: true }),
+    });
+    await loadASLeagueTab('cl', 2, '⭐', 'Шампионска лига');
+    const html = document.getElementById('cl-content').innerHTML;
+    expect(html).toContain('начален стадий');
+  });
+  it('провал на fetchAsLeagueSeasonHistory() не събаря таба - пада на allRaw (от next/last/live), не по-лошо от преди PR B', async () => {
+    const fixture = { fixture: { id: 1, date: '2026-01-01T00:00:00Z' }, league: { id: 2, round: 'Кръг 1' } };
+    const loadASLeagueTab = buildLoadASLeagueTab({
+      apiFetchAS: (p) => p.includes('next=20') ? Promise.resolve({ response: [fixture] }) : emptyAS(),
+      apiSportsScorersBlockHtml: () => Promise.resolve(''),
+      renderMatch: () => '<div>MATCH-OK</div>',
+      fetchAsLeagueSeasonHistory: async () => { throw new Error('rate limit'); },
+    });
+    await loadASLeagueTab('cl', 2, '⭐', 'Шампионска лига');
+    const html = document.getElementById('cl-content').innerHTML;
+    expect(html).toContain('MATCH-OK');
+    expect(html).not.toContain('error-box');
   });
 });
