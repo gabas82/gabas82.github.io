@@ -6,8 +6,15 @@ import {
   normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
   calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer,
   currentSeasonYear, findMatchingRecord, calcTopScorers,
-  calibrationBucket, calcCalibration
+  calibrationBucket, calcCalibration,
+  isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
+  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport
 } from './football-logic.js';
+
+// Същата двойка, която football.html държи в COMPS_AS_MAP - копирана тук, за
+// да тестваме mapCompPairKey/isCrossProviderDuplicate с реалистични стойности,
+// без football.html да бъде зареждан в тестовата среда.
+const TEST_COMPS_AS_MAP = { 2000:1,2021:39,2002:78,2019:135,2014:140,2015:61,2001:2,2018:3,2016:172,2003:88,2013:71 };
 
 describe('calcTopScorers', () => {
   const match = { homeTeam: { id: 1, name: 'Домакин' }, awayTeam: { id: 2, name: 'Гост' } };
@@ -546,5 +553,201 @@ describe('calcCalibration', () => {
     ];
     const res = calcCalibration(hist);
     expect(res[0].totalN).toBe(1);
+  });
+});
+
+// ============================================================================
+// PRE-MATCH ONLY + CROSS-PROVIDER DEDUPLICATION (виж discussion-а "качество
+// на статистиката")
+// ============================================================================
+const KICKOFF = '2026-11-01T18:00:00Z';
+const KICKOFF_MS = new Date(KICKOFF).getTime();
+
+describe('isPreMatchPrediction', () => {
+  it('true: savedAt строго преди kickoff, няма statusAtSave (стар запис - fallback)', () => {
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS - 60000, date: KICKOFF })).toBe(true);
+  });
+  it('true: savedAt преди kickoff И statusAtSave е SCHEDULED/TIMED (нов запис)', () => {
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS - 60000, date: KICKOFF, statusAtSave: 'SCHEDULED' })).toBe(true);
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS - 60000, date: KICKOFF, statusAtSave: 'TIMED' })).toBe(true);
+  });
+  it('false: savedAt СЛЕД kickoff (записано, докато мачът вече тече)', () => {
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS + 60000, date: KICKOFF })).toBe(false);
+  });
+  it('false: savedAt точно = kickoff (строго "преди", не "преди или равно")', () => {
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS, date: KICKOFF })).toBe(false);
+  });
+  it('false: savedAt е преди kickoff, НО statusAtSave противоречи (IN_PLAY) - статусът override-ва', () => {
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS - 60000, date: KICKOFF, statusAtSave: 'IN_PLAY' })).toBe(false);
+  });
+  it('false: липсващ savedAt или date - не може да се потвърди, не се приема за pre-match', () => {
+    expect(isPreMatchPrediction({ date: KICKOFF })).toBe(false);
+    expect(isPreMatchPrediction({ savedAt: KICKOFF_MS - 60000 })).toBe(false);
+    expect(isPreMatchPrediction(null)).toBe(false);
+  });
+});
+
+describe('mapCompPairKey', () => {
+  it('намира двойката от football-data.org числов id', () => {
+    expect(mapCompPairKey(2021, TEST_COMPS_AS_MAP)).toBe('2021|39');
+  });
+  it('намира двойката от api-sports "as_"-префиксиран id (обратна посока)', () => {
+    expect(mapCompPairKey('as_39', TEST_COMPS_AS_MAP)).toBe('2021|39');
+  });
+  it('null за лига, която не е в mapping-а (не е от 7-те застъпващи се)', () => {
+    expect(mapCompPairKey(9999, TEST_COMPS_AS_MAP)).toBeNull();
+    expect(mapCompPairKey('as_9999', TEST_COMPS_AS_MAP)).toBeNull();
+  });
+  it('null при липсващ compId или mapping', () => {
+    expect(mapCompPairKey(null, TEST_COMPS_AS_MAP)).toBeNull();
+    expect(mapCompPairKey(2021, null)).toBeNull();
+  });
+});
+
+describe('teamNamesMatch', () => {
+  it('точно съвпадение (case-insensitive)', () => {
+    expect(teamNamesMatch('Aston Villa', 'aston villa')).toBe(true);
+  });
+  it('фъзи съвпадение чрез includes в двете посоки', () => {
+    expect(teamNamesMatch('Aston Villa', 'Villa')).toBe(true);
+    expect(teamNamesMatch('Villa', 'Aston Villa FC')).toBe(true);
+  });
+  it('false при различни имена', () => {
+    expect(teamNamesMatch('Aston Villa', 'Brentford')).toBe(false);
+  });
+  it('false при липсващо име', () => {
+    expect(teamNamesMatch('', 'Brentford')).toBe(false);
+    expect(teamNamesMatch(null, 'Brentford')).toBe(false);
+  });
+});
+
+describe('isCrossProviderDuplicate', () => {
+  function fd(overrides) {
+    return { id: 'fd1', compId: 2021, date: KICKOFF, home: 'Aston Villa', away: 'Brentford', ...overrides };
+  }
+  function as(overrides) {
+    return { id: 'as_1', compId: 'as_39', date: KICKOFF, home: 'Aston Villa FC', away: 'Brentford FC', ...overrides };
+  }
+  it('true: един реален мач от два доставчика - сдвоена лига, близко kickoff, и двата отбора фъзи-съвпадат', () => {
+    expect(isCrossProviderDuplicate(fd(), as(), TEST_COMPS_AS_MAP)).toBe(true);
+  });
+  it('true: kickoff разлика в рамките на толеранса (под 5 мин)', () => {
+    expect(isCrossProviderDuplicate(fd(), as({ date: '2026-11-01T18:03:00Z' }), TEST_COMPS_AS_MAP)).toBe(true);
+  });
+  it('false: различни мачове с ПОДОБНИ имена, но kickoff разлика извън толеранса (напр. различен ден)', () => {
+    expect(isCrossProviderDuplicate(fd(), as({ date: '2026-11-03T18:00:00Z' }), TEST_COMPS_AS_MAP)).toBe(false);
+  });
+  it('false: нееднозначно съвпадение - само ЕДНОТО от двете имена съвпада (различен гост отбор)', () => {
+    expect(isCrossProviderDuplicate(fd(), as({ away: 'Fulham' }), TEST_COMPS_AS_MAP)).toBe(false);
+  });
+  it('false: СЪЩИЯТ доставчик (не cross-provider) - дори да съвпада всичко останало', () => {
+    expect(isCrossProviderDuplicate(fd(), fd({ id: 'fd2' }), TEST_COMPS_AS_MAP)).toBe(false);
+  });
+  it('false: липсващ compId от едната страна - несигурно, не се обединява', () => {
+    expect(isCrossProviderDuplicate(fd({ compId: null }), as(), TEST_COMPS_AS_MAP)).toBe(false);
+  });
+  it('false: лигата не е сдвоена в compsAsMap (несигурно - стар запис без metadata)', () => {
+    expect(isCrossProviderDuplicate(fd({ compId: 9999 }), as({ compId: 'as_9999' }), TEST_COMPS_AS_MAP)).toBe(false);
+  });
+});
+
+describe('pickCanonicalEntry', () => {
+  it('избира НАЙ-РАННАТА валидна pre-match прогноза (по savedAt), не осреднява', () => {
+    const group = [
+      { id: 'a', savedAt: KICKOFF_MS - 120000, date: KICKOFF, pred: { hWin: 70 } },
+      { id: 'b', savedAt: KICKOFF_MS - 60000, date: KICKOFF, pred: { hWin: 50 } },
+    ];
+    const res = pickCanonicalEntry(group);
+    expect(res.id).toBe('a');
+    expect(res.pred.hWin).toBe(70); // не средно (60), конкретният по-ранен запис
+  });
+  it('игнорира не-pre-match записи в групата, дори да са "по-ранни" по savedAt', () => {
+    const group = [
+      { id: 'live', savedAt: KICKOFF_MS + 10000, date: KICKOFF, statusAtSave: 'IN_PLAY' }, // не pre-match
+      { id: 'pre', savedAt: KICKOFF_MS - 30000, date: KICKOFF, statusAtSave: 'SCHEDULED' },
+    ];
+    expect(pickCanonicalEntry(group).id).toBe('pre');
+  });
+  it('null, ако НИТО един запис в групата не е pre-match', () => {
+    const group = [
+      { id: 'a', savedAt: KICKOFF_MS + 1000, date: KICKOFF },
+      { id: 'b', savedAt: KICKOFF_MS + 2000, date: KICKOFF },
+    ];
+    expect(pickCanonicalEntry(group)).toBeNull();
+  });
+});
+
+describe('filterReliableHistory', () => {
+  function entry(overrides) {
+    return {
+      id: 'x', date: KICKOFF, home: 'Aston Villa', away: 'Brentford', compId: 2021,
+      savedAt: KICKOFF_MS - 60000, statusAtSave: 'SCHEDULED',
+      pred: { hWin: 60, draw: 20, aWin: 20, over25: 55, btts: 50, g10: 20 },
+      result: { winner: '1', total: 2, gg: false },
+      ...overrides,
+    };
+  }
+  it('включва валиден pre-match запис, без дубликати', () => {
+    const res = filterReliableHistory([entry({ id: 'a' })], TEST_COMPS_AS_MAP);
+    expect(res.reliable.map(e => e.id)).toEqual(['a']);
+    expect(res.totalHistory).toBe(1);
+    expect(res.totalResolved).toBe(1);
+    expect(res.preMatchCount).toBe(1);
+    expect(res.excludedLate).toBe(0);
+    expect(res.excludedDuplicate).toBe(0);
+  });
+  it('изключва закъснели (savedAt след kickoff) записи, пази ги извън reliable-а, но ги брои в excludedLate', () => {
+    const late = entry({ id: 'late', savedAt: KICKOFF_MS + 60000, statusAtSave: 'IN_PLAY' });
+    const res = filterReliableHistory([entry({ id: 'a' }), late], TEST_COMPS_AS_MAP);
+    expect(res.reliable.map(e => e.id)).toEqual(['a']);
+    expect(res.excludedLate).toBe(1);
+  });
+  it('игнорира незавършени (result:null) и decidedAfterRegulation записи - не влизат никъде в бройките за late/dup', () => {
+    const notPlayed = entry({ id: 'np', result: null });
+    const extraTime = entry({ id: 'et', result: { decidedAfterRegulation: true, fullHg: 2, fullAg: 1 } });
+    const res = filterReliableHistory([entry({ id: 'a' }), notPlayed, extraTime], TEST_COMPS_AS_MAP);
+    expect(res.totalHistory).toBe(3);
+    expect(res.totalResolved).toBe(1); // само 'a'
+    expect(res.reliable.map(e => e.id)).toEqual(['a']);
+  });
+  it('обединява cross-provider дубликат - избира по-ранния pre-match, брои другия в excludedDuplicate', () => {
+    const fdEntry = entry({ id: 'fd1', compId: 2021, savedAt: KICKOFF_MS - 120000 });
+    const asEntry = entry({ id: 'as1', compId: 'as_39', home: 'Aston Villa FC', away: 'Brentford FC', savedAt: KICKOFF_MS - 30000 });
+    const res = filterReliableHistory([asEntry, fdEntry], TEST_COMPS_AS_MAP);
+    expect(res.reliable.length).toBe(1);
+    expect(res.reliable[0].id).toBe('fd1'); // по-ранният savedAt
+    expect(res.excludedDuplicate).toBe(1);
+    expect(res.preMatchCount).toBe(2); // и двата бяха pre-match individually, дубликатът се маха СЛЕД това
+  });
+  it('НЕ обединява два различни мача с подобни имена (различен kickoff)', () => {
+    const a = entry({ id: 'a', compId: 2021 });
+    const b = entry({ id: 'b', compId: 'as_39', home: 'Aston Villa FC', away: 'Brentford FC', date: '2026-11-08T18:00:00Z', savedAt: new Date('2026-11-08T18:00:00Z').getTime() - 60000 });
+    const res = filterReliableHistory([a, b], TEST_COMPS_AS_MAP);
+    expect(res.reliable.map(e => e.id).sort()).toEqual(['a', 'b']);
+    expect(res.excludedDuplicate).toBe(0);
+  });
+  it('оригиналният масив не се мутира (без изтриване/презаписване)', () => {
+    const hist = [entry({ id: 'a' }), entry({ id: 'late', savedAt: KICKOFF_MS + 60000 })];
+    const snapshot = JSON.parse(JSON.stringify(hist));
+    filterReliableHistory(hist, TEST_COMPS_AS_MAP);
+    expect(hist).toEqual(snapshot);
+  });
+});
+
+describe('buildCalibrationReport', () => {
+  it('комбинира filterReliableHistory + calcCalibration (непроменен) в един отчет с прозрачни бройки', () => {
+    const entries = [
+      { id: 'a', date: KICKOFF, home: 'Aston Villa', away: 'Brentford', compId: 2021, savedAt: KICKOFF_MS - 60000, statusAtSave: 'SCHEDULED', pred: { hWin: 75, draw: 15, aWin: 10, over25: 55, btts: 50, g10: 20 }, result: { winner: '1', total: 2, gg: false } },
+    ];
+    const res = buildCalibrationReport(entries, TEST_COMPS_AS_MAP);
+    expect(res.totalHistory).toBe(1);
+    expect(res.reliableCount).toBe(1);
+    expect(res.markets.find(m => m.market === '1x2').rows[0]).toMatchObject({ n: 1, avgPredictedPct: 75, actualPct: 100 });
+  });
+  it('историческа извадка без metadata (стар запис без compId/statusAtSave) - все още влиза през timestamp fallback, не чупи отчета', () => {
+    const legacy = { id: 'legacy', date: KICKOFF, home: 'Aston Villa', away: 'Brentford', savedAt: KICKOFF_MS - 60000, pred: { hWin: 60, draw: 20, aWin: 20, over25: 50, btts: 50, g10: 20 }, result: { winner: '1', total: 2, gg: false } };
+    const res = buildCalibrationReport([legacy], TEST_COMPS_AS_MAP);
+    expect(res.reliableCount).toBe(1);
+    expect(res.excludedDuplicate).toBe(0);
   });
 });

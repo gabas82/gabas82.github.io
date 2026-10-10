@@ -356,6 +356,140 @@ function calcCalibration(history){
   });
 }
 
+// ============================================================================
+// PRE-MATCH ONLY + CROSS-PROVIDER DEDUPLICATION (виж discussion-а "качество
+// на статистиката") - calcCalibration() по-горе остава НЕПРОМЕНЕН (приема
+// каквото му се подаде) - филтрирането на "надежден" подмасив става ТУК,
+// преди да стигне до него. Нищо от долното не трие/презаписва localStorage
+// историята - само чете и филтрира подадения масив.
+// ============================================================================
+
+// "Pre-match" = прогнозата е записана (savedAt) СТРИКТНО ПРЕДИ реалния kickoff
+// (date) - проверимо ретроактивно за ВСИЧКИ записи, стари и нови, защото
+// savedAt/date се пазят от самото начало на savePrediction(). statusAtSave
+// (нов, виж savePrediction() в football.html) е ДОПЪЛНИТЕЛНА, по-строга
+// проверка само за занапред записани записи - ако липсва (стар запис), падаме
+// единствено на timestamp сравнението (fallback, изрично поискан).
+function isPreMatchPrediction(entry){
+  if(!entry||entry.savedAt==null||!entry.date)return false;
+  const kickoff=new Date(entry.date).getTime();
+  if(!Number.isFinite(kickoff)||!Number.isFinite(entry.savedAt))return false;
+  if(entry.savedAt>=kickoff)return false;
+  if(entry.statusAtSave!=null&&!['SCHEDULED','TIMED'].includes(entry.statusAtSave))return false;
+  return true;
+}
+
+// Сдвоява competition id (football-data.org числов ИЛИ api-sports "as_"-
+// префиксиран) до общ "двойка" ключ през compsAsMap (football.html:
+// COMPS_AS_MAP, подава се като параметър - football-logic.js не го държи
+// собствено, за да няма дублирано поддържане на едни и същи числа). null,
+// ако compId липсва или лигата не е от 7-те застъпващи се (виж discussion-а) -
+// за тях cross-provider дублиране структурно не може да възникне.
+function mapCompPairKey(compId,compsAsMap){
+  if(compId==null||!compsAsMap)return null;
+  const s=String(compId);
+  if(s.startsWith('as_')){
+    const asNum=Number(s.slice(3));
+    if(!Number.isFinite(asNum))return null;
+    const fdId=Object.keys(compsAsMap).find(k=>compsAsMap[k]===asNum);
+    return fdId!=null?fdId+'|'+asNum:null;
+  }
+  const fdNum=Number(s);
+  if(!Number.isFinite(fdNum)||!(fdNum in compsAsMap))return null;
+  return fdNum+'|'+compsAsMap[fdNum];
+}
+// Фъзи сравнение на име на отбор - огледално на findMatchingRecord/
+// findTeamTopScorer по-горе (includes-based, не точно съвпадение), понеже
+// двата доставчика понякога викат отбора различно (съкратено/пълно име).
+function teamNamesMatch(a,b){
+  if(!a||!b)return false;
+  const na=String(a).toLowerCase().trim(),nb=String(b).toLowerCase().trim();
+  if(!na||!nb)return false;
+  return na===nb||na.includes(nb)||nb.includes(na);
+}
+const CROSS_PROVIDER_KICKOFF_TOLERANCE_MS=5*60000;
+// Два записа от РАЗЛИЧНИ доставчици за ЕДИН и същ реален мач - и четирите
+// условия ЗАЕДНО (различен доставчик, лигите сдвоени, kickoff в тесен
+// толеранс, И двата отбора фъзи-съвпадат). При НЕсигурност (липсващ compId,
+// несдвоена лига, разлика извън толеранса, само едно от двете имена съвпада)
+// -> false, НЕ се обединява автоматично (изрично изискване - "при несигурно
+// съвпадение не обединявай").
+function isCrossProviderDuplicate(a,b,compsAsMap){
+  if(!a||!b||a===b)return false;
+  if(a.compId==null||b.compId==null)return false;
+  const aIsAs=String(a.compId).startsWith('as_'),bIsAs=String(b.compId).startsWith('as_');
+  if(aIsAs===bIsAs)return false; // само различен доставчик се брои за "дубликат" тук
+  const pairA=mapCompPairKey(a.compId,compsAsMap),pairB=mapCompPairKey(b.compId,compsAsMap);
+  if(!pairA||!pairB||pairA!==pairB)return false;
+  const ta=new Date(a.date).getTime(),tb=new Date(b.date).getTime();
+  if(!Number.isFinite(ta)||!Number.isFinite(tb))return false;
+  if(Math.abs(ta-tb)>CROSS_PROVIDER_KICKOFF_TOLERANCE_MS)return false;
+  return teamNamesMatch(a.home,b.home)&&teamNamesMatch(a.away,b.away);
+}
+// Детерминистичен избор на ЕДИН запис измежду потвърдена cross-provider група
+// дубликати - НАЙ-РАННАТА валидна pre-match прогноза (по savedAt), НЕ
+// осредняване (изрично изискване). Ако НИТО един запис в групата не е
+// pre-match (напр. и двата доставчика са видени за пръв път докато мачът вече
+// тече) - цялата група отпада от калибрацията (по-безопасно от да изберем
+// произволен LIVE-записан представител).
+function pickCanonicalEntry(group){
+  const preMatch=(group||[]).filter(isPreMatchPrediction);
+  if(!preMatch.length)return null;
+  return preMatch.reduce((best,e)=>e.savedAt<best.savedAt?e:best);
+}
+// Оркестрира целия "надежден подмасив" pipeline - НЕ трие/презаписва
+// оригиналната история (само чете подадения масив, връща нов филтриран).
+// Връща и прозрачните бройки за УИ секцията КАЛИБРАЦИЯ (виж discussion-а
+// "TRANSPARENCY" - общо/резолвнати/pre-match/изключени закъснели/изключени
+// дублирани).
+function filterReliableHistory(history,compsAsMap){
+  const all=history||[];
+  const resolved=all.filter(h=>h.result&&!h.result.decidedAfterRegulation&&h.pred);
+  const preMatchOnly=resolved.filter(isPreMatchPrediction);
+  const excludedLate=resolved.length-preMatchOnly.length;
+  const used=new Set();
+  const kept=[];
+  let excludedDuplicate=0;
+  for(let i=0;i<preMatchOnly.length;i++){
+    const e=preMatchOnly[i];
+    if(used.has(e.id))continue;
+    const group=[e];
+    for(let j=i+1;j<preMatchOnly.length;j++){
+      const o=preMatchOnly[j];
+      if(used.has(o.id))continue;
+      if(isCrossProviderDuplicate(e,o,compsAsMap)){group.push(o);used.add(o.id);}
+    }
+    used.add(e.id);
+    if(group.length===1){kept.push(e);continue;}
+    const canon=pickCanonicalEntry(group);
+    excludedDuplicate+=group.length-(canon?1:0);
+    if(canon)kept.push(canon);
+  }
+  return{
+    reliable:kept,
+    totalHistory:all.length,
+    totalResolved:resolved.length,
+    preMatchCount:preMatchOnly.length,
+    excludedLate,
+    excludedDuplicate,
+  };
+}
+// Високо ниво на абстракция за УИ (football.html calibrationHtml()) -
+// филтрира, после подава надеждния подмасив на НЕПРОМЕНЕНИЯ calcCalibration()
+// по-горе (zero breaking change за съществуващите му извиквания/тестове).
+function buildCalibrationReport(history,compsAsMap){
+  const f=filterReliableHistory(history,compsAsMap);
+  return{
+    markets:calcCalibration(f.reliable),
+    totalHistory:f.totalHistory,
+    totalResolved:f.totalResolved,
+    preMatchCount:f.preMatchCount,
+    excludedLate:f.excludedLate,
+    excludedDuplicate:f.excludedDuplicate,
+    reliableCount:f.reliable.length,
+  };
+}
+
 // В браузъра (класически <script>) горните декларации стават глобални и се ползват
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
@@ -365,6 +499,8 @@ if (typeof module !== 'undefined' && module.exports) {
     saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
-    calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS
+    calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
+    isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
+    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport
   };
 }
