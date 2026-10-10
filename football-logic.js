@@ -311,6 +311,51 @@ function calcConfidence(pred, odds){
   return{score,factors};
 }
 
+// КАЛИБРАЦИЯ (Етап A, виж discussion-а "не искам произволни проценти, които
+// изглеждат убедително, но не са доказани") - групира вече записаната история
+// (savePrediction() пази суровите проценти в h.pred, updateHistoryResults()
+// пази реалния изход в h.result) по 10-пунктови вероятностни кофи ЗА ВСЕКИ
+// пазар поотделно - за разлика от съществуващата ИСТОРИЯ статистика
+// (loadHistory()), която пулира всички нива на увереност в един общ "посочен
+// изход" % и така не отговаря на въпроса "при 70% прогнози, събитието
+// настъпва ли ~70 пъти от 100". Чисто пресмятане върху вече съхранени данни -
+// БЕЗ нови API заявки. g10 (гол до 10-а минута) е изключен - updateHistoryResults()
+// не пази реален изход за тоя пазар (не може да се верифицира), затова не е в
+// списъка markets по-долу - НЕ защото g10 не се пази (пази се в h.pred.g10),
+// а защото резултатът му никога не се потвърждава срещу реалност.
+function calibrationBucket(pct){
+  const b=Math.min(90,Math.floor(pct/10)*10);
+  return b+'-'+(b+9)+'%';
+}
+const CALIBRATION_MARKETS=[
+  {key:'1x2',label:'1X2',pick:(p)=>p.hWin>=p.aWin&&p.hWin>=p.draw?{pct:p.hWin,hit:(r)=>r.winner==='1'}:p.aWin>=p.hWin&&p.aWin>=p.draw?{pct:p.aWin,hit:(r)=>r.winner==='2'}:{pct:p.draw,hit:(r)=>r.winner==='X'}},
+  {key:'over25',label:'НАД/ПОД 2.5',pick:(p)=>p.over25>50?{pct:p.over25,hit:(r)=>r.total>2.5}:{pct:100-p.over25,hit:(r)=>r.total<=2.5}},
+  {key:'btts',label:'Г/Г',pick:(p)=>p.btts>50?{pct:p.btts,hit:(r)=>r.gg}:{pct:100-p.btts,hit:(r)=>!r.gg}},
+  {key:'dc',label:'ДВОЕН ШАНС',pick:(p)=>{const dc=calcDoubleChance(p.hWin,p.draw,p.aWin);return{pct:dc.pct,hit:(r)=>doubleChanceHit(dc.pick,r.winner)};}},
+];
+// resolved-only (виж loadHistory() - decidedAfterRegulation записите нямат
+// winner/total/gg, не могат да се верифицират срещу 90-мин пазарите по-горе,
+// огледално на съществуващия wr=hist.filter(...) филтър в loadHistory()).
+function calcCalibration(history){
+  const resolved=(history||[]).filter(h=>h.result&&!h.result.decidedAfterRegulation&&h.pred);
+  return CALIBRATION_MARKETS.map(mkt=>{
+    const buckets={};
+    resolved.forEach(h=>{
+      const{pct,hit}=mkt.pick(h.pred);
+      if(pct==null||!Number.isFinite(pct))return;
+      const bk=calibrationBucket(pct);
+      if(!buckets[bk])buckets[bk]={bucket:bk,sortKey:Math.min(90,Math.floor(pct/10)*10),n:0,hits:0,pctSum:0};
+      buckets[bk].n++;
+      buckets[bk].pctSum+=pct;
+      if(hit(h.result))buckets[bk].hits++;
+    });
+    const rows=Object.values(buckets)
+      .sort((a,b)=>a.sortKey-b.sortKey)
+      .map(b=>({bucket:b.bucket,n:b.n,avgPredictedPct:Math.round(b.pctSum/b.n),actualPct:Math.round(b.hits/b.n*100)}));
+    return{market:mkt.key,label:mkt.label,rows,totalN:resolved.length};
+  });
+}
+
 // В браузъра (класически <script>) горните декларации стават глобални и се ползват
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
@@ -320,6 +365,6 @@ if (typeof module !== 'undefined' && module.exports) {
     saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
-    calcTopScorers
+    calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS
   };
 }

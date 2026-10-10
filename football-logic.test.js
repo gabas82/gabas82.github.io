@@ -5,7 +5,8 @@ import {
   calcForm, formDotsHtml, buildPrediction, calcConfidence, formatMatchDateTime,
   normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
   calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer,
-  currentSeasonYear, findMatchingRecord, calcTopScorers
+  currentSeasonYear, findMatchingRecord, calcTopScorers,
+  calibrationBucket, calcCalibration
 } from './football-logic.js';
 
 describe('calcTopScorers', () => {
@@ -466,5 +467,84 @@ describe('doubleChanceLabel', () => {
     expect(doubleChanceLabel('1X')).toContain('1X');
     expect(doubleChanceLabel('X2')).toContain('X2');
     expect(doubleChanceLabel('12')).toContain('12');
+  });
+});
+
+describe('calibrationBucket', () => {
+  it('групира по 10-пунктови кофи', () => {
+    expect(calibrationBucket(55)).toBe('50-59%');
+    expect(calibrationBucket(50)).toBe('50-59%');
+    expect(calibrationBucket(59)).toBe('50-59%');
+    expect(calibrationBucket(60)).toBe('60-69%');
+  });
+  it('капва на 90-99%, дори при 100%', () => {
+    expect(calibrationBucket(100)).toBe('90-99%');
+    expect(calibrationBucket(95)).toBe('90-99%');
+  });
+});
+
+describe('calcCalibration', () => {
+  function entry(pred, result) {
+    return { pred, result };
+  }
+  it('празна история -> всеки пазар с празен rows масив, без throw', () => {
+    const res = calcCalibration([]);
+    expect(res.length).toBe(4);
+    res.forEach(m => expect(m.rows).toEqual([]));
+  });
+  it('игнорира записи без result (все още неизиграни) и decidedAfterRegulation (продължения/дузпи)', () => {
+    const hist = [
+      entry({ hWin: 70, draw: 15, aWin: 15, over25: 60, btts: 55, g10: 20 }, null),
+      entry({ hWin: 70, draw: 15, aWin: 15, over25: 60, btts: 55, g10: 20 }, { decidedAfterRegulation: true, fullHg: 2, fullAg: 1 }),
+    ];
+    const res = calcCalibration(hist);
+    res.forEach(m => expect(m.rows).toEqual([]));
+  });
+  it('1X2: групира по вероятността на ПОСОЧЕНИЯ изход (не винаги hWin) и смята реално hit rate', () => {
+    const hist = [
+      // две прогнози с hWin=75% (кофа 70-79%), едната позна (winner=1), другата не (winner=2)
+      entry({ hWin: 75, draw: 15, aWin: 10, over25: 50, btts: 50, g10: 20 }, { winner: '1', total: 2, gg: false }),
+      entry({ hWin: 75, draw: 15, aWin: 10, over25: 50, btts: 50, g10: 20 }, { winner: '2', total: 2, gg: false }),
+      // прогноза, в която ГОСТЪТ е посочения фаворит (aWin е max) - трябва да ползва aWin%, не hWin%
+      entry({ hWin: 10, draw: 15, aWin: 75, over25: 50, btts: 50, g10: 20 }, { winner: '2', total: 2, gg: false }),
+    ];
+    const res = calcCalibration(hist);
+    const m1x2 = res.find(m => m.market === '1x2');
+    expect(m1x2.rows).toEqual([{ bucket: '70-79%', n: 3, avgPredictedPct: 75, actualPct: 67 }]);
+  });
+  it('НАД/ПОД 2.5: ползва 100-over25 когато ПОД е посоченият изход', () => {
+    const hist = [
+      // over25=30% -> моделът реално сочи ПОД 2.5 с 70% - кофа 70-79%, познава (total<=2.5)
+      entry({ hWin: 40, draw: 30, aWin: 30, over25: 30, btts: 50, g10: 20 }, { winner: 'X', total: 2, gg: true }),
+    ];
+    const res = calcCalibration(hist);
+    const mOver = res.find(m => m.market === 'over25');
+    expect(mOver.rows).toEqual([{ bucket: '70-79%', n: 1, avgPredictedPct: 70, actualPct: 100 }]);
+  });
+  it('Г/Г: ползва 100-btts когато "Г/Г НЕ" е посоченият изход', () => {
+    const hist = [
+      // btts=20% -> моделът сочи "Г/Г НЕ" с 80% - реалност gg=false -> hit
+      entry({ hWin: 40, draw: 30, aWin: 30, over25: 50, btts: 20, g10: 20 }, { winner: 'X', total: 1, gg: false }),
+    ];
+    const res = calcCalibration(hist);
+    const mBtts = res.find(m => m.market === 'btts');
+    expect(mBtts.rows).toEqual([{ bucket: '80-89%', n: 1, avgPredictedPct: 80, actualPct: 100 }]);
+  });
+  it('ДВОЕН ШАНС: верифицира чрез doubleChanceHit срещу реалния winner', () => {
+    const hist = [
+      // hWin=10,draw=20,aWin=70 -> най-малко вероятно е hWin -> pick X2, pct=90
+      entry({ hWin: 10, draw: 20, aWin: 70, over25: 50, btts: 50, g10: 20 }, { winner: '2', total: 2, gg: false }),
+    ];
+    const res = calcCalibration(hist);
+    const mDc = res.find(m => m.market === 'dc');
+    expect(mDc.rows).toEqual([{ bucket: '90-99%', n: 1, avgPredictedPct: 90, actualPct: 100 }]);
+  });
+  it('totalN отразява броя resolved (верифицируеми) записи, не общия брой в history', () => {
+    const hist = [
+      entry({ hWin: 75, draw: 15, aWin: 10, over25: 50, btts: 50, g10: 20 }, { winner: '1', total: 2, gg: false }),
+      entry({ hWin: 75, draw: 15, aWin: 10, over25: 50, btts: 50, g10: 20 }, null),
+    ];
+    const res = calcCalibration(hist);
+    expect(res[0].totalN).toBe(1);
   });
 });
