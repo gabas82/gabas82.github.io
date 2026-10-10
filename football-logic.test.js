@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
 import {
   calcPct, poissonProb, calcGoalMarkets, goalBefore10, computeRegularScore,
-  durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory,
+  durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory, getUnresolvedAsLeagueIds,
   calcForm, formDotsHtml, buildPrediction, calcConfidence, formatMatchDateTime,
   normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
   calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer,
@@ -171,6 +171,65 @@ describe('buildAsSeasonHistoryQuery', () => {
       .toBe('league=79&season=2025&from=2025-07-01&to=2026-06-30');
     expect(buildAsSeasonHistoryQuery(79, new Date('2026-07-01T00:00:00Z')))
       .toBe('league=79&season=2026&from=2026-07-01&to=2026-07-01');
+  });
+});
+
+// API ОПТИМИЗАЦИЯ (виж discussion-а "backgroundHistorySync да заявява
+// история само за лигите с реално нерешени прогнози") - чиста функция,
+// подготвяща точния списък league ID-та за updateHistoryResultsAS().
+describe('getUnresolvedAsLeagueIds', () => {
+  it('0 активни лиги - празна история', () => {
+    expect(getUnresolvedAsLeagueIds([])).toEqual({ leagueIds: [], legacyFallback: false });
+  });
+  it('0 активни лиги - всички записи вече решени', () => {
+    const hist = [{ id: 'as_1', compId: 'as_172', result: { hg: 1, ag: 0 } }];
+    expect(getUnresolvedAsLeagueIds(hist)).toEqual({ leagueIds: [], legacyFallback: false });
+  });
+  it('1 активна лига', () => {
+    const hist = [{ id: 'as_1', compId: 'as_172', result: null }];
+    expect(getUnresolvedAsLeagueIds(hist)).toEqual({ leagueIds: [172], legacyFallback: false });
+  });
+  it('2 активни лиги (дедуп на повторени записи от СЪЩАТА лига)', () => {
+    const hist = [
+      { id: 'as_1', compId: 'as_172', result: null },
+      { id: 'as_2', compId: 'as_172', result: null },
+      { id: 'as_3', compId: 'as_203', result: null },
+    ];
+    const r = getUnresolvedAsLeagueIds(hist);
+    expect(r.leagueIds.sort()).toEqual([172, 203]);
+    expect(r.legacyFallback).toBe(false);
+  });
+  it('11 активни лиги', () => {
+    const ids = [2, 3, 848, 172, 39, 78, 135, 140, 61, 203, 79];
+    const hist = ids.map((id, i) => ({ id: 'as_' + i, compId: 'as_' + id, result: null }));
+    const r = getUnresolvedAsLeagueIds(hist);
+    expect(r.leagueIds.sort((a, b) => a - b)).toEqual(ids.slice().sort((a, b) => a - b));
+    expect(r.legacyFallback).toBe(false);
+  });
+  it('запис без compId (легаси) -> legacyFallback:true', () => {
+    const hist = [{ id: 'as_1', result: null }];
+    expect(getUnresolvedAsLeagueIds(hist)).toEqual({ leagueIds: [], legacyFallback: true });
+  });
+  it('легаси запис СЪРЕД други валидни - legacyFallback остава true, но валидните leagueIds пак се връщат', () => {
+    const hist = [
+      { id: 'as_1', compId: 'as_172', result: null },
+      { id: 'as_2', result: null },
+    ];
+    const r = getUnresolvedAsLeagueIds(hist);
+    expect(r.legacyFallback).toBe(true);
+    expect(r.leagueIds).toEqual([172]);
+  });
+  it('решени записи (с result) се игнорират, дори да нямат compId', () => {
+    const hist = [{ id: 'as_1', result: { hg: 0, ag: 0 } }];
+    expect(getUnresolvedAsLeagueIds(hist)).toEqual({ leagueIds: [], legacyFallback: false });
+  });
+  it('не-AS (football-data.org) записи се игнорират', () => {
+    const hist = [{ id: '12345', compId: 2021, result: null }];
+    expect(getUnresolvedAsLeagueIds(hist)).toEqual({ leagueIds: [], legacyFallback: false });
+  });
+  it('null/undefined-безопасно', () => {
+    expect(getUnresolvedAsLeagueIds(null)).toEqual({ leagueIds: [], legacyFallback: false });
+    expect(getUnresolvedAsLeagueIds(undefined)).toEqual({ leagueIds: [], legacyFallback: false });
   });
 });
 

@@ -22,17 +22,18 @@ function extractFunction(src, name) {
 const html = fs.readFileSync('./football.html', 'utf8');
 const code = extractFunction(html, 'loadASLeagueTab');
 
-function buildLoadASLeagueTab({ apiFetchAS, apiSportsScorersBlockHtml, asFixtureToMatch, extractASLiveStats, renderMatch }) {
+function buildLoadASLeagueTab({ apiFetchAS, apiSportsScorersBlockHtml, asFixtureToMatch, extractASLiveStats, renderMatch, beginAsForeground, endAsForeground }) {
   const fn = new Function(
     'currentSeasonYear', 'apiFetchAS', 'apiSportsScorersBlockHtml', 'classifyAsLeagueTabEmptyState',
-    'asFixtureToMatch', 'extractASLiveStats', 'renderMatch',
+    'asFixtureToMatch', 'extractASLiveStats', 'renderMatch', 'beginAsForeground', 'endAsForeground',
     code + `\nreturn loadASLeagueTab;`
   );
   return fn(
     () => 2026, apiFetchAS, apiSportsScorersBlockHtml, classifyAsLeagueTabEmptyState,
     asFixtureToMatch || (f => ({ id: 'as_' + f.fixture.id, status: 'SCHEDULED' })),
     extractASLiveStats || (() => ({})),
-    renderMatch || (() => '<div>MATCH</div>')
+    renderMatch || (() => '<div>MATCH</div>'),
+    beginAsForeground || (() => {}), endAsForeground || (() => {})
   );
 }
 

@@ -470,7 +470,51 @@ async function loadWCScorers(){
   }catch(e){}
 }
 async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
-async function apiFetchAS(p){const r=await fetch(WORKER_AS+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
+// API ОПТИМИЗАЦИЯ (виж discussion-а "стабилизиране на API натоварването и
+// правилно обработване на rate limit"):
+// (Б) Request-level dedup, ключуван по ТОЧНИЯ path `p` (вкл. всички query
+// параметри) - две паралелни заявки с ИДЕНТИЧЕН `p` споделят един реален
+// fetch; заявки с РАЗЛИЧНИ параметри (напр. last=20 срещу next=20) никога не
+// се сливат, защото имат различен ключ. Без TTL/времева свежест тук - това е
+// обхватът на отделен бъдещ PR (пълна сезонна история), не на тази задача.
+// (Г) api-sports.io връща HTTP 200 дори при достигнат rate limit, с тяло
+// {"errors":{"rateLimit":"..."},...} - по-рано `apiFetchAS` проверяваше само
+// `r.ok`, затова такъв отговор тихо минаваше като "валиден, но празен"
+// резултат. Вече `data.errors` (обект ИЛИ масив - api-sports ползва и двете
+// форми за "няма грешки": {} или []) с поне един ключ хвърля грешка вместо да
+// се връща като успешен отговор - извикващите вече минават през
+// Promise.allSettled/try-catch навсякъде, затова отхвърлен промис просто
+// означава "не се обнови тая обиколка", НЕ презаписва предишни валидни данни.
+const asInflightRequests={};
+async function apiFetchAS(p){
+  if(asInflightRequests[p])return asInflightRequests[p];
+  const promise=(async()=>{
+    const r=await fetch(WORKER_AS+p);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    if(data&&data.errors&&Object.keys(data.errors).length){
+      const err=new Error(data.errors.rateLimit||JSON.stringify(data.errors));
+      err.isRateLimit=!!data.errors.rateLimit;
+      throw err;
+    }
+    return data;
+  })();
+  asInflightRequests[p]=promise;
+  try{return await promise;}finally{delete asInflightRequests[p];}
+}
+// (Д) Фоновият sync отстъпва на тежките AS зареждания, задействани от
+// потребителя (таб Ефбет/ШЛ/..., КАРТОНИ, ГОЛМАЙСТОРИ, ПРОГНОЗИ) - брояч, не
+// boolean, за да не се освободи предварително при паралелни зареждания (напр.
+// бързо превключване между два AS таба). Всяко увеличение/намаление е в
+// try/finally на повикващата функция, за да е гарантирано дори при грешка.
+// LIVE НЕ участва тук нарочно - собственият му AS отпечатък е само 1 заявка
+// (/fixtures?live=all), а LIVE е подразбиращият се таб; ако участваше, фоновият
+// sync практически никога нямаше да получи превес, докато потребителят гледа
+// LIVE (най-честият случай) - виж регресионния тест за едновременно LIVE +
+// backgroundHistorySync по-долу, потвърждаващ, че двете не си пречат.
+let asForegroundActiveCount=0;
+function beginAsForeground(){asForegroundActiveCount++;}
+function endAsForeground(){asForegroundActiveCount=Math.max(0,asForegroundActiveCount-1);}
 function switchTab(name){
   currentTab=name;
   const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig','bl2'];
@@ -583,10 +627,18 @@ function extractASLiveStats(f){
 async function updateHistoryResultsAS(hist){
   const toUpdate=hist.filter(h=>!h.result&&String(h.id).startsWith('as_'));
   if(!toUpdate.length)return false;
+  // (Д) Фонът отстъпва на тежко AS зареждане, задействано от потребителя -
+  // нищо не се губи, следващият 5-мин тик опитва пак (виж asForegroundActiveCount).
+  if(asForegroundActiveCount>0)return false;
   let changed=false;
   try{
     const season=currentSeasonYear();
-    const results=await Promise.allSettled(AS_LEAGUES.map(l=>apiFetchAS('/fixtures?league='+l.id+'&season='+season+'&last=30')));
+    // (А) заявява история само за лигите с реално нерешени прогнози (hist вече
+    // носи compId от savePrediction) - виж getUnresolvedAsLeagueIds()
+    // (football-logic.js) за точната логика, вкл. безопасния legacy fallback.
+    const{leagueIds,legacyFallback}=getUnresolvedAsLeagueIds(hist);
+    const targetLeagueIds=legacyFallback?AS_LEAGUES.map(l=>l.id):leagueIds;
+    const results=await Promise.allSettled(targetLeagueIds.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=30')));
     const allFixtures=[];
     results.forEach(r=>{if(r.status==='fulfilled')allFixtures.push(...(r.value.response||[]));});
     toUpdate.forEach(h=>{
@@ -1630,6 +1682,10 @@ async function loadFinished(){
 }
 
 async function loadUpcoming(){
+  // (Д) брояч нагоре за целия живот на функцията - покрива и extra-AS блока,
+  // и AS-source H2H заявките по-долу, не само единична под-секция.
+  beginAsForeground();
+  try{
   const c=document.getElementById('upcoming-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
@@ -1752,6 +1808,7 @@ async function loadUpcoming(){
     });
     c.innerHTML=html;
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
+  }finally{endAsForeground();}
 }
 
 async function loadStandings(){
@@ -2005,6 +2062,8 @@ async function apiSportsScorersBlockHtml(leagueId, flag, name){
   }catch(e){return '';}
 }
 async function loadScorers(){
+  beginAsForeground();
+  try{
   const c=document.getElementById('scorers-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   let html='';
@@ -2113,9 +2172,12 @@ async function loadScorers(){
   html+=await apiSportsScorersBlockHtml(848,'🔵','Лига на конференциите');
 
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
+  }finally{endAsForeground();}
 }
 
 async function loadCards(){
+  beginAsForeground();
+  try{
   const yc=document.getElementById('yellow-content'),rc=document.getElementById('red-content');
   yc.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   let yHtml='',rHtml='';
@@ -2168,6 +2230,7 @@ async function loadCards(){
   }
   yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';
   rc.innerHTML=rHtml||'<div class="no-data">Няма данни за червени картони</div>';
+  }finally{endAsForeground();}
 }
 
 function calcComebackStatsForTeam(teamId, allMatches){
@@ -2338,6 +2401,8 @@ function renderComebackStats(statsByComp){
 }
 
 async function loadASLeagueTab(tabId, leagueId, icon, title){
+  beginAsForeground();
+  try{
   const c=document.getElementById(tabId+'-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   const season=currentSeasonYear();
@@ -2413,6 +2478,7 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
     // "сезонът не е започнал".
     c.innerHTML=`<div class="error-box">⚠️ Грешка при обработка на мачовете за тази лига. Опитай отново.</div>`;
   }
+  }finally{endAsForeground();}
 }
 async function loadChampionsLeagueAS(){await loadASLeagueTab('cl',2,'⭐','Шампионска лига');}
 async function loadEuropaLeagueAS(){await loadASLeagueTab('el',3,'🟠','Лига Европа');}
@@ -2432,9 +2498,18 @@ switchTab('live');
 // за да може статистиката за точност на модела да е винаги актуална. Ако
 // потребителят в момента гледа таб ИСТОРИЯ, изгледът се опреснява автоматично.
 migrateHistory();
+// (В) Single-flight lock - предотвратява 2 едновременни цикъла (напр. бавна
+// мрежа + следващия setInterval тик, преди първия да е приключил).
+let historySyncInFlight=false;
 async function backgroundHistorySync(){
-  await updateHistoryResults();
-  if(currentTab==='history')loadHistory();
+  if(historySyncInFlight)return;
+  historySyncInFlight=true;
+  try{
+    await updateHistoryResults();
+    if(currentTab==='history')loadHistory();
+  }finally{
+    historySyncInFlight=false;
+  }
 }
 backgroundHistorySync();
 setInterval(backgroundHistorySync,5*60*1000);
