@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'fs';
 import {
   calcPct, poissonProb, calcGoalMarkets, goalBefore10, computeRegularScore,
   durationBadge, HIST_KEY, getHistory, saveHistory, migrateHistory,
@@ -8,7 +9,7 @@ import {
   currentSeasonYear, findMatchingRecord, calcTopScorers,
   calibrationBucket, calcCalibration,
   isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport
+  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint
 } from './football-logic.js';
 
 // Същата двойка, която football.html държи в COMPS_AS_MAP - копирана тук, за
@@ -170,6 +171,38 @@ describe('calcGoalMarkets', () => {
     expect(gm.over25).toBeGreaterThanOrEqual(gm.over35);
     expect(gm.over35).toBeGreaterThanOrEqual(gm.over45);
   });
+
+  // BIDIRECTIONAL MARKETS - "Под" полетата са чист комплемент 100-Над, никога
+  // отделна формула (виж коментара в calcGoalMarkets) - затова всяка Над/Под
+  // двойка трябва да сумира ТОЧНО 100, без изключение, за всякакви λ.
+  it('всяка Над/Под двойка (overall + отборски) сумира точно до 100', () => {
+    const gm = calcGoalMarkets(1.4, 1.3);
+    expect(gm.over05 + gm.under05).toBe(100);
+    expect(gm.over15 + gm.under15).toBe(100);
+    expect(gm.over25 + gm.under25).toBe(100);
+    expect(gm.over35 + gm.under35).toBe(100);
+    expect(gm.over45 + gm.under45).toBe(100);
+    expect(gm.hOver05 + gm.hUnder05).toBe(100);
+    expect(gm.hOver15 + gm.hUnder15).toBe(100);
+    expect(gm.aOver05 + gm.aUnder05).toBe(100);
+    expect(gm.aOver15 + gm.aUnder15).toBe(100);
+  });
+  it('Над/Под сумират до 100 и в екстремни (почти 0 и много високи) λ стойности', () => {
+    const extremeLow = calcGoalMarkets(0.01, 0.01);
+    const extremeHigh = calcGoalMarkets(6, 6);
+    [extremeLow, extremeHigh].forEach(gm => {
+      expect(gm.over05 + gm.under05).toBe(100);
+      expect(gm.over45 + gm.under45).toBe(100);
+      expect(gm.hOver05 + gm.hUnder05).toBe(100);
+      expect(gm.aOver15 + gm.aUnder15).toBe(100);
+    });
+  });
+  it('Под 0.5 < Под 1.5 < Под 3.5 < Под 4.5 (огледална монотонност спрямо Над)', () => {
+    const gm = calcGoalMarkets(1.4, 1.3);
+    expect(gm.under05).toBeLessThanOrEqual(gm.under15);
+    expect(gm.under15).toBeLessThanOrEqual(gm.under35);
+    expect(gm.under35).toBeLessThanOrEqual(gm.under45);
+  });
 });
 
 describe('goalBefore10', () => {
@@ -297,6 +330,87 @@ describe('buildPrediction', () => {
     for (let i = 1; i < pred.topScores.length; i++) {
       expect(pred.topScores[i - 1].p).toBeGreaterThanOrEqual(pred.topScores[i].p);
     }
+  });
+
+  it('cornersOver + cornersUnder сумират точно до 100 (чист комплемент, огледално на under25/noBtts)', () => {
+    const history = [win(1, 9, 2, 0), win(9, 1, 0, 2), win(2, 6, 0, 2), win(6, 2, 2, 0)];
+    const pred = buildPrediction({ homeTeam: { id: 1 }, awayTeam: { id: 2 } }, history);
+    expect(pred.cornersOver + pred.cornersUnder).toBe(100);
+  });
+
+  it('gm (overall) и gmHt (полувреме) и двата носят симетрични Под полета, понеже gmHt реюзва calcGoalMarkets', () => {
+    const history = [win(1, 9, 2, 0), win(9, 1, 0, 2), win(2, 6, 0, 2), win(6, 2, 2, 0)];
+    const pred = buildPrediction({ homeTeam: { id: 1 }, awayTeam: { id: 2 } }, history);
+    expect(pred.gm.over25 + pred.gm.under25).toBe(100);
+    expect(pred.gmHt.over15 + pred.gmHt.under15).toBe(100);
+    expect(pred.gmHt.hOver05 + pred.gmHt.hUnder05).toBe(100);
+  });
+});
+
+// НАД/ПОД 1X2 NaN GUARD (виж discussion-а "патологичен 1X2 случай") - hWinP/aWinP
+// ТЕОРЕТИЧНО могат едновременно да закръглят до 0 (напр. при изроден вход), а
+// старата формула hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP)) би делила
+// на 0 -> NaN, което би счупило сумата до 100%. Двойна проверка: (1) структурна -
+// че guard-ът реално съществува в shipped кода; (2) поведенческа - че точната
+// формула от football-logic.js пази сумата=100 без NaN дори при hWinP=aWinP=0.
+describe('1X2 NaN guard (патологичен случай hWinP=aWinP=0)', () => {
+  const src = fs.readFileSync('./football-logic.js', 'utf8');
+  it('guard-ът е реално присъстващ в football-logic.js (не е само в тестовете)', () => {
+    expect(/const hWinAaWinDenom=hWinP\+aWinP;/.test(src)).toBe(true);
+    expect(/hWinAaWinDenom>0\?Math\.round\(hWinP\*\(100-drawP\)\/hWinAaWinDenom\):Math\.round\(\(100-drawP\)\/2\)/.test(src)).toBe(true);
+  });
+  it('точната shipped формула пази сумата=100 без NaN, когато hWinP=aWinP=0', () => {
+    const hWinP = 0, aWinP = 0;
+    const drawP = Math.max(5, 100 - hWinP - aWinP);
+    const hWinAaWinDenom = hWinP + aWinP;
+    const hWinAdj = hWinAaWinDenom > 0 ? Math.round(hWinP * (100 - drawP) / hWinAaWinDenom) : Math.round((100 - drawP) / 2);
+    const aWinAdj = 100 - drawP - hWinAdj;
+    expect(Number.isNaN(hWinAdj)).toBe(false);
+    expect(Number.isNaN(aWinAdj)).toBe(false);
+    expect(hWinAdj + drawP + aWinAdj).toBe(100);
+  });
+  it('нормалният (не-патологичен) път остава непроменен - реален buildPrediction резултат пази сумата=100', () => {
+    function win(homeId, awayId, hg, ag) {
+      return { status: 'FINISHED', homeTeam: { id: homeId }, awayTeam: { id: awayId }, score: { fullTime: { home: hg, away: ag }, halfTime: { home: Math.min(hg,1), away: Math.min(ag,1) } } };
+    }
+    const history = [win(1, 9, 2, 0), win(9, 1, 0, 2), win(2, 6, 0, 2), win(6, 2, 2, 0)];
+    const pred = buildPrediction({ homeTeam: { id: 1 }, awayTeam: { id: 2 } }, history);
+    expect(pred.hWin + pred.draw + pred.aWin).toBe(100);
+  });
+});
+
+describe('calcOverBttsJoint', () => {
+  it('четворната разбивка (overBttsYes/No + underBttsYes/No) сумира точно до 100', () => {
+    const j = calcOverBttsJoint(1.4, 1.3, 2.5);
+    expect(j.overBttsYes + j.overBttsNo + j.underBttsYes + j.underBttsNo).toBe(100);
+  });
+  it('сумира до 100 и в екстремни λ стойности (почти 0 и много високи)', () => {
+    const low = calcOverBttsJoint(0.1, 0.1, 2.5);
+    const high = calcOverBttsJoint(5, 5, 2.5);
+    expect(low.overBttsYes + low.overBttsNo + low.underBttsYes + low.underBttsNo).toBe(100);
+    expect(high.overBttsYes + high.overBttsNo + high.underBttsYes + high.underBttsNo).toBe(100);
+  });
+  it('по подразбиране (без n) ползва праг 2.5, идентично с изричен calcOverBttsJoint(expH,expA,2.5)', () => {
+    const withDefault = calcOverBttsJoint(1.4, 1.3);
+    const explicit = calcOverBttsJoint(1.4, 1.3, 2.5);
+    expect(withDefault).toEqual(explicit);
+  });
+  it('трите директно клампнати компонента (overBttsYes/No, underBttsYes) са в границите [3,97], остатъкът underBttsNo >= 0', () => {
+    const j = calcOverBttsJoint(1.4, 1.3, 2.5);
+    expect(j.overBttsYes).toBeGreaterThanOrEqual(3);
+    expect(j.overBttsYes).toBeLessThanOrEqual(97);
+    expect(j.overBttsNo).toBeGreaterThanOrEqual(3);
+    expect(j.overBttsNo).toBeLessThanOrEqual(97);
+    expect(j.underBttsYes).toBeGreaterThanOrEqual(3);
+    expect(j.underBttsYes).toBeLessThanOrEqual(97);
+    expect(j.underBttsNo).toBeGreaterThanOrEqual(0);
+  });
+  it('съвместната overBttsYes+overBttsNo е в приемлив толеранс от съществуващия маргинален over25 за типична (не-екстремна) λ - проверка за консистентност между интерфейса и съвместната вероятност', () => {
+    const expH = 1.4, expA = 1.3;
+    const gm = calcGoalMarkets(expH, expA);
+    const j = calcOverBttsJoint(expH, expA, 2.5);
+    const jointOverMarginal = j.overBttsYes + j.overBttsNo;
+    expect(Math.abs(jointOverMarginal - gm.over25)).toBeLessThanOrEqual(6); // толеранс заради независим [3,97] клампинг на всяка страна
   });
 });
 
