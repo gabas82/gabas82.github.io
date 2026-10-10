@@ -287,6 +287,34 @@ function migrateHistory(){
   }catch(e){}
 }
 
+// API ОПТИМИЗАЦИЯ (виж discussion-а "backgroundHistorySync да заявява история
+// само за лигите с реално нерешени прогнози") - заменя безусловния
+// AS_LEAGUES.map(...) (всичките 11 api-sports лиги на всеки 5 мин) с точния
+// списък лиги, за които ИМА какво да се реши.
+//
+// Легаси записи (преди compId полето да съществува) - ПРОВЕРЕНО изрично
+// (не пропуснато): единствените други полета са `comp` (суровото, НЕпреведено
+// име на лигата от api-sports, напр. "First League" - НЕ българския етикет
+// "Ефбет Лига" от AS_LEAGUES[].title) и `id` ("as_"+ID на МАЧА, не на лигата).
+// Нито едното не дава надежден, статично проверим обратен път към league ID -
+// опит за съпоставяне по име би разчитал на непотвърдена/крехка статична
+// таблица. Затова legacyFallback остава единственото безопасно поведение за
+// такива записи: пълен fallback към всичките 11, никога тихо пропускане.
+function getUnresolvedAsLeagueIds(hist){
+  const leagueIds=new Set();
+  let legacyFallback=false;
+  (hist||[]).forEach(h=>{
+    if(!h||h.result||!String(h.id).startsWith('as_'))return;
+    const compId=h.compId;
+    if(typeof compId==='string'&&compId.startsWith('as_')){
+      const leagueId=Number(compId.slice(3));
+      if(Number.isFinite(leagueId)){leagueIds.add(leagueId);return;}
+    }
+    legacyFallback=true;
+  });
+  return{leagueIds:[...leagueIds],legacyFallback};
+}
+
 function calcForm(matches,teamId){
   const fin=matches.filter(m=>m.status==='FINISHED'&&(m.homeTeam?.id===teamId||m.awayTeam?.id===teamId)).slice(-5);
   return fin.map(m=>{const isH=m.homeTeam?.id===teamId;const hg=m.score?.fullTime?.home??0,ag=m.score?.fullTime?.away??0;if(isH)return hg>ag?'W':hg===ag?'D':'L';return ag>hg?'W':ag===hg?'D':'L';});
@@ -658,7 +686,7 @@ if (typeof module !== 'undefined' && module.exports) {
     getToday, getDateMinus, getDatePlus, currentSeasonYear, getAsSeasonStartDate,
     buildAsSeasonHistoryParams, buildAsSeasonHistoryQuery, calcPct, poissonProb, calcGoalMarkets,
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
-    saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
+    saveHistory, migrateHistory, getUnresolvedAsLeagueIds, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,

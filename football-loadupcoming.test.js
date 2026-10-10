@@ -34,18 +34,20 @@ const TEST_COMPS = [
 const TEST_EXTRA_AS_LEAGUE_IDS = [999];
 const TEST_AS_LEAGUES = [{ id: 999, icon: '🧪', title: 'Тест Екстра Лига' }];
 
-function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21, maxPerComp = 10 }) {
+function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21, maxPerComp = 10, beginAsForeground, endAsForeground }) {
   const fn = new Function(
     'getToday', 'getDatePlus', 'apiFetch', 'getDateMinus', 'apiFetchAS', 'currentSeasonYear',
     'EXTRA_AS_LEAGUE_IDS', 'asFixtureToMatch', 'sortMatchesByDate', 'COMPS', 'AS_LEAGUES', 'renderMatch',
     'UPCOMING_WINDOW_DAYS', 'UPCOMING_MAX_PER_COMP', 'limitSortedUpcoming', 'hasRecentFinishedActivity', 'buildEmptyWindowMessage',
+    'beginAsForeground', 'endAsForeground',
     code + `\nreturn loadUpcoming;`
   );
   return fn(
     () => '2026-01-01', (d) => `2026-01-${String(1 + d).padStart(2, '0')}`, apiFetch, () => '2025-07-05', apiFetchAS, () => 2026,
     TEST_EXTRA_AS_LEAGUE_IDS, (f) => ({ id: 'as_' + f.fixture.id, status: 'SCHEDULED', utcDate: f.fixture.date, competition: { id: 'as_' + f.league.id, name: f.league.name }, homeTeam: f.teams?.home, awayTeam: f.teams?.away }),
     sortMatchesByDate, TEST_COMPS, TEST_AS_LEAGUES, renderMatch || (() => '<div>MATCH</div>'),
-    windowDays, maxPerComp, limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
+    windowDays, maxPerComp, limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage,
+    beginAsForeground || (() => {}), endAsForeground || (() => {})
   );
 }
 
