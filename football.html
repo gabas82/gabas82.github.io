@@ -1794,6 +1794,42 @@ async function loadFinished(){
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
+// D3 (виж discussion-а "API натоварване - H2H кеш в ПРОГНОЗИ") - H2H историята
+// между два отбора се тегли само за ВИДИМИТЕ мачове (вече ограничени до
+// UPCOMING_MAX_PER_COMP), но при одита на API натоварването излезе като
+// единичният най-голям консуматор на заявки в ПРОГНОЗИ - презарежда се изцяло
+// при всяко зареждане, дори мачовете да са същите. TTL кеш, огледален на
+// fetchAsSeasonFixtures() (PR B) - 5 мин, ключуван по ТОЧНИЯ ред на отборите
+// (home_away на конкретния предстоящ мач) - НЕ приемаме симетрия на
+// api-sports.io отговора без проверка, затова не сортираме id-тата; реверс
+// фикстура в същия 21-дневен прозорец е достатъчно рядка, за да не си
+// заслужава риска. Отделни ключови пространства за двата доставчика -
+// as_h2h_{homeId}_{awayId} (без competition - api-sports h2h не е
+// competition-scoped) и fd_h2h_{competitionId}_{homeId}_{awayId}
+// (football-data.org заявката Е competitions=-ограничена, затова compId
+// участва в ключа - същата двойка отбори в различен турнир е различна
+// история). Кешира се САМО успешен отговор (вкл. легитимно празен масив -
+// двата отбора реално нямат предишни срещи) - грешка (мрежова/невалиден
+// отговор) НЕ се кешира (виж catch(e) в fetchH2H по-долу - хвърлянето се
+// случва ПРЕДИ записа в кеша, затова неуспешен опит просто не оставя следа).
+// H2H е чисто дисплейно поле (h2hHtml() вътре в renderMatch()) - НЕ влиза в
+// buildPrediction/calcForm/allMatches, затова кеширането тук не променя
+// точността на никоя прогноза.
+const H2H_FRESH_MS=5*60*1000;
+const h2hCache={};    // key -> {data,ts}
+const h2hInflight={}; // същия key space - dedup на едновременни еднакви заявки
+async function fetchH2HCached(key,fetcher){
+  const cached=h2hCache[key];
+  if(cached&&cached.ts>Date.now()-H2H_FRESH_MS)return cached.data;
+  if(h2hInflight[key])return h2hInflight[key];
+  const promise=(async()=>{
+    const data=await fetcher();
+    h2hCache[key]={data,ts:Date.now()};
+    return data;
+  })();
+  h2hInflight[key]=promise;
+  try{return await promise;}finally{delete h2hInflight[key];}
+}
 async function loadUpcoming(){
   // (Д) брояч нагоре за целия живот на функцията - покрива и extra-AS блока,
   // и AS-source H2H заявките по-долу, не само единична под-секция.
@@ -1925,14 +1961,19 @@ async function loadUpcoming(){
       if(!hId||!aId)return [];
       try{
         if(String(m.id).startsWith('as_')){
-          const d=await apiFetchAS('/fixtures/headtohead?h2h='+hId+'-'+aId);
-          return (d.response||[]).map(asFixtureToMatch);
+          return await fetchH2HCached('as_h2h_'+hId+'_'+aId, async()=>{
+            const d=await apiFetchAS('/fixtures/headtohead?h2h='+hId+'-'+aId);
+            return (d.response||[]).map(asFixtureToMatch);
+          });
         }
-        const d=await apiFetch('/matches?competitions='+m.competition?.id+'&teams='+hId+'&teams='+aId+'&status=FINISHED');
-        const raw=d.matches||[];
-        return raw.filter(mm=>{
-          const ids=[mm.homeTeam?.id,mm.awayTeam?.id];
-          return ids.includes(hId)&&ids.includes(aId);
+        const compId=m.competition?.id;
+        return await fetchH2HCached('fd_h2h_'+compId+'_'+hId+'_'+aId, async()=>{
+          const d=await apiFetch('/matches?competitions='+compId+'&teams='+hId+'&teams='+aId+'&status=FINISHED');
+          const raw=d.matches||[];
+          return raw.filter(mm=>{
+            const ids=[mm.homeTeam?.id,mm.awayTeam?.id];
+            return ids.includes(hId)&&ids.includes(aId);
+          });
         });
       }catch(e){return [];}
     }

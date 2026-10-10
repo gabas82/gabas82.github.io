@@ -34,12 +34,12 @@ const TEST_COMPS = [
 const TEST_EXTRA_AS_LEAGUE_IDS = [999];
 const TEST_AS_LEAGUES = [{ id: 999, icon: '🧪', title: 'Тест Екстра Лига' }];
 
-function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21, maxPerComp = 10, beginAsForeground, endAsForeground, fetchAsLeagueSeasonHistory }) {
+function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21, maxPerComp = 10, beginAsForeground, endAsForeground, fetchAsLeagueSeasonHistory, fetchH2HCached }) {
   const fn = new Function(
     'getToday', 'getDatePlus', 'apiFetch', 'getDateMinus', 'apiFetchAS', 'currentSeasonYear',
     'EXTRA_AS_LEAGUE_IDS', 'asFixtureToMatch', 'sortMatchesByDate', 'COMPS', 'AS_LEAGUES', 'renderMatch',
     'UPCOMING_WINDOW_DAYS', 'UPCOMING_MAX_PER_COMP', 'limitSortedUpcoming', 'hasRecentFinishedActivity', 'buildEmptyWindowMessage',
-    'beginAsForeground', 'endAsForeground', 'fetchAsLeagueSeasonHistory',
+    'beginAsForeground', 'endAsForeground', 'fetchAsLeagueSeasonHistory', 'fetchH2HCached',
     code + `\nreturn loadUpcoming;`
   );
   return fn(
@@ -48,7 +48,8 @@ function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, windowDays = 21,
     sortMatchesByDate, TEST_COMPS, TEST_AS_LEAGUES, renderMatch || (() => '<div>MATCH</div>'),
     windowDays, maxPerComp, limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage,
     beginAsForeground || (() => {}), endAsForeground || (() => {}),
-    fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false }))
+    fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false })),
+    fetchH2HCached || ((key, fetcher) => fetcher())
   );
 }
 
