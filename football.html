@@ -469,7 +469,59 @@ async function loadWCScorers(){
     }
   }catch(e){}
 }
-async function apiFetch(p){const r=await fetch(WORKER+p);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
+// PR C1 (виж discussion-а "коректно разпознаване на football-data.org грешки") -
+// Worker-ът (worker.js) винаги връща HTTP 200 към клиента, независимо от
+// реалния upstream статус (new Response(...) без изричен status параметър) -
+// затова `if(!r.ok)` по-долу практически никога не засича истинска API
+// грешка. football-data.org оформя ВСИЧките си грешки (rate limit/auth/
+// сървърна грешка/невалиден параметър) с едно и също, документирано тяло
+// {"message":"..."} - успешен отговор НИКОГА не носи това поле (data.matches/
+// data.scorers/data.standings и т.н. вместо него). Преди тая проверка,
+// `data.matches||[]` навсякъде тихо третираше такъв отговор като "0 мача" -
+// неразличимо от реално празен, валиден отговор (виж discussion-а "ПРОГНОЗИ
+// показва 0 предстоящи мачове за няколко първенства едновременно"). Огледално
+// на apiFetchAS() по-долу (PR #29) - четири ясно разграничени състояния:
+// мрежова грешка (fetch() хвърля), HTTP грешка от самия Worker (рядко, но
+// технически възможно), невалиден/неочакван JSON, и API грешка (message
+// полето). ВСЕКИ извикващ вече минава през try/catch или Promise.allSettled -
+// хвърлена грешка никога не презаписва/изтрива съществуващи данни, само не
+// се третира тихо като "празно".
+async function apiFetch(p){
+  let r;
+  try{
+    r=await fetch(WORKER+p);
+  }catch(e){
+    const err=new Error('Няма връзка с football-data.org. Провери интернет връзката и опитай отново.');
+    err.isNetworkError=true;
+    throw err;
+  }
+  if(!r.ok){
+    const err=new Error('HTTP '+r.status);
+    err.isHttpError=true;
+    throw err;
+  }
+  let data;
+  try{
+    data=await r.json();
+  }catch(e){
+    const err=new Error('Неочакван отговор от football-data.org.');
+    err.isInvalidResponse=true;
+    throw err;
+  }
+  if(data&&typeof data.message==='string'&&data.message){
+    const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
+    err.isApiError=true;
+    err.providerMessage=data.message;
+    // football-data.org понякога добавя и errorCode (напр. 400/403/429) към
+    // документираното {"message":...} тяло - не е задължително поле и не
+    // участва в самото засичане на грешката (message сам по себе си е
+    // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
+    // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
+    if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
+    throw err;
+  }
+  return data;
+}
 // API ОПТИМИЗАЦИЯ (виж discussion-а "стабилизиране на API натоварването и
 // правилно обработване на rate limit"):
 // (Б) Request-level dedup, ключуван по ТОЧНИЯ path `p` (вкл. всички query
