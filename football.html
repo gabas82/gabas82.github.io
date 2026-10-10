@@ -326,9 +326,14 @@ const AS_LEAGUES=[
   {id:203,tab:'superlig',icon:'🇹🇷',title:'Сюпер Лиг'},
   {id:79,tab:'bl2',icon:'🇩🇪',title:'2. Бундеслига'}
 ];
-// Ефбет Лига, Сюпер Лиг и 2. Бундеслига не се покриват от football-data.org -
-// табовете ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ ги допълват отделно през api-sports.io.
-const EXTRA_AS_LEAGUE_IDS=[172,203,79];
+// Ефбет Лига, Сюпер Лиг, 2. Бундеслига и Лига на конференциите не се
+// покриват от football-data.org - табовете ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ/COMEBACK
+// ги допълват отделно през api-sports.io (PR C2 добавя 848 - ЛК вече имаше
+// собствен дедикиран таб, AS_LEAGUES запис, но липсваше от тези общи
+// изгледи; използва СЪЩИЯ, вече съществуващ EXTRA_AS_LEAGUE_IDS механизъм,
+// не нов паралелен - AS_LEAGUES[].icon/title вече дават коректно 🔵 Лига на
+// конференциите за comp-header-а, без нужда от друга промяна).
+const EXTRA_AS_LEAGUE_IDS=[172,203,79,848];
 // F3a (виж discussion-а "лигите не трябва да изчезват без обяснение при
 // международна пауза") - loadUpcoming() разширява прозореца на основната
 // заявка от 3 на UPCOMING_WINDOW_DAYS дни (0 нови заявки - само по-голям
@@ -1818,9 +1823,11 @@ async function loadUpcoming(){
       const existingIds=new Set(upcoming.map(m=>String(m.id)));
       wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
     }catch(e){}
-    // Ефбет Лига, Сюпер Лиг и 2. Бундеслига не се покриват от football-data.org,
-    // затова таб ПРОГНОЗИ пропускаше и трите изцяло - тук ги добавяме отделно
-    // през api-sports.io, аналогично на моделите за отделните им табове.
+    // Ефбет Лига, Сюпер Лиг, 2. Бундеслига и Лига на конференциите не се
+    // покриват от football-data.org, затова таб ПРОГНОЗИ ги пропускаше - тук
+    // ги добавяме отделно през api-sports.io, аналогично на моделите за
+    // отделните им табове.
+    const extraFetchFailedKeys=new Set();
     try{
       const season=currentSeasonYear();
       // PR B - историята (за allMatches) вече идва от fetchAsLeagueSeasonHistory()
@@ -1834,17 +1841,24 @@ async function loadUpcoming(){
           apiFetchAS('/fixtures?league='+id+'&season='+season+'&next=15'),
           fetchAsLeagueSeasonHistory(id)
         ]);
-        return{nextD,histD};
+        return{id,nextD,histD};
       }));
       const existingIds2=new Set(upcoming.map(m=>String(m.id)));
       extraResults.forEach(r=>{
         if(r.status!=='fulfilled')return;
-        const{nextD,histD}=r.value;
+        const{id,nextD,histD}=r.value;
         if(nextD.status==='fulfilled'){
           (nextD.value.response||[]).forEach(f=>{
             const m=asFixtureToMatch(f);
             if(!existingIds2.has(String(m.id))){upcoming.push(m);existingIds2.add(String(m.id));}
           });
+        }else{
+          // PR C2 - провалена next= заявка (напр. api-sports.io rate limit) не
+          // трябва да изглежда като "Няма мачове" по-долу (виж discussion-а
+          // "при API грешка показвай грешка, а не подвеждащо съобщение") -
+          // засяга еднакво всички EXTRA_AS_LEAGUE_IDS лиги, не само новата ЛК,
+          // защото минават през СЪЩИЯ механизъм.
+          extraFetchFailedKeys.add('as_'+id);
         }
         if(histD.status==='fulfilled'){
           histD.value.matches.forEach(f=>allMatches.push(asFixtureToMatch(f)));
@@ -1877,6 +1891,12 @@ async function loadUpcoming(){
       const g=groups[comp.key];
       const capped=limitSortedUpcoming(g?g.matches:[],UPCOMING_MAX_PER_COMP);
       if(capped.length)return{comp,matches:capped};
+      // PR C2 - провалена next= заявка за тази лига (extraFetchFailedKeys) НЕ
+      // трябва да изглежда като честно "Няма мачове" - различна, явна грешка
+      // съобщение, огледално на дедикираните AS табове.
+      if(extraFetchFailedKeys.has(comp.key)){
+        return{comp,errorMessage:'⚠️ Няма връзка с API-то за това състезание в момента. Опитай отново.'};
+      }
       // "Възможна пауза" суфикс само ако ВЕЧЕ извлечените данни (allMatches)
       // показват скорошна завършена активност за това състезание - при
       // провалена историческа заявка allMatches просто е по-кратък и суфиксът
@@ -1923,6 +1943,8 @@ async function loadUpcoming(){
       html+=`<div class="comp-header">${s.comp.flag} ${s.comp.name}</div>`;
       if(s.matches){
         s.matches.forEach(m=>{html+=renderMatch(m,true,allMatches,h2hByMatchId.get(m.id)||[],null);});
+      }else if(s.errorMessage){
+        html+=`<div class="error-box">${s.errorMessage}</div>`;
       }else{
         html+=`<div class="no-data">${s.emptyMessage}</div>`;
       }
