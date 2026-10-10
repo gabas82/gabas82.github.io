@@ -629,6 +629,34 @@ async function updateHistoryResults(){
   }catch(e){}
   if(changed)saveHistory(hist);
 }
+// КАЛИБРАЦИЯ (Етап A, виж discussion-а) - показва за всеки пазар дали
+// "прогнозирано ~X%" реално съвпада с "настъпва X% от времето" в тая кофа -
+// различно от съществуващата СТАТИСТИКА по-горе (тя пулира всички нива на
+// увереност заедно). Чисто пресмятане върху calcCalibration() (football-logic.js) -
+// нулеви нови API заявки. Малък n в дадена кофа е ОЧАКВАНО рано - показваме го
+// изрично, вместо да скрием несигурността зад убедително изглеждащ %.
+function calibrationHtml(hist){
+  const cal=calcCalibration(hist);
+  if(!cal.some(m=>m.rows.length))return '';
+  const sections=cal.filter(m=>m.rows.length).map(m=>{
+    const rows=m.rows.map(r=>{
+      const diff=r.actualPct-r.avgPredictedPct;
+      const diffCol=Math.abs(diff)<=10?'var(--green)':Math.abs(diff)<=20?'var(--yellow)':'var(--red)';
+      return `<div style="display:grid;grid-template-columns:1fr 1fr 1.2fr auto;gap:6px;align-items:center;padding:4px 0;font-size:10px;border-top:1px solid var(--border)">
+        <div style="color:var(--muted)">${r.bucket}</div>
+        <div>прогн. ~${r.avgPredictedPct}%</div>
+        <div>реално ${r.actualPct}% <span style="color:var(--muted)">(n=${r.n})</span></div>
+        <div style="color:${diffCol};text-align:right">${diff>0?'+':''}${diff}пп</div>
+      </div>`;
+    }).join('');
+    return `<div style="margin-top:10px"><div style="font-family:'Rajdhani',sans-serif;font-size:11px;color:var(--cyan);letter-spacing:1px">${m.label}</div>${rows}</div>`;
+  }).join('');
+  return `<div class="hist-stats" style="margin-top:8px">
+    <div class="hist-stats-title">🎯 КАЛИБРАЦИЯ ПО ВЕРОЯТНОСТ</div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:4px">При добра калибрация "прогн." и "реално" във всяка кофа би трябвало да са близки. Малко n в кофа = все още ненадеждна преценка, не грешка в модела.</div>
+    ${sections}
+  </div>`;
+}
 function loadHistory(){
   migrateHistory();
   updateHistoryResults();
@@ -677,6 +705,7 @@ function loadHistory(){
       <div class="hist-stat"><div class="hist-stat-val good">${pct(dcCorrect,dcTotal)}%</div><div class="hist-stat-label">ДВОЕН ШАНС (${dcTotal})</div></div>
     </div>
   </div>`:'';
+  sc.innerHTML+=calibrationHtml(hist);
   c.innerHTML=hist.map(h=>{
     const p=h.pred;
     const date=new Date(h.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
