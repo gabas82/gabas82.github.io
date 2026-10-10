@@ -892,8 +892,6 @@ function buildBetBuilder(pred, hn, an, hf, af, topScorers, hId, aId){
   const favorH=pred.hWin>=60;
   const favorA=pred.aWin>=60;
   const favorDraw=!favorH&&!favorA&&pred.draw>=30;
-  const expectGoals=pred.over25>=55;
-  const expectFewGoals=pred.under25>=60;
   const bttsYes=pred.btts>=60;
   const bttsNo=pred.noBtts>=60;
 
@@ -920,10 +918,11 @@ function buildBetBuilder(pred, hn, an, hf, af, topScorers, hId, aId){
   const hasBttsYes=selected.some(s=>s.outcome==='BTTS_YES');
 
   if(!hasBttsNo){
-    if(pred.over25>=65){selected.push({label:'Над 2.5 гола',pct:pred.over25,type:'GOALS'});}
+    if(pred.over25>=65){selected.push({label:'Над 2.5 гола',pct:pred.over25,type:'GOALS',outcome:'OVER25'});}
     else if(pred.gm&&pred.gm.over15>=75){selected.push({label:'Над 1.5 гола',pct:pred.gm.over15,type:'GOALS'});}
   } else {
-    if(pred.under25>=65){selected.push({label:'Под 2.5 гола',pct:pred.under25,type:'GOALS'});}
+    if(pred.under25>=65){selected.push({label:'Под 2.5 гола',pct:pred.under25,type:'GOALS',outcome:'UNDER25'});}
+    else if(pred.gm&&pred.gm.under15>=75){selected.push({label:'Под 1.5 гола',pct:pred.gm.under15,type:'GOALS'});}
   }
 
   if(!hasBttsNo&&pred.gm){
@@ -944,9 +943,35 @@ function buildBetBuilder(pred, hn, an, hf, af, topScorers, hId, aId){
   }
 
   const top=selected.sort((a,b)=>b.pct-a.pct).slice(0,3);
-  if(!top.length)return '';
+  if(!top.length){
+    return `<div style="margin:8px 0;background:rgba(0,230,118,0.05);border:1px solid rgba(30,45,61,0.5);border-radius:10px;padding:10px 12px;">
+      <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:2px;margin-bottom:4px">🏗️ BET BUILDER — ПРЕПОРЪКА</div>
+      <div style="font-size:11px;color:var(--muted)">⚠️ БЕЗ СИГНАЛ — няма достатъчно силна комбинация за този мач</div>
+    </div>`;
+  }
 
-  const combPct=Math.round(top.reduce((p,b)=>p*(b.pct/100),1)*100);
+  // ИСТИНСКА СЪВМЕСТНА ВЕРОЯТНОСТ за Над/Под2.5+Г/Г (виж discussion-а "когато
+  // два избрани крака произлизат от една и съща Poisson решетка, ползвай
+  // calcOverBttsJoint() вместо наивно умножение") - останалите избрани крака
+  // (1X2/TEAM/SCORER) се умножават наивно отгоре, затова резултатът е
+  // ПРИБЛИЗИТЕЛЕН освен когато ЦЕЛИЯТ избор се състои точно от тези два крака.
+  const goalsLeg=top.find(b=>b.outcome==='OVER25'||b.outcome==='UNDER25');
+  const bttsLeg=top.find(b=>b.outcome==='BTTS_YES'||b.outcome==='BTTS_NO');
+  let jointPct=null;
+  if(goalsLeg&&bttsLeg&&typeof calcOverBttsJoint==='function'){
+    const joint=calcOverBttsJoint(parseFloat(pred.expH),parseFloat(pred.expA),2.5);
+    if(goalsLeg.outcome==='OVER25')jointPct=bttsLeg.outcome==='BTTS_YES'?joint.overBttsYes:joint.overBttsNo;
+    else jointPct=bttsLeg.outcome==='BTTS_YES'?joint.underBttsYes:joint.underBttsNo;
+  }
+  const otherLegs=top.filter(b=>b!==goalsLeg&&b!==bttsLeg);
+  const isApproximate=!jointPct||otherLegs.length>0;
+  let combPct;
+  if(jointPct!=null){
+    const naiveRest=otherLegs.reduce((p,b)=>p*(b.pct/100),1);
+    combPct=Math.round(jointPct*naiveRest);
+  } else {
+    combPct=Math.round(top.reduce((p,b)=>p*(b.pct/100),1)*100);
+  }
   return `<div style="margin:8px 0;background:rgba(0,230,118,0.05);border:1px solid rgba(0,230,118,0.25);border-radius:10px;padding:10px 12px;">
     <div style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--green);letter-spacing:2px;margin-bottom:8px">🏗️ BET BUILDER — ПРЕПОРЪКА</div>
     ${top.map(b=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
@@ -954,7 +979,7 @@ function buildBetBuilder(pred, hn, an, hf, af, topScorers, hId, aId){
       <span style="font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;color:var(--green)">${b.pct}%</span>
     </div>`).join('')}
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:6px">
-      <span style="font-size:10px;color:var(--muted)">Комбинирана вероятност</span>
+      <span style="font-size:10px;color:var(--muted)">Комбинирана вероятност${isApproximate?' ≈ приблизително':''}</span>
       <span style="font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;color:var(--yellow)">${combPct}%</span>
     </div>
   </div>`;
@@ -970,15 +995,25 @@ function goalMarketsHtml(gm,hn,an,hf,af){
     <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${pCol(gm.over35)}">${gm.over35}%</div></div>
     <div class="pred-pill"><div class="pred-label">НАД 4.5</div><div class="pred-value ${pCol(gm.over45)}">${gm.over45}%</div></div>
   </div>
+  <div class="pred-grid-4">
+    <div class="pred-pill"><div class="pred-label">ПОД 0.5</div><div class="pred-value ${pCol(gm.under05)}">${gm.under05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 1.5</div><div class="pred-value ${pCol(gm.under15)}">${gm.under15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 3.5</div><div class="pred-value ${pCol(gm.under35)}">${gm.under35}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 4.5</div><div class="pred-value ${pCol(gm.under45)}">${gm.under45}%</div></div>
+  </div>
   <div class="pred-title" style="margin-top:4px">${hf} ${hn}</div>
   <div class="pred-grid">
     <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${pCol(gm.hOver05)}">${gm.hOver05}%</div></div>
     <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${pCol(gm.hOver15)}">${gm.hOver15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 0.5 ГОЛА</div><div class="pred-value ${pCol(gm.hUnder05)}">${gm.hUnder05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 1.5 ГОЛА</div><div class="pred-value ${pCol(gm.hUnder15)}">${gm.hUnder15}%</div></div>
   </div>
   <div class="pred-title" style="margin-top:4px">${af} ${an}</div>
   <div class="pred-grid">
     <div class="pred-pill"><div class="pred-label">НАД 0.5 ГОЛА</div><div class="pred-value ${pCol(gm.aOver05)}">${gm.aOver05}%</div></div>
     <div class="pred-pill"><div class="pred-label">НАД 1.5 ГОЛА</div><div class="pred-value ${pCol(gm.aOver15)}">${gm.aOver15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 0.5 ГОЛА</div><div class="pred-value ${pCol(gm.aUnder05)}">${gm.aUnder05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 1.5 ГОЛА</div><div class="pred-value ${pCol(gm.aUnder15)}">${gm.aUnder15}%</div></div>
   </div>`;
 }
 
@@ -990,9 +1025,17 @@ function goalMarketsHtHtml(gmHt,hn,an,hf,af){
     <div class="pred-pill"><div class="pred-label">НАД 2.5</div><div class="pred-value ${pCol(gmHt.over25)}">${gmHt.over25}%</div></div>
     <div class="pred-pill"><div class="pred-label">НАД 3.5</div><div class="pred-value ${pCol(gmHt.over35)}">${gmHt.over35}%</div></div>
   </div>
+  <div class="pred-grid-4">
+    <div class="pred-pill"><div class="pred-label">ПОД 0.5</div><div class="pred-value ${pCol(gmHt.under05)}">${gmHt.under05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 1.5</div><div class="pred-value ${pCol(gmHt.under15)}">${gmHt.under15}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 2.5</div><div class="pred-value ${pCol(gmHt.under25)}">${gmHt.under25}%</div></div>
+    <div class="pred-pill"><div class="pred-label">ПОД 3.5</div><div class="pred-value ${pCol(gmHt.under35)}">${gmHt.under35}%</div></div>
+  </div>
   <div class="pred-grid">
     <div class="pred-pill"><div class="pred-label">${hf} ${hn} НАД 0.5 (1П)</div><div class="pred-value ${pCol(gmHt.hOver05)}">${gmHt.hOver05}%</div></div>
     <div class="pred-pill"><div class="pred-label">${af} ${an} НАД 0.5 (1П)</div><div class="pred-value ${pCol(gmHt.aOver05)}">${gmHt.aOver05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">${hf} ${hn} ПОД 0.5 (1П)</div><div class="pred-value ${pCol(gmHt.hUnder05)}">${gmHt.hUnder05}%</div></div>
+    <div class="pred-pill"><div class="pred-label">${af} ${an} ПОД 0.5 (1П)</div><div class="pred-value ${pCol(gmHt.aUnder05)}">${gmHt.aUnder05}%</div></div>
   </div>`;
 }
 
@@ -1414,6 +1457,9 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
         </div>
         <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">КОРНЕРИ НАД 9.5</div><div class="pred-value ${pCol(pred.cornersOver)}">${pred.cornersOver}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div>
+          <div class="pred-pill"><div class="pred-label">КОРНЕРИ ПОД 9.5</div><div class="pred-value ${pCol(pred.cornersUnder)}">${pred.cornersUnder}%</div><div class="pred-pct">Оч. корнери: ~${pred.expCorners}</div></div>
+        </div>
+        <div class="pred-grid">
           <div class="pred-pill"><div class="pred-label">ОЧ. ЖЪЛТИ</div><div class="pred-value neutral">~${pred.expYellow}</div><div class="pred-pct">картона в мача</div></div>
         </div>
         <div class="pred-grid">

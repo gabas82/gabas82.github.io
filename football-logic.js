@@ -17,10 +17,79 @@ function getDateMinus(d){const dt=new Date();dt.setDate(dt.getDate()-d);return d
 function getDatePlus(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
 function calcPct(h,a){const hn=parseInt(h)||0,an=parseInt(a)||0,t=hn+an||1;return Math.round(hn/t*100);}
 function poissonProb(lambda,k){let r=Math.exp(-lambda);for(let i=1;i<=k;i++)r*=lambda/i;return r;}
+// BIDIRECTIONAL MARKETS (виж discussion-а "всеки сценарий да има равноправна
+// математическа оценка") - "Под" НИКОГА не се смята с отделна pUnder()/pTeamUnder()
+// формула (риск да не сумира до 100% заради собствен независим клампинг) - винаги чист
+// комплемент 100-вече_клампнатото_Над, огледално на вече съществуващия образец
+// за under25/noBtts в buildPrediction() по-долу. Огледално важи и за полувремевите
+// пазари, понеже gmHt=calcGoalMarkets(expH*htRatio,expA*htRatio) реюзва СЪЩАТА
+// функция - новите Под полета идват безплатно и за тях.
 function calcGoalMarkets(expH,expA){
   function pOver(n){let p=0;for(let h=0;h<=10;h++)for(let a=0;a<=10;a++)if(h+a>n)p+=poissonProb(expH,h)*poissonProb(expA,a);return Math.min(97,Math.max(3,Math.round(p*100)));}
   function pTeam(exp,n){let p=0;for(let g=0;g<=10;g++)if(g>n)p+=poissonProb(exp,g);return Math.min(97,Math.max(3,Math.round(p*100)));}
-  return{over05:pOver(0.5),over15:pOver(1.5),over25:pOver(2.5),over35:pOver(3.5),over45:pOver(4.5),hOver05:pTeam(expH,0.5),hOver15:pTeam(expH,1.5),aOver05:pTeam(expA,0.5),aOver15:pTeam(expA,1.5)};
+  const over05=pOver(0.5),over15=pOver(1.5),over25=pOver(2.5),over35=pOver(3.5),over45=pOver(4.5);
+  const hOver05=pTeam(expH,0.5),hOver15=pTeam(expH,1.5),aOver05=pTeam(expA,0.5),aOver15=pTeam(expA,1.5);
+  return{
+    over05,over15,over25,over35,over45,hOver05,hOver15,aOver05,aOver15,
+    under05:100-over05,under15:100-over15,under25:100-over25,under35:100-over35,under45:100-over45,
+    hUnder05:100-hOver05,hUnder15:100-hOver15,aUnder05:100-aOver05,aUnder15:100-aOver15,
+  };
+}
+// ИСТИНСКА СЪВМЕСТНА ВЕРОЯТНОСТ за Над/Под n + Г/Г (виж discussion-а "когато
+// събитията произлизат от една Poisson решетка, използвай съвместната им
+// вероятност") - ЕДИН премин по СЪЩАТА (h,a) решетка, която вече захранва
+// pOver()/pBtts() поотделно, вместо наивно умножение на двата отделни %
+// (buildBetBuilder() по-долу правеше точно това досега - подвежда при
+// корелирани пазари, виж discussion-а). НОРМАЛИЗАЦИЯ: четирите изхода
+// (Над+ГГ-ДА/Над+ГГ-НЕ/Под+ГГ-ДА/Под+ГГ-НЕ) ПО ДЕФИНИЦИЯ разделят ЦЕЛИЯ
+// пространство от резултати - суровата (неклампната) им сума е точно 100%.
+// Ако клампнем и четирите ПООТДЕЛНО (както pOver/pBtts правят за собствените
+// си пазари), сборът вече НЕ е гарантиран 100% (същия риск, който избягваме
+// за Над/Под по-горе). Затова - три от тях се смятат директно (с обичайния
+// [3,97] "никога сигурност" кламп, СЪЩИЯ диапазон като pOver, за консистентност
+// с вече показаните Над/Под числа в интерфейса), а четвъртата (underBttsNo)
+// е ЧИСТ остатък до 100 - огледално на aWinAdj=100-drawP-hWinAdj в
+// buildPrediction() по-долу, вместо собствен независим клампинг.
+function calcOverBttsJoint(expH,expA,n){
+  const threshold=n==null?2.5:n;
+  let rawOverYes=0,rawOverNo=0,rawUnderYes=0,rawUnderNo=0;
+  for(let h=0;h<=10;h++){
+    for(let a=0;a<=10;a++){
+      const p=poissonProb(expH,h)*poissonProb(expA,a);
+      const isOver=(h+a)>threshold;
+      const isBtts=h>0&&a>0;
+      if(isOver&&isBtts)rawOverYes+=p;
+      else if(isOver&&!isBtts)rawOverNo+=p;
+      else if(!isOver&&isBtts)rawUnderYes+=p;
+      else rawUnderNo+=p;
+    }
+  }
+  const clamp=(x)=>Math.min(97,Math.max(3,Math.round(x*100)));
+  let overBttsYes=clamp(rawOverYes);
+  let overBttsNo=clamp(rawOverNo);
+  let underBttsYes=clamp(rawUnderYes);
+  let underBttsNo=clamp(rawUnderNo);
+  // НОРМАЛИЗАЦИЯ (виж discussion-а "verify normalization and consistency with
+  // interface-shown values, including existing clamp limits") - при екстремни
+  // λ индивидуалният [3,97] клампинг на ВСЕКИ от четирите дяла поотделно може
+  // да "открадне" фантомна вероятностна маса (дял под 3% бива изкуствено
+  // повдигнат до 3%, трикратно) и сумата да надхвърли 100. Затова излишъкът
+  // (или дефицитът) се абсорбира пропорционално от най-големите дялове, които
+  // имат достатъчен толеранс спрямо [3,97], докато сумата стане точно 100.
+  let sum=overBttsYes+overBttsNo+underBttsYes+underBttsNo;
+  if(sum!==100){
+    let delta=100-sum;
+    const vals={overBttsYes,overBttsNo,underBttsYes,underBttsNo};
+    const order=Object.keys(vals).sort((a,b)=>vals[b]-vals[a]);
+    for(const key of order){
+      if(delta===0)break;
+      const next=Math.min(97,Math.max(3,vals[key]+delta));
+      delta-=(next-vals[key]);
+      vals[key]=next;
+    }
+    overBttsYes=vals.overBttsYes;overBttsNo=vals.overBttsNo;underBttsYes=vals.underBttsYes;underBttsNo=vals.underBttsNo;
+  }
+  return{overBttsYes,overBttsNo,underBttsYes,underBttsNo};
 }
 function goalBefore10(expH,expA){return Math.min(45,Math.max(8,Math.round((1-Math.exp(-(expH+expA)*(10/90)))*100)));}
 
@@ -265,7 +334,14 @@ function buildPrediction(match,allMatches){
   const hWinP=Math.round(((hFS/tot)*0.35+(expH/expTotal)*0.35+hWinRate*0.30)*100);
   const aWinP=Math.round(((aFS/tot)*0.35+(expA/expTotal)*0.35+aWinRate*0.30)*100);
   const drawP=Math.max(5,100-hWinP-aWinP);
-  const hWinAdj=Math.round(hWinP*(100-drawP)/(hWinP+aWinP));
+  // NaN guard (виж discussion-а "патологичен 1X2 случай") - hWinP/aWinP ТЕОРЕТИЧНО
+  // могат едновременно да се закръглят до 0 (екстремно рядко - изисква drawP да
+  // доминира изцяло), което без guard-а дели 0/0 -> NaN, развалящ целия ред. При
+  // тоя ръб-случай делим остатъка (100-drawP) поравно - неутрален fallback, НЕ
+  // пипа нормалния случай (denom>0 винаги на практика), и пази сбора 100% точно
+  // толкова стриктно, колкото и нормалния път (aWinAdj е винаги чист остатък).
+  const hWinAaWinDenom=hWinP+aWinP;
+  const hWinAdj=hWinAaWinDenom>0?Math.round(hWinP*(100-drawP)/hWinAaWinDenom):Math.round((100-drawP)/2);
   const aWinAdj=100-drawP-hWinAdj;
   const gm=calcGoalMarkets(expH,expA);
   const gmHt=calcGoalMarkets(expH*htRatio,expA*htRatio);
@@ -276,7 +352,8 @@ function buildPrediction(match,allMatches){
   let htS=[];for(let h=0;h<=2;h++)for(let a=0;a<=2;a++)htS.push({h,a,p:poissonProb(expH*htRatio,h)*poissonProb(expA*htRatio,a)*100});htS.sort((a,b)=>b.p-a.p);
   const expCorners=Math.round(expTotal*1.8+5.5);
   const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
-  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100),hWinRatePct:Math.round(hWinRate*100),aWinRatePct:Math.round(aWinRate*100)};
+  const cornersUnder=100-cornersOver; // чист комплемент, огледално на under25/noBtts
+  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,cornersUnder,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100),hWinRatePct:Math.round(hWinRate*100),aWinRatePct:Math.round(aWinRate*100)};
 }
 
 function calcConfidence(pred, odds){
@@ -501,6 +578,6 @@ if (typeof module !== 'undefined' && module.exports) {
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport
+    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint
   };
 }
