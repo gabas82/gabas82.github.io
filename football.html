@@ -962,6 +962,16 @@ function buildBetBuilder(pred, hn, an, hf, af, topScorers, hId, aId){
     const joint=calcOverBttsJoint(parseFloat(pred.expH),parseFloat(pred.expA),2.5);
     if(goalsLeg.outcome==='OVER25')jointPct=bttsLeg.outcome==='BTTS_YES'?joint.overBttsYes:joint.overBttsNo;
     else jointPct=bttsLeg.outcome==='BTTS_YES'?joint.underBttsYes:joint.underBttsNo;
+    // DISPLAY GUARD (виж FINAL MATHEMATICAL CHECK на PR #23) - P(A∩B) никога не
+    // може математически да надвишава P(A) или P(B) поотделно, но calcOverBttsJoint()
+    // (клампва всеки дял в [3,97]) и pBtts() (клампва Г/Г в [15,85]) ползват
+    // РАЗЛИЧНИ clamp-диапазони за една и съща величина - при реалистични λ
+    // (напр. 3.6/3.9) joint-ът може да покаже стойност над показания Г/Г крак.
+    // Това САМО коригира показваната "Комбинирана вероятност" (display-only) -
+    // НЕ пипа calcOverBttsJoint(), pBtts(), calcGoalMarkets() и не е пълна
+    // математическа корекция на корена (clamp-несъвместимостта остава; вижда се
+    // в самите крака по-горе, не само в сборния ред).
+    jointPct=Math.min(jointPct,goalsLeg.pct,bttsLeg.pct);
   }
   const otherLegs=top.filter(b=>b!==goalsLeg&&b!==bttsLeg);
   const isApproximate=!jointPct||otherLegs.length>0;

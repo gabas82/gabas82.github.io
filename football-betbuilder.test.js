@@ -6,7 +6,16 @@
 // като глобална функция след <script src="football-logic.js">.
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import { calcOverBttsJoint, calcGoalMarkets } from './football-logic.js';
+import { calcOverBttsJoint, calcGoalMarkets, poissonProb } from './football-logic.js';
+
+// Реплика на pBtts() от football-logic.js (private helper вътре в buildPrediction,
+// не e exported) - нужна тук само за да изчислим реалната показвана Г/Г стойност
+// (clamp [15,85]) при тестовите λ, точно както buildPrediction я смята.
+function pBtts(expH, expA) {
+  let p = 0;
+  for (let h = 1; h <= 10; h++) for (let a = 1; a <= 10; a++) p += poissonProb(expH, h) * poissonProb(expA, a);
+  return Math.min(85, Math.max(15, Math.round(p * 100)));
+}
 
 function extractFunction(src, name) {
   const idx = src.indexOf(`function ${name}(`);
@@ -97,5 +106,66 @@ describe('buildBetBuilder - съвместна вероятност Над/По�
     const topScorers = [{ name: 'Играч А', teamId: 1, pct: 45, recentGoals: 3 }];
     const html = buildBetBuilder(pred, 'Домакин', 'Гост', '🏠', '✈️', topScorers, 1, 2);
     expect(html).toContain('≈ приблизително');
+  });
+});
+
+// DISPLAY GUARD (PR #23 FINAL MATHEMATICAL CHECK) - calcOverBttsJoint() клампва
+// всеки дял в [3,97], но pBtts() (вече съществуващ, НЕПРОМЕНЕН код) клампва Г/Г
+// в [15,85] - различен диапазон за една и съща величина. При λ(home)=3.6,
+// λ(away)=3.9 (напълно реалистични стойности, без нужда от екстремни данни)
+// joint.overBttsYes=91% надвишава показания Г/Г крак (85%) - математически
+// невъзможно (P(A∩B) никога не може да надхвърли P(A) или P(B)). Guard-ът
+// jointPct=Math.min(jointPct,goalsLeg.pct,bttsLeg.pct) в buildBetBuilder()
+// коригира САМО показваната "Комбинирана вероятност" (display-only) - НЕ
+// пипа calcOverBttsJoint(), pBtts(), calcGoalMarkets() и не отстранява
+// самата clamp-несъвместимост (тя остава видима в самите крака по-горе).
+describe('buildBetBuilder - DISPLAY GUARD за комбинирана вероятност (PR #23 FINAL MATHEMATICAL CHECK)', () => {
+  const eh = 3.6, ea = 3.9;
+  const gm = calcGoalMarkets(eh, ea);
+  const btts = pBtts(eh, ea), noBtts = 100 - btts;
+  const joint = calcOverBttsJoint(eh, ea, 2.5);
+
+  it('guard-ът е реално присъстващ в football.html (не е само в тестовете)', () => {
+    const src = fs.readFileSync('./football.html', 'utf8');
+    expect(/jointPct=Math\.min\(jointPct,goalsLeg\.pct,bttsLeg\.pct\);/.test(src)).toBe(true);
+  });
+
+  it('регресия: λ(home)=3.6/λ(away)=3.9 - без guard joint.overBttsYes=91% > показания Г/Г крак=85% (потвърждава откритото нарушение)', () => {
+    expect(gm.over25).toBe(97);
+    expect(btts).toBe(85);
+    expect(joint.overBttsYes).toBe(91);
+    expect(joint.overBttsYes).toBeGreaterThan(btts); // ТОЧНО нарушението, намерено в FINAL MATHEMATICAL CHECK
+  });
+
+  it('регресия: с guard-а, реалният buildBetBuilder() вече никога не показва комбинирана вероятност > всеки отделен крак (Над 2.5 + Г/Г Да)', () => {
+    const pred = basePred({
+      hWin: 36, draw: 28, aWin: 36, over25: gm.over25, under25: gm.under25, btts, noBtts,
+      expH: eh.toFixed(1), expA: ea.toFixed(1), gm,
+    });
+    const html = buildBetBuilder(pred, 'Домакин', 'Гост', '🏠', '✈️', [], 1, 2);
+    expect(html).toContain('Над 2.5 гола');
+    expect(html).toContain('И двата отбора вкарват');
+    expect(html).not.toContain('91%'); // неклампнатата (погрешна) стойност вече не се показва
+    expect(html).toContain('85%'); // клампната guard стойност = min(91, 97, 85) = 85
+  });
+
+  it('и четирите комбинации (Над2.5+Г/Г-Да, Над2.5+Г/Г-Не, Под2.5+Г/Г-Да, Под2.5+Г/Г-Не) при λ=3.6/3.9 - guard-ираната стойност никога не надвишава нито един от двата крака', () => {
+    const combos = [
+      { goalsOutcome: 'OVER25', bttsOutcome: 'BTTS_YES', goalsPct: gm.over25, bttsPct: btts, rawJoint: joint.overBttsYes },
+      { goalsOutcome: 'OVER25', bttsOutcome: 'BTTS_NO', goalsPct: gm.over25, bttsPct: noBtts, rawJoint: joint.overBttsNo },
+      { goalsOutcome: 'UNDER25', bttsOutcome: 'BTTS_YES', goalsPct: gm.under25, bttsPct: btts, rawJoint: joint.underBttsYes },
+      { goalsOutcome: 'UNDER25', bttsOutcome: 'BTTS_NO', goalsPct: gm.under25, bttsPct: noBtts, rawJoint: joint.underBttsNo },
+    ];
+    for (const c of combos) {
+      const guarded = Math.min(c.rawJoint, c.goalsPct, c.bttsPct);
+      expect(guarded).toBeLessThanOrEqual(c.goalsPct);
+      expect(guarded).toBeLessThanOrEqual(c.bttsPct);
+    }
+    // Забележка за прозрачност: при точно тази двойка λ, само Над2.5+Г/Г-Да
+    // е реално достижима през съществуващата heuristic-а за избор в
+    // buildBetBuilder() (under25=3%/noBtts=15% са далеч под праговете за
+    // избор) - другите 3 комбинации тук се проверяват на формулно ниво,
+    // за да покрият generic-ия guard код, който борави с всичките 4 случая.
+    expect(combos[0].rawJoint).toBeGreaterThan(combos[0].bttsPct); // единствената реално нарушаваща комбинация тук
   });
 });
