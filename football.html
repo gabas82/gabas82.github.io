@@ -512,6 +512,12 @@ async function apiFetch(p){
     const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
     err.isApiError=true;
     err.providerMessage=data.message;
+    // football-data.org понякога добавя и errorCode (напр. 400/403/429) към
+    // документираното {"message":...} тяло - не е задължително поле и не
+    // участва в самото засичане на грешката (message сам по себе си е
+    // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
+    // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
+    if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
     throw err;
   }
   return data;

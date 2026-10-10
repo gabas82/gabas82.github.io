@@ -78,6 +78,27 @@ describe('apiFetch - API грешки от football-data.org (документи
       expect(e.providerMessage).toBe('Internal server error.');
     }
   });
+  it('документиран errorCode (напр. 429) се пази в providerErrorCode, без да участва в самото засичане', async () => {
+    const fetchMock = vi.fn(() => okResponse({ message: 'You reached your request limit.', errorCode: 429 }));
+    const apiFetch = buildApiFetch(fetchMock);
+    try {
+      await apiFetch('/matches?date=2026-10-10');
+      expect.fail('очаквах throw');
+    } catch (e) {
+      expect(e.isApiError).toBe(true);
+      expect(e.providerErrorCode).toBe(429);
+    }
+  });
+  it('липсващ errorCode не чупи нищо - providerErrorCode остава undefined', async () => {
+    const fetchMock = vi.fn(() => okResponse({ message: 'Internal server error.' }));
+    const apiFetch = buildApiFetch(fetchMock);
+    try {
+      await apiFetch('/matches?date=2026-10-10');
+      expect.fail('очаквах throw');
+    } catch (e) {
+      expect(e.providerErrorCode).toBeUndefined();
+    }
+  });
 });
 
 describe('apiFetch - мрежова грешка (fetch() самия хвърля)', () => {
@@ -237,5 +258,53 @@ describe('loadUpcoming() - API грешка от fd.org вече НЕ се по�
     const html = document.getElementById('upcoming-content').innerHTML;
     expect(html).toContain('Няма мачове в следващите 21 дни');
     expect(html).not.toContain('error-box');
+  });
+});
+
+// Изрично поискана проверка: loadWCKnockoutData() (друг пряк consumer на
+// apiFetch(), ползван от НОКАУТ/COMEBACK/ГОЛМАЙСТОРИ) вече пази стария кеш
+// при API грешка, вместо тихо да го презапише с [] - преди тази промяна,
+// {"message":"..."} отговор се третираше като "0 мача" и ТРИЕШЕ валиден,
+// по-рано успешно изтеглен кеш.
+describe('loadWCKnockoutData() - запазва кеша при API грешка, не го трие', () => {
+  const combinedHtml = fs.readFileSync('./football.html', 'utf8');
+  const combinedSrc = [
+    'let wcKnockoutMatchesCache=null;',
+    extractBraced(combinedHtml, 'async function apiFetch('),
+    extractBraced(combinedHtml, 'async function loadWCKnockoutData('),
+  ].join('\n');
+
+  function buildLoadWCKnockoutData(fetchImpl) {
+    const fn = new Function('WORKER', 'fetch', combinedSrc + `\nreturn { loadWCKnockoutData, getCache: () => wcKnockoutMatchesCache };`);
+    return fn('https://worker.test/football', fetchImpl);
+  }
+
+  it('успешно изтеглените мачове се кешират нормално (regression)', async () => {
+    const matches = [{ id: 1, stage: 'FINAL' }];
+    const fetchMock = vi.fn(() => okResponse({ matches }));
+    const h = buildLoadWCKnockoutData(fetchMock);
+    const result = await h.loadWCKnockoutData();
+    expect(result).toEqual(matches);
+    expect(h.getCache()).toEqual(matches);
+  });
+  it('API грешка СЛЕД вече успешен кеш -> връща и пази СТАРИЯ кеш, не го трие с []', async () => {
+    let call = 0;
+    const matches = [{ id: 1, stage: 'FINAL' }];
+    const fetchMock = vi.fn(() => {
+      call++;
+      if (call === 1) return okResponse({ matches });
+      return okResponse({ message: 'You reached your request limit.' });
+    });
+    const h = buildLoadWCKnockoutData(fetchMock);
+    await h.loadWCKnockoutData();
+    const result2 = await h.loadWCKnockoutData(true); // force=true, заобикаля кеша, праща нова заявка
+    expect(result2).toEqual(matches); // старите данни, не []
+    expect(h.getCache()).toEqual(matches);
+  });
+  it('API грешка БЕЗ предходен кеш -> връща [] (честно, не хвърля нагоре)', async () => {
+    const fetchMock = vi.fn(() => okResponse({ message: 'Internal server error.' }));
+    const h = buildLoadWCKnockoutData(fetchMock);
+    const result = await h.loadWCKnockoutData();
+    expect(result).toEqual([]);
   });
 });
