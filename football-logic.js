@@ -602,6 +602,38 @@ function sortMatchesByDate(matches){
   return (matches||[]).slice().sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
 }
 
+// F3a (виж discussion-а "лигите не трябва да изчезват без обяснение, но и не
+// да се разгъват стотици мачове") - сортира (чрез sortMatchesByDate, ТАВАНЪТ
+// СЕ ПРИЛАГА СЛЕД сортирането, за да останат действително най-близките) и
+// отрязва до maxCount. Чиста, non-mutating функция.
+function limitSortedUpcoming(matches, maxCount){
+  return sortMatchesByDate(matches).slice(0, maxCount);
+}
+
+// F3a - проверява дали дадено състезание е имало ЗАВЪРШЕН мач в последните
+// lookbackDays дни (вече извлечени данни - allMatches, без нова заявка).
+// Ползва се САМО за да добавим опционалния суфикс "Възможна пауза" към
+// honest-ия базов текст при празен прозорец - НИКОГА не се ползва като
+// доказателство за обратното (виж discussion-а "не използвай липсата на
+// исторически данни като доказателство за неактивен сезон") - ако входният
+// масив е празен (напр. защото историческата заявка се е провалила), тази
+// функция просто връща false (без суфикс), не твърди нищо категорично.
+function hasRecentFinishedActivity(matches, now, lookbackDays){
+  const nowMs=(now instanceof Date?now:new Date()).getTime();
+  const cutoffMs=nowMs-(lookbackDays||0)*24*60*60*1000;
+  return (matches||[]).some(m=>m&&m.status==='FINISHED'&&m.utcDate&&new Date(m.utcDate).getTime()>=cutoffMs);
+}
+
+// F3a - честeн текст при празен прозорец (виж discussion-а "не твърди, че
+// няма публикувана програма извън проверения период") - базовият текст
+// описва САМО какво реално е проверено (следващите windowDays дни); суфиксът
+// "Възможна пауза" се добавя единствено при налична скорошна активност,
+// никога не се твърди категорично причината.
+function buildEmptyWindowMessage(windowDays, hasRecentActivity){
+  const base=`Няма мачове в следващите ${windowDays} дни.`;
+  return hasRecentActivity?base+' Възможна пауза.':base;
+}
+
 // В браузъра (класически <script>) горните декларации стават глобални и се ползват
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
@@ -614,6 +646,7 @@ if (typeof module !== 'undefined' && module.exports) {
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
     pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
-    classifyAsLeagueTabEmptyState, sortMatchesByDate
+    classifyAsLeagueTabEmptyState, sortMatchesByDate,
+    limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
   };
 }
