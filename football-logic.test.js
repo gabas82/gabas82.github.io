@@ -10,7 +10,7 @@ import {
   calibrationBucket, calcCalibration,
   isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
   pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
-  classifyAsLeagueTabEmptyState
+  classifyAsLeagueTabEmptyState, sortMatchesByDate
 } from './football-logic.js';
 
 // Същата двойка, която football.html държи в COMPS_AS_MAP - копирана тук, за
@@ -904,5 +904,92 @@ describe('classifyAsLeagueTabEmptyState', () => {
   it('EMPTY_SEASON се връща само при валиден непразен масив, изцяло от успешни (fulfilled) резултати', () => {
     const res = [{ status: 'fulfilled', value: { response: [] } }, { status: 'fulfilled', value: { response: [] } }];
     expect(classifyAsLeagueTabEmptyState(res)).toBe('EMPTY_SEASON');
+  });
+});
+
+// F2a ХРОНОЛОГИЧНО СОРТИРАНЕ (виж discussion-а "прогнозите не трябва да
+// зависят от реда на отваряне на табовете"). calcForm() (.slice(-5)) и
+// football.html-овите form5Html()/htTrendHtml() предполагат allMatches да е
+// ВЕЧЕ възходящо хронологично подреден. loadUpcoming() сглобява allMatches от
+// няколко fetch-а без гаранция за общ ред - sortMatchesByDate() нормализира
+// входа ПРЕДИ да стигне до buildPrediction/calcForm, без да ги пипа самите.
+describe('sortMatchesByDate', () => {
+  function m(utcDate) { return { utcDate, status: 'FINISHED' }; }
+
+  it('подрежда разбъркан масив във възходящ хронологичен ред', () => {
+    const shuffled = [m('2026-03-01'), m('2026-01-01'), m('2026-02-01')];
+    const sorted = sortMatchesByDate(shuffled);
+    expect(sorted.map(x => x.utcDate)).toEqual(['2026-01-01', '2026-02-01', '2026-03-01']);
+  });
+  it('вече сортиран масив остава непроменен (idempotent)', () => {
+    const already = [m('2026-01-01'), m('2026-02-01'), m('2026-03-01')];
+    expect(sortMatchesByDate(already).map(x => x.utcDate)).toEqual(['2026-01-01', '2026-02-01', '2026-03-01']);
+  });
+  it('не мутира входния масив (връща НОВ масив)', () => {
+    const original = [m('2026-03-01'), m('2026-01-01')];
+    const snapshot = original.map(x => x.utcDate);
+    sortMatchesByDate(original);
+    expect(original.map(x => x.utcDate)).toEqual(snapshot);
+  });
+  it('празен/null/undefined вход -> празен масив, не хвърля', () => {
+    expect(sortMatchesByDate([])).toEqual([]);
+    expect(sortMatchesByDate(null)).toEqual([]);
+    expect(sortMatchesByDate(undefined)).toEqual([]);
+  });
+});
+
+// БЕФО/СЛЕД СРАВНЕНИЕ върху фиксирани тестови данни (виж discussion-а точка 7:
+// "ако сортирането променя прогнозни стойности, обясни точно защо"). Отбор 1
+// има 7 FINISHED мача; в ИСТИНСКИ хронологичен ред (най-стар -> най-нов) те са
+// Л,Л,Л,П,П,П,П - "последните 5" ТРЯБВА да са Л,П,П,П,П (fScore=0+3*4=12).
+// Ако allMatches пристигне РАЗБЪРКАН (какъвто е рискът в loadUpcoming() без
+// sortMatchesByDate), calcForm()'s .slice(-5) взима ПОГРЕШНА подгрупа от 5-те
+// (не само погрешен РЕД на същите 5, а РАЗЛИЧНИ 5 мача), което реално променя
+// pred.hWin - затова сортирането Е ОЧАКВАНО да променя прогнозни стойности
+// при неподреден вход, което е именно фиксът, не регресия.
+describe('buildPrediction - преди/след хронологично сортиране (fixed test data)', () => {
+  function match(id, homeId, awayId, hg, ag, utcDate) {
+    return { id, status: 'FINISHED', utcDate, homeTeam: { id: homeId }, awayTeam: { id: awayId }, score: { fullTime: { home: hg, away: ag }, halfTime: { home: Math.min(hg,1), away: Math.min(ag,1) } } };
+  }
+  // Отбор 1 (домакин в тестовия мач) - хронологично Л,Л,Л,П,П,П,П срещу отбори 90-96.
+  const m1 = match('m1', 1, 97, 0, 2, '2026-01-01'); // Л
+  const m2 = match('m2', 1, 96, 0, 1, '2026-01-08'); // Л
+  const m3 = match('m3', 1, 95, 0, 3, '2026-01-15'); // Л
+  const m4 = match('m4', 1, 94, 2, 0, '2026-01-22'); // П
+  const m5 = match('m5', 1, 93, 3, 0, '2026-01-29'); // П
+  const m6 = match('m6', 1, 92, 1, 0, '2026-02-05'); // П
+  const m7 = match('m7', 1, 91, 2, 1, '2026-02-12'); // П (най-нов)
+  // Отбор 2 (гост) - постоянна, малка история (не е фокус на теста).
+  const a1 = match('a1', 2, 80, 1, 1, '2026-01-10');
+  const a2 = match('a2', 2, 81, 1, 1, '2026-01-20');
+  const fixture = { homeTeam: { id: 1 }, awayTeam: { id: 2 } };
+
+  it('разбъркан allMatches (без sortMatchesByDate) води до ГРЕШНА "последни 5" подгрупа за отбор 1', () => {
+    // Нарочна разбъркана подредба - не е нито хронологична, нито просто обърната.
+    const shuffled = [m4, m5, m6, m7, m1, m2, m3, a1, a2];
+    const pred = buildPrediction(fixture, shuffled);
+    // В тази разбъркана подредба calcForm().slice(-5) взима [m6,m7,m1,m2,m3] = П,П,Л,Л,Л (fScore=6).
+    expect(pred.hForm).toEqual(['W', 'W', 'L', 'L', 'L']);
+  });
+
+  it('същият allMatches, сортиран чрез sortMatchesByDate -> ПРАВИЛНАТА "последни 5" подгрупа (Л,П,П,П,П)', () => {
+    const shuffled = [m4, m5, m6, m7, m1, m2, m3, a1, a2];
+    const sorted = sortMatchesByDate(shuffled);
+    const pred = buildPrediction(fixture, sorted);
+    expect(pred.hForm).toEqual(['L', 'W', 'W', 'W', 'W']);
+  });
+
+  it('обяснение: hWin се покачва след сортирането, точно защото "последните 5" вече вярно включват 4 победи (не 2)', () => {
+    const shuffled = [m4, m5, m6, m7, m1, m2, m3, a1, a2];
+    const predBefore = buildPrediction(fixture, shuffled);
+    const predAfter = buildPrediction(fixture, sortMatchesByDate(shuffled));
+    expect(predAfter.hWin).toBeGreaterThan(predBefore.hWin);
+  });
+
+  it('вече правилно подреден allMatches (идва директно хронологично от API) -> sortMatchesByDate е no-op, прогнозата е идентична', () => {
+    const alreadySorted = [m1, m2, m3, m4, m5, m6, m7, a1, a2];
+    const predDirect = buildPrediction(fixture, alreadySorted);
+    const predAfterSort = buildPrediction(fixture, sortMatchesByDate(alreadySorted));
+    expect(predAfterSort).toEqual(predDirect);
   });
 });

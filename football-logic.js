@@ -588,6 +588,20 @@ function classifyAsLeagueTabEmptyState(settledResults){
   return anyRejected?'FETCH_ERROR':'EMPTY_SEASON';
 }
 
+// F2a ХРОНОЛОГИЧНО СОРТИРАНЕ (виж discussion-а "прогнозите не трябва да
+// зависят от реда на отваряне на табовете") - calcForm() по-горе (.slice(-5)),
+// както и form5Html()/htTrendHtml() във football.html (.slice(-5)/.slice(-10)),
+// ВСИЧКИ приемат allMatches за вече хронологично подреден (възходящо по
+// utcDate), за да вземат правилно "последните N" мача. loadUpcoming() във
+// football.html строи allMatches от НЯКОЛКО различни fetch-а (football-data.org
+// + Световно + api-sports extra лиги), слети последователно - без гаранция за
+// общ хронологичен ред между тях. Чиста, non-mutating функция - връща НОВ
+// сортиран масив, не променя входния; не пипа buildPrediction/calcForm/
+// calcCalibration самите - само нормализира входа ПРЕДИ да стигне до тях.
+function sortMatchesByDate(matches){
+  return (matches||[]).slice().sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
+}
+
 // В браузъра (класически <script>) горните декларации стават глобални и се ползват
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
@@ -600,6 +614,6 @@ if (typeof module !== 'undefined' && module.exports) {
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
     pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
-    classifyAsLeagueTabEmptyState
+    classifyAsLeagueTabEmptyState, sortMatchesByDate
   };
 }
