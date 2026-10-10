@@ -9,7 +9,8 @@ import {
   currentSeasonYear, findMatchingRecord, calcTopScorers,
   calibrationBucket, calcCalibration,
   isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint
+  pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
+  classifyAsLeagueTabEmptyState
 } from './football-logic.js';
 
 // Същата двойка, която football.html държи в COMPS_AS_MAP - копирана тук, за
@@ -863,5 +864,30 @@ describe('buildCalibrationReport', () => {
     const res = buildCalibrationReport([legacy], TEST_COMPS_AS_MAP);
     expect(res.reliableCount).toBe(1);
     expect(res.excludedDuplicate).toBe(0);
+  });
+});
+
+// F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
+// автоматично за незапочнал сезон") - loadASLeagueTab() в football.html ползва
+// тази чиста функция, за да различи реално празен сезон от провалена заявка.
+describe('classifyAsLeagueTabEmptyState', () => {
+  it('всичките fulfilled -> EMPTY_SEASON (действително празен сезон)', () => {
+    const res = [{ status: 'fulfilled', value: {} }, { status: 'fulfilled', value: {} }, { status: 'fulfilled', value: {} }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('EMPTY_SEASON');
+  });
+  it('поне едно rejected -> FETCH_ERROR, дори другите да са fulfilled', () => {
+    const res = [{ status: 'fulfilled', value: {} }, { status: 'rejected', reason: new Error('boom') }, { status: 'fulfilled', value: {} }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('FETCH_ERROR');
+  });
+  it('всичките rejected -> FETCH_ERROR', () => {
+    const res = [{ status: 'rejected' }, { status: 'rejected' }, { status: 'rejected' }];
+    expect(classifyAsLeagueTabEmptyState(res)).toBe('FETCH_ERROR');
+  });
+  it('празен масив -> EMPTY_SEASON (защитен default, не хвърля)', () => {
+    expect(classifyAsLeagueTabEmptyState([])).toBe('EMPTY_SEASON');
+  });
+  it('null/undefined вход -> EMPTY_SEASON, не хвърля', () => {
+    expect(classifyAsLeagueTabEmptyState(null)).toBe('EMPTY_SEASON');
+    expect(classifyAsLeagueTabEmptyState(undefined)).toBe('EMPTY_SEASON');
   });
 });

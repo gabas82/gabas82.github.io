@@ -2291,32 +2291,42 @@ function renderComebackStats(statsByComp){
 async function loadASLeagueTab(tabId, leagueId, icon, title){
   const c=document.getElementById(tabId+'-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
+  const season=currentSeasonYear();
+  const[nextRes,lastRes,liveRes,prevRes,scorersHtml]=await Promise.allSettled([
+    apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
+    apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
+    apiFetchAS('/fixtures?live=all'),
+    apiFetchAS('/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25'),
+    apiSportsScorersBlockHtml(leagueId, icon, title+' — ГОЛМАЙСТОРИ')
+  ]);
+  const upcomingRaw=(nextRes.status==='fulfilled'?(nextRes.value.response||[]):[]);
+  const finishedRaw=(lastRes.status==='fulfilled'?(lastRes.value.response||[]):[]);
+  const liveRaw=(liveRes.status==='fulfilled'?(liveRes.value.response||[]):[]);
+  const prevSeasonRaw=(prevRes.status==='fulfilled'?(prevRes.value.response||[]):[]);
+  const scorersBlock=scorersHtml.status==='fulfilled'?scorersHtml.value:'';
+  const liveFixtures=liveRaw.filter(f=>f.league?.id===leagueId);
+  const liveIds=new Set(liveFixtures.map(f=>f.fixture?.id));
+
+  const finished=finishedRaw.filter(f=>!liveIds.has(f.fixture?.id));
+  const upcoming=upcomingRaw.filter(f=>!liveIds.has(f.fixture?.id));
+  const allRaw=[...finished,...liveFixtures,...upcoming];
+
+  if(!allRaw.length){
+    // F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
+    // автоматично за незапочнал сезон") - allRaw е празен по ДВЕ РАЗЛИЧНИ
+    // причини, преди третирани еднакво: (а) next/last/live реално се върнаха
+    // fulfilled с празни масиви -> действително празен сезон; (б) някоя от
+    // тях е rejected (мрежа/API недостъпност) -> НЕ знаем дали сезонът е
+    // празен, просто нямаме данни - отделно, честно съобщение вместо грешно
+    // "сезонът не е започнал".
+    const emptyState=classifyAsLeagueTabEmptyState([nextRes,lastRes,liveRes]);
+    c.innerHTML=scorersBlock+(emptyState==='FETCH_ERROR'
+      ?`<div class="error-box">⚠️ Няма връзка с API-то за тази лига в момента. Опитай отново.</div>`
+      :`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`);
+    return;
+  }
+
   try{
-    const season=currentSeasonYear();
-    const[nextRes,lastRes,liveRes,prevRes,scorersHtml]=await Promise.allSettled([
-      apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&next=20'),
-      apiFetchAS('/fixtures?league='+leagueId+'&season='+season+'&last=20'),
-      apiFetchAS('/fixtures?live=all'),
-      apiFetchAS('/fixtures?league='+leagueId+'&season='+(season-1)+'&last=25'),
-      apiSportsScorersBlockHtml(leagueId, icon, title+' — ГОЛМАЙСТОРИ')
-    ]);
-    const upcomingRaw=(nextRes.status==='fulfilled'?(nextRes.value.response||[]):[]);
-    const finishedRaw=(lastRes.status==='fulfilled'?(lastRes.value.response||[]):[]);
-    const liveRaw=(liveRes.status==='fulfilled'?(liveRes.value.response||[]):[]);
-    const prevSeasonRaw=(prevRes.status==='fulfilled'?(prevRes.value.response||[]):[]);
-    const scorersBlock=scorersHtml.status==='fulfilled'?scorersHtml.value:'';
-    const liveFixtures=liveRaw.filter(f=>f.league?.id===leagueId);
-    const liveIds=new Set(liveFixtures.map(f=>f.fixture?.id));
-
-    const finished=finishedRaw.filter(f=>!liveIds.has(f.fixture?.id));
-    const upcoming=upcomingRaw.filter(f=>!liveIds.has(f.fixture?.id));
-    const allRaw=[...finished,...liveFixtures,...upcoming];
-
-    if(!allRaw.length){
-      c.innerHTML=scorersBlock+`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
-      return;
-    }
-
     const blendingPrevSeason=finished.length<4&&prevSeasonRaw.length>0;
     const historyPool=blendingPrevSeason?[...allRaw,...prevSeasonRaw]:allRaw;
     const allMatches=historyPool.map(asFixtureToMatch);
@@ -2347,7 +2357,10 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
     });
     c.innerHTML=html;
   }catch(e){
-    c.innerHTML=`<div class="no-data">Сезонът още не е започнал.<br>Мачовете ще се появят автоматично! 🗓️</div>`;
+    // F1 ДИАГНОСТИКА - грешка при ОБРАБОТКА/РЕНДЕРИРАНЕ на вече получени данни
+    // (fetch грешките вече са обработени по-горе) - отделно съобщение, не
+    // "сезонът не е започнал".
+    c.innerHTML=`<div class="error-box">⚠️ Грешка при обработка на мачовете за тази лига. Опитай отново.</div>`;
   }
 }
 async function loadChampionsLeagueAS(){await loadASLeagueTab('cl',2,'⭐','Шампионска лига');}

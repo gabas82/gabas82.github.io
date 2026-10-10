@@ -567,6 +567,18 @@ function buildCalibrationReport(history,compsAsMap){
   };
 }
 
+// F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
+// автоматично за незапочнал сезон") - loadASLeagueTab() в football.html строи
+// allRaw от ТРИ Promise.allSettled резултата (next/last/live fixtures). Досега
+// празен allRaw се третираше еднакво, независимо дали е ЗАРЕЖДАНЕ грешка
+// (fetch rejected - мрежа/API недостъпност) или ДЕЙСТВИТЕЛНО празен сезон
+// (fulfilled с празни масиви). Чиста функция - testable без DOM/fetch/мрежа,
+// не променя кои заявки се пращат, само как се ИНТЕРПРЕТИРА резултатът им.
+function classifyAsLeagueTabEmptyState(settledResults){
+  const anyRejected=(settledResults||[]).some(r=>r&&r.status==='rejected');
+  return anyRejected?'FETCH_ERROR':'EMPTY_SEASON';
+}
+
 // В браузъра (класически <script>) горните декларации стават глобални и се ползват
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
@@ -578,6 +590,7 @@ if (typeof module !== 'undefined' && module.exports) {
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint
+    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
+    classifyAsLeagueTabEmptyState
   };
 }
