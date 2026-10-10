@@ -13,6 +13,23 @@ function currentSeasonYear(now){
   const y=d.getFullYear(), m=d.getMonth()+1;
   return m>=7?y:y-1;
 }
+// PR A (виж discussion-а "надеждна сезонна история за Ефбет/Сюпер Лиг/БЛ2") -
+// консервативна долна граница за season/from/to параметри на api-sports.io
+// /fixtures заявки, предназначени да ЗАМЕНЯТ league-wide last=N в бъдещ PR,
+// без да го правят още - тук са само чисти, самостоятелно тестваеми helper-и,
+// невключени в реалните fetch-ове. Сезонът идва от вече съществуващата
+// currentSeasonYear() - не дублира прага юни/юли, само го преизползва.
+function getAsSeasonStartDate(season){return season+'-07-01';}
+function toYmd(date){return date.toISOString().split('T')[0];}
+function buildAsSeasonHistoryParams(leagueId,now){
+  const d=now||new Date();
+  const season=currentSeasonYear(d);
+  return{league:leagueId,season,from:getAsSeasonStartDate(season),to:toYmd(d)};
+}
+function buildAsSeasonHistoryQuery(leagueId,now){
+  const p=buildAsSeasonHistoryParams(leagueId,now);
+  return'league='+p.league+'&season='+p.season+'&from='+p.from+'&to='+p.to;
+}
 function getDateMinus(d){const dt=new Date();dt.setDate(dt.getDate()-d);return dt.toISOString().split('T')[0];}
 function getDatePlus(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().split('T')[0];}
 function calcPct(h,a){const hn=parseInt(h)||0,an=parseInt(a)||0,t=hn+an||1;return Math.round(hn/t*100);}
@@ -638,7 +655,8 @@ function buildEmptyWindowMessage(windowDays, hasRecentActivity){
 // directly от football.html. В Node (Vitest) ги правим достъпни през module.exports.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    getToday, getDateMinus, getDatePlus, currentSeasonYear, calcPct, poissonProb, calcGoalMarkets,
+    getToday, getDateMinus, getDatePlus, currentSeasonYear, getAsSeasonStartDate,
+    buildAsSeasonHistoryParams, buildAsSeasonHistoryQuery, calcPct, poissonProb, calcGoalMarkets,
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
     saveHistory, migrateHistory, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,

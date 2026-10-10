@@ -6,7 +6,8 @@ import {
   calcForm, formDotsHtml, buildPrediction, calcConfidence, formatMatchDateTime,
   normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
   calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer,
-  currentSeasonYear, findMatchingRecord, calcTopScorers,
+  currentSeasonYear, getAsSeasonStartDate, buildAsSeasonHistoryParams,
+  buildAsSeasonHistoryQuery, findMatchingRecord, calcTopScorers,
   calibrationBucket, calcCalibration,
   isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
   pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
@@ -110,6 +111,66 @@ describe('currentSeasonYear', () => {
   it('връща предходната година, когато сме преди юли (сезонът стартирал предната есен още тече)', () => {
     expect(currentSeasonYear(new Date('2026-06-30'))).toBe(2025);
     expect(currentSeasonYear(new Date('2026-01-15'))).toBe(2025);
+  });
+});
+
+// PR A (виж discussion-а "надеждна сезонна история за Ефбет/Сюпер Лиг/БЛ2") -
+// чисти season/from/to helper-и, подготвени за бъдещ PR B, но ОЩЕ невключени
+// в реалните API заявки (football.html си продължава с last=N непроменено).
+describe('getAsSeasonStartDate', () => {
+  it('винаги 1 юли на годината на сезона - консервативна долна граница', () => {
+    expect(getAsSeasonStartDate(2026)).toBe('2026-07-01');
+    expect(getAsSeasonStartDate(2025)).toBe('2025-07-01');
+  });
+});
+
+describe('buildAsSeasonHistoryParams', () => {
+  it('юни (преди прага) -> сезон = предходна година, from = 1 юли на нея', () => {
+    const p = buildAsSeasonHistoryParams(172, new Date('2026-06-30T12:00:00Z'));
+    expect(p).toEqual({ league: 172, season: 2025, from: '2025-07-01', to: '2026-06-30' });
+  });
+  it('юли (на/след прага) -> сезон = текущата година, from = 1 юли на нея (преминаване към нов сезон)', () => {
+    const p = buildAsSeasonHistoryParams(172, new Date('2026-07-01T12:00:00Z'));
+    expect(p).toEqual({ league: 172, season: 2026, from: '2026-07-01', to: '2026-07-01' });
+  });
+  it('различни текущи дати в средата на сезона връщат стабилен season/from, променящо се само to', () => {
+    const a = buildAsSeasonHistoryParams(203, new Date('2026-10-10T08:00:00Z'));
+    const b = buildAsSeasonHistoryParams(203, new Date('2026-12-25T08:00:00Z'));
+    expect(a.season).toBe(2026);
+    expect(b.season).toBe(2026);
+    expect(a.from).toBe('2026-07-01');
+    expect(b.from).toBe('2026-07-01');
+    expect(a.to).toBe('2026-10-10');
+    expect(b.to).toBe('2026-12-25');
+  });
+  it('различна лига (БЛ2, id 79) носи своето league, без да пипа season/from/to логиката', () => {
+    const p = buildAsSeasonHistoryParams(79, new Date('2026-10-10T08:00:00Z'));
+    expect(p.league).toBe(79);
+    expect(p.season).toBe(2026);
+  });
+  it('без подаден now използва реалната текуща дата (fallback, не throw)', () => {
+    const p = buildAsSeasonHistoryParams(172);
+    expect(typeof p.to).toBe('string');
+    expect(p.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('buildAsSeasonHistoryQuery', () => {
+  it('коректно форматиране на параметрите - league, season, from, to в този ред, без лишни символи', () => {
+    const q = buildAsSeasonHistoryQuery(172, new Date('2026-10-10T08:00:00Z'));
+    expect(q).toBe('league=172&season=2026&from=2026-07-01&to=2026-10-10');
+  });
+  it('съдържа точно същите season/from стойности като buildAsSeasonHistoryParams за същия вход (без разминаване между двата helper-а)', () => {
+    const now = new Date('2026-03-15T00:00:00Z');
+    const p = buildAsSeasonHistoryParams(203, now);
+    const q = buildAsSeasonHistoryQuery(203, now);
+    expect(q).toBe(`league=${p.league}&season=${p.season}&from=${p.from}&to=${p.to}`);
+  });
+  it('границата юни/юли се отразява коректно и в готовия query string', () => {
+    expect(buildAsSeasonHistoryQuery(79, new Date('2026-06-30T23:59:00Z')))
+      .toBe('league=79&season=2025&from=2025-07-01&to=2026-06-30');
+    expect(buildAsSeasonHistoryQuery(79, new Date('2026-07-01T00:00:00Z')))
+      .toBe('league=79&season=2026&from=2026-07-01&to=2026-07-01');
   });
 });
 
