@@ -10,7 +10,8 @@ import {
   calibrationBucket, calcCalibration,
   isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
   pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
-  classifyAsLeagueTabEmptyState, sortMatchesByDate
+  classifyAsLeagueTabEmptyState, sortMatchesByDate,
+  limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
 } from './football-logic.js';
 
 // Същата двойка, която football.html държи в COMPS_AS_MAP - копирана тук, за
@@ -991,5 +992,57 @@ describe('buildPrediction - преди/след хронологично сор�
     const predDirect = buildPrediction(fixture, alreadySorted);
     const predAfterSort = buildPrediction(fixture, sortMatchesByDate(alreadySorted));
     expect(predAfterSort).toEqual(predDirect);
+  });
+});
+
+// F3a (виж discussion-а "лигите не трябва да изчезват без обяснение, но и не
+// да се разгъват стотици мачове" + "сортирай ПРЕДИ тавана, за да останат
+// действително най-близките").
+describe('limitSortedUpcoming', () => {
+  function m(utcDate) { return { utcDate, status: 'SCHEDULED' }; }
+  it('сортира по дата и после отрязва до maxCount - пазят се НАЙ-РАННИТЕ, независимо от входния ред', () => {
+    const shuffled = [m('2026-01-20'), m('2026-01-05'), m('2026-01-10'), m('2026-01-01')];
+    const result = limitSortedUpcoming(shuffled, 2);
+    expect(result.map(x => x.utcDate)).toEqual(['2026-01-01', '2026-01-05']);
+  });
+  it('maxCount >= брой елементи -> връща всички, сортирани', () => {
+    const shuffled = [m('2026-01-10'), m('2026-01-05')];
+    expect(limitSortedUpcoming(shuffled, 10).map(x => x.utcDate)).toEqual(['2026-01-05', '2026-01-10']);
+  });
+  it('празен/null вход -> празен масив', () => {
+    expect(limitSortedUpcoming([], 10)).toEqual([]);
+    expect(limitSortedUpcoming(null, 10)).toEqual([]);
+  });
+});
+
+describe('hasRecentFinishedActivity', () => {
+  const now = new Date('2026-01-20T00:00:00Z');
+  it('true, когато има FINISHED мач в рамките на lookbackDays', () => {
+    const matches = [{ status: 'FINISHED', utcDate: '2026-01-10T00:00:00Z' }];
+    expect(hasRecentFinishedActivity(matches, now, 21)).toBe(true);
+  });
+  it('false, когато най-скорошният FINISHED мач е извън lookbackDays', () => {
+    const matches = [{ status: 'FINISHED', utcDate: '2025-01-01T00:00:00Z' }];
+    expect(hasRecentFinishedActivity(matches, now, 21)).toBe(false);
+  });
+  it('игнорира не-FINISHED мачове (SCHEDULED не брои като "активност")', () => {
+    const matches = [{ status: 'SCHEDULED', utcDate: '2026-01-19T00:00:00Z' }];
+    expect(hasRecentFinishedActivity(matches, now, 21)).toBe(false);
+  });
+  it('празен/null вход -> false, не хвърля (не твърди нищо при липса на данни - виж "не използвай липсата на исторически данни като доказателство за неактивен сезон")', () => {
+    expect(hasRecentFinishedActivity([], now, 21)).toBe(false);
+    expect(hasRecentFinishedActivity(null, now, 21)).toBe(false);
+  });
+});
+
+describe('buildEmptyWindowMessage', () => {
+  it('базов, честен текст - описва САМО проверения прозорец, нищо извън него', () => {
+    expect(buildEmptyWindowMessage(21, false)).toBe('Няма мачове в следващите 21 дни.');
+  });
+  it('добавя "Възможна пауза" само при подадена скорошна активност - никога категорично твърдение', () => {
+    expect(buildEmptyWindowMessage(21, true)).toBe('Няма мачове в следващите 21 дни. Възможна пауза.');
+  });
+  it('windowDays се отразява точно в текста (конфигурируем параметър)', () => {
+    expect(buildEmptyWindowMessage(7, false)).toBe('Няма мачове в следващите 7 дни.');
   });
 });

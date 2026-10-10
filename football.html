@@ -328,6 +328,14 @@ const AS_LEAGUES=[
 // Ефбет Лига, Сюпер Лиг и 2. Бундеслига не се покриват от football-data.org -
 // табовете ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ ги допълват отделно през api-sports.io.
 const EXTRA_AS_LEAGUE_IDS=[172,203,79];
+// F3a (виж discussion-а "лигите не трябва да изчезват без обяснение при
+// международна пауза") - loadUpcoming() разширява прозореца на основната
+// заявка от 3 на UPCOMING_WINDOW_DAYS дни (0 нови заявки - само по-голям
+// отговор на СЪЩАТА заявка), и ограничава показваните/H2H-заявяваните мачове
+// на състезание до UPCOMING_MAX_PER_COMP (сортирани по дата, тавана се прилага
+// СЛЕД сортирането - виж limitSortedUpcoming() в football-logic.js).
+const UPCOMING_WINDOW_DAYS=21;
+const UPCOMING_MAX_PER_COMP=10;
 async function fetchExtraASFixturesByDate(dateStr){
   const season=currentSeasonYear();
   const results=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&date='+dateStr)));
@@ -1624,7 +1632,7 @@ async function loadUpcoming(){
   const c=document.getElementById('upcoming-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
-    const today=getToday(),day3=getDatePlus(3);
+    const today=getToday(),day3=getDatePlus(UPCOMING_WINDOW_DAYS);
     const upData=await apiFetch('/matches?dateFrom='+today+'&dateTo='+day3+'&status=SCHEDULED,TIMED');
     let upcoming=upData.matches||[];
     let allMatches=[];
@@ -1673,13 +1681,47 @@ async function loadUpcoming(){
     // което изисква allMatches да е ВЕЧЕ възходящо подреден по дата. Нулева
     // нова API заявка - чисто сортиране на вече получените данни.
     allMatches=sortMatchesByDate(allMatches);
-    if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
-    for(const k in groups)groups[k].matches.sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
-    // Историята между двата отбора (h2h) за всеки мач се тегли паралелно вместо
-    // последователно - едно по едно през 20-30 мача можеше видимо да забави
-    // зареждането на таба.
+    // F3a (виж discussion-а "всички конфигурирани състезания трябва да остават
+    // видими... не изграждай списъка на лигите единствено от получените upcoming
+    // мачове") - секциите се строят от ПЪЛНИЯ конфигуриран списък (COMPS +
+    // EXTRA_AS_LEAGUE_IDS), не от groups - състезание без мач в прозореца все
+    // пак получава свой comp-header + честно съобщение, не изчезва мълчаливо.
+    // Таванът (UPCOMING_MAX_PER_COMP) се прилага СЛЕД сортиране по дата
+    // (limitSortedUpcoming), за да останат действително най-близките мачове.
+    const configuredCompetitions=[
+      ...COMPS.map(c=>({key:String(c.id),flag:c.flag,name:c.name})),
+      ...EXTRA_AS_LEAGUE_IDS.map(id=>{const l=AS_LEAGUES.find(x=>x.id===id);return{key:'as_'+id,flag:l?.icon||'🏟️',name:l?.title||''};})
+    ];
+    const renderedKeys=new Set(configuredCompetitions.map(c=>c.key));
+    const sections=configuredCompetitions.map(comp=>{
+      const g=groups[comp.key];
+      const capped=limitSortedUpcoming(g?g.matches:[],UPCOMING_MAX_PER_COMP);
+      if(capped.length)return{comp,matches:capped};
+      // "Възможна пауза" суфикс само ако ВЕЧЕ извлечените данни (allMatches)
+      // показват скорошна завършена активност за това състезание - при
+      // провалена историческа заявка allMatches просто е по-кратък и суфиксът
+      // не се добавя (виж discussion-а "не използвай липсата на исторически
+      // данни като доказателство за неактивен сезон" - никога не твърдим
+      // обратното, просто пропускаме обогатяването).
+      const recentFinished=allMatches.filter(m=>String(m.competition?.id)===comp.key);
+      const hasRecent=hasRecentFinishedActivity(recentFinished,new Date(today),UPCOMING_WINDOW_DAYS);
+      return{comp,emptyMessage:buildEmptyWindowMessage(UPCOMING_WINDOW_DAYS,hasRecent)};
+    });
+    // Толерантен fallback за неочаквани competition id-та извън конфигурирания
+    // списък (напр. допълнителен турнир, който football-data.org върне
+    // неочаквано) - запазва старото поведение, вместо да го скрие.
+    for(const k in groups){
+      if(renderedKeys.has(k))continue;
+      const g=groups[k];
+      const capped=limitSortedUpcoming(g.matches,UPCOMING_MAX_PER_COMP);
+      if(capped.length)sections.push({comp:{key:k,flag:'🏟️',name:g.name||''},matches:capped});
+    }
+    const visibleMatches=sections.flatMap(s=>s.matches||[]);
+    // Историята между двата отбора (h2h) се тегли само за ВИДИМИТЕ (вече
+    // ограничени до UPCOMING_MAX_PER_COMP) мачове - таванът реално намалява
+    // броя H2H заявки, не само визуализацията.
     async function fetchH2H(m){
       const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
       if(!hId||!aId)return [];
@@ -1697,18 +1739,16 @@ async function loadUpcoming(){
       }catch(e){return [];}
     }
     const h2hByMatchId=new Map();
-    await Promise.all(upcoming.map(async m=>{h2hByMatchId.set(m.id,await fetchH2H(m));}));
+    await Promise.all(visibleMatches.map(async m=>{h2hByMatchId.set(m.id,await fetchH2H(m));}));
     let html='';
-    for(const k in groups){
-      const g=groups[k];
-      const comp=COMPS.find(c=>c.id==k)||AS_LEAGUES.find(l=>'as_'+l.id===k);
-      const flag=comp?.flag||comp?.icon||'🏟️';
-      const name=comp?.title||g.name||comp?.name||'';
-      html+=`<div class="comp-header">${flag} ${name}</div>`;
-      for(const m of g.matches){
-        html+=renderMatch(m,true,allMatches,h2hByMatchId.get(m.id)||[],null);
+    sections.forEach(s=>{
+      html+=`<div class="comp-header">${s.comp.flag} ${s.comp.name}</div>`;
+      if(s.matches){
+        s.matches.forEach(m=>{html+=renderMatch(m,true,allMatches,h2hByMatchId.get(m.id)||[],null);});
+      }else{
+        html+=`<div class="no-data">${s.emptyMessage}</div>`;
       }
-    }
+    });
     c.innerHTML=html;
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
