@@ -65,12 +65,12 @@ describe('loadUpcoming() wiring - Лига на конференциите пр�
     extractBraced(html, 'async function loadUpcoming('),
   ].join('\n');
 
-  function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, fetchAsLeagueSeasonHistory, beginAsForeground, endAsForeground }) {
+  function buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch, fetchAsLeagueSeasonHistory, beginAsForeground, endAsForeground, fetchH2HCached }) {
     const fn = new Function(
       'getToday', 'getDatePlus', 'apiFetch', 'getDateMinus', 'apiFetchAS', 'currentSeasonYear',
       'asFixtureToMatch', 'sortMatchesByDate', 'renderMatch',
       'UPCOMING_WINDOW_DAYS', 'UPCOMING_MAX_PER_COMP', 'limitSortedUpcoming', 'hasRecentFinishedActivity',
-      'buildEmptyWindowMessage', 'beginAsForeground', 'endAsForeground', 'fetchAsLeagueSeasonHistory',
+      'buildEmptyWindowMessage', 'beginAsForeground', 'endAsForeground', 'fetchAsLeagueSeasonHistory', 'fetchH2HCached',
       combinedSrc + `\nreturn loadUpcoming;`
     );
     return fn(
@@ -79,7 +79,8 @@ describe('loadUpcoming() wiring - Лига на конференциите пр�
       sortMatchesByDate, renderMatch || (() => '<div>MATCH</div>'),
       21, 10, limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage,
       beginAsForeground || (() => {}), endAsForeground || (() => {}),
-      fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false }))
+      fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false })),
+      fetchH2HCached || ((key, fetcher) => fetcher())
     );
   }
 
