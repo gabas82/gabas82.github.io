@@ -1665,6 +1665,14 @@ async function loadUpcoming(){
         (lastD.response||[]).forEach(f=>allMatches.push(asFixtureToMatch(f)));
       });
     }catch(e){}
+    // F2a ХРОНОЛОГИЧНО СОРТИРАНЕ (виж discussion-а "прогнозите не трябва да
+    // зависят от реда на отваряне на табовете") - allMatches е сглобен от
+    // няколко различни fetch-а по-горе (football-data.org + Световно + extra
+    // api-sports лиги), без гаранция за общ хронологичен ред. calcForm()/
+    // form5Html()/htTrendHtml() всички взимат "последните N" чрез .slice(-N),
+    // което изисква allMatches да е ВЕЧЕ възходящо подреден по дата. Нулева
+    // нова API заявка - чисто сортиране на вече получените данни.
+    allMatches=sortMatchesByDate(allMatches);
     if(!upcoming.length){c.innerHTML='<div class="no-data">Няма предстоящи мачове</div>';return;}
     const groups={};
     upcoming.forEach(m=>{const k=m.competition?.id;if(!groups[k])groups[k]={name:m.competition?.name||'',matches:[]};groups[k].matches.push(m);});
