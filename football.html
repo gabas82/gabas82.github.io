@@ -442,37 +442,96 @@ let comebackStatsCache=null;
 let wcKnockoutMatchesCache=null;
 let wcAliveTeamsCache=null;
 
+// D5 (виж discussion-а "WC scorers request cooldown") - loadCurrentTab() викаше
+// loadWCScorers() на ВСЯКО превключване на таб (независимо кой таб) И на всеки
+// 60-сек LIVE auto-refresh тик, докато wcScorersCache остава празен - мигновен
+// нов опит без изчакване, вкл. при API грешка. Веднъж попълнен с реални данни,
+// обратно - НИКОГА не се опресняваше повторно за остатъка от сесията. Двете
+// крайности се адресират тук, БЕЗ промяна в самото изчисление на голмайсторите
+// (копирано byte-identical по-долу) - само около него е добавен throttling слой:
+// - wcScorersLastAttemptAt се пише ПРЕДИ мрежовата заявка (не след) - 60-сек
+//   cooldown важи еднакво при API грешка И при валиден празен резултат, И
+//   независимо дали wcScorersCache вече съдържа данни (виж поправката в
+//   loadWCScorers() по-долу) - без последното, веднъж изтекъл TTL, провален/
+//   празен опит отваряше вратата за мигновени повторни опити на всяко
+//   следващо loadCurrentTab(), без никакво изчакване.
+// - wcScorersLastSuccessAt се пише САМО при успешен резултат С данни - 5-мин
+//   TTL разрешава нов опит дори wcScorersCache вече да не е празен.
+// - wcScorersInflight пази текущия промис - паралелно/презастъпващо извикване
+//   (напр. LIVE тика точно докато виси предишен опит) споделя РЕЗУЛТАТА,
+//   вместо да стартира втора реална заявка.
+// - wcScorersCache НИКОГА не се презаписва с празен резултат - "валиден празен
+//   резултат" (computed.length===0 след резолвиране, без хвърлена грешка) и API
+//   грешка (хвърлена от apiFetch(), вече разграничена на isNetworkError/
+//   isHttpError/isInvalidResponse/isApiError от PR C1) водят до ЕДНАКВО
+//   поведение тук - последните валидни данни (ако имаше) се пазят непипнати.
+const WC_SCORERS_COOLDOWN_MS=60*1000;
+const WC_SCORERS_TTL_MS=5*60*1000;
+let wcScorersLastAttemptAt=0;
+let wcScorersLastSuccessAt=0;
+let wcScorersInflight=null;
 async function loadWCScorers(){
-  try{
-    const ts=Date.now();
-    const data=await apiFetch('/competitions/2000/matches?_t='+ts);
-    const matches=(data.matches||[]).filter(m=>m.status==='FINISHED');
-    const players={};
-    matches.forEach(m=>{
-      (m.goals||[]).forEach(g=>{
-        if(g.type==='OWN')return;
-        const pid=g.scorer?.id;
-        const tid=g.team?.id;
-        if(!pid||!tid)return;
-        if(!players[pid]){players[pid]={id:pid,name:g.scorer?.name||'—',teamId:tid,teamName:g.team?.name||'—',goals:0};}
-        players[pid].goals++;
+  if(wcScorersInflight)return wcScorersInflight;
+  const now=Date.now();
+  const hasData=wcScorersCache.length>0;
+  const ttlStillFresh=hasData&&(now-wcScorersLastSuccessAt<WC_SCORERS_TTL_MS);
+  if(ttlStillFresh)return;
+  // D5 поправка (виж discussion-а "откритият дефект при проверка преди merge") -
+  // 60-сек cooldown вече важи за ВСЕКИ следващ опит, независимо дали
+  // wcScorersCache вече съдържа данни - преди тук cooldown-ът проверяваше
+  // само "!hasData", затова веднъж изтекъл TTL, провален/празен опит
+  // мигновено отваряше вратата за нов опит на всяко следващо
+  // loadCurrentTab() (всяко превключване на таб/60-сек LIVE тик), без
+  // никакво изчакване - доказано с директна репродукция. wcScorersLastAttemptAt
+  // се пише при ВСЕКИ опит (успешен или не), затова тази единствена проверка
+  // долу вече покрива и "никога не е имал данни", и "имал е, TTL изтекъл,
+  // предният опит пак е бил неуспешен/празен" - еднакво.
+  if(now-wcScorersLastAttemptAt<WC_SCORERS_COOLDOWN_MS)return;
+  wcScorersLastAttemptAt=now;
+  const promise=(async()=>{
+    try{
+      const ts=Date.now();
+      const data=await apiFetch('/competitions/2000/matches?_t='+ts);
+      const matches=(data.matches||[]).filter(m=>m.status==='FINISHED');
+      const players={};
+      matches.forEach(m=>{
+        (m.goals||[]).forEach(g=>{
+          if(g.type==='OWN')return;
+          const pid=g.scorer?.id;
+          const tid=g.team?.id;
+          if(!pid||!tid)return;
+          if(!players[pid]){players[pid]={id:pid,name:g.scorer?.name||'—',teamId:tid,teamName:g.team?.name||'—',goals:0};}
+          players[pid].goals++;
+        });
       });
-    });
-    wcScorersCache=Object.values(players).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals);
-    if(!wcScorersCache.length){
-      try{
-        const fb=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
-        const fsc=fb.scorers||[];
-        wcScorersCache=fsc.map(s=>({
-          id:s.player?.id,
-          name:s.player?.name||'—',
-          teamId:s.team?.id,
-          teamName:s.team?.name||'—',
-          goals:s.goals||0
-        })).filter(s=>s.goals>0);
-      }catch(e2){}
+      let computed=Object.values(players).filter(p=>p.goals>0).sort((a,b)=>b.goals-a.goals);
+      if(!computed.length){
+        try{
+          const fb=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
+          const fsc=fb.scorers||[];
+          computed=fsc.map(s=>({
+            id:s.player?.id,
+            name:s.player?.name||'—',
+            teamId:s.team?.id,
+            teamName:s.team?.name||'—',
+            goals:s.goals||0
+          })).filter(s=>s.goals>0);
+        }catch(e2){}
+      }
+      if(computed.length){
+        wcScorersCache=computed;
+        wcScorersLastSuccessAt=Date.now();
+      }
+      // computed.length===0 тук (валиден празен резултат, и двата endpoint-а
+      // дадоха 0) - wcScorersCache НЕ се пипа (виж коментара отгоре).
+    }catch(e){
+      // API грешка/невалиден отговор (isNetworkError/isHttpError/
+      // isInvalidResponse/isApiError от apiFetch(), PR C1) - поглъща се тихо,
+      // wcScorersCache НЕ се пипа - последните валидни данни се пазят.
     }
-  }catch(e){}
+  })();
+  wcScorersInflight=promise;
+  try{await promise;}finally{wcScorersInflight=null;}
 }
 // PR C1 (виж discussion-а "коректно разпознаване на football-data.org грешки") -
 // Worker-ът (worker.js) винаги връща HTTP 200 към клиента, независимо от
@@ -640,7 +699,11 @@ function switchTab(name){
 }
 async function loadCurrentTab(){
   updateTime();
-  if(!wcScorersCache.length)await loadWCScorers();
+  // D5 - loadWCScorers() вече сам решава дали да направи реална заявка
+  // (cooldown/TTL/inflight вътре в него) - безусловното извикване тук е
+  // евтино при throttle (само 2 Date.now() сравнения), но позволява и
+  // 5-мин TTL опресняване след успешен резултат (виж коментара там).
+  await loadWCScorers();
   if(currentTab==='live')loadLive();
   else if(currentTab==='today')loadToday();
   else if(currentTab==='upcoming')loadUpcoming();
