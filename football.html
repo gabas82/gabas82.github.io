@@ -200,7 +200,6 @@
   <div class="tab" onclick="switchTab('scorers')">⚽ ГОЛМАЙСТОРИ</div>
   <div class="tab" onclick="switchTab('cards')">🟨 КАРТОНИ</div>
   <div class="tab" onclick="switchTab('comeback')">🔄 ОБРАТИ</div>
-  <div class="tab" onclick="switchTab('knockout')">🏆 НОКАУТ</div>
   <div class="tab" onclick="switchTab('cl')">⭐ ШЛ</div>
   <div class="tab" onclick="switchTab('el')">🟠 ЛЕ</div>
   <div class="tab" onclick="switchTab('uecl')">🔵 ЛК</div>
@@ -239,10 +238,6 @@
   <div class="section-title" style="margin-top:12px">🔄 COMEBACK RATING — ОТБОРИ С ОБРАТИ</div>
   <div class="cb-info-box">📊 <b>Concede First %</b> — колко често отборът е бил на загуба на полувремето. <b>Comeback %</b> — колко от тези мачове е завършил без загуба (равен/победа). <b>Гол/мач</b> — средно вкарани голове. По-висок Comeback Rating = по-голям шанс за обрат, ако отборът поведе пръв съперника.</div>
   <div id="comeback-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
-</div>
-<div id="tab-knockout" class="tab-content">
-  <div class="section-title" style="margin-top:12px">🏆 НОКАУТ ФАЗА — WORLD CUP 2026</div>
-  <div id="knockout-content"><div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div></div>
 </div>
 <div id="tab-cl" class="tab-content">
   <div class="section-title" style="margin-top:12px">⭐ ШАМПИОНСКА ЛИГА</div>
@@ -689,7 +684,7 @@ async function fetchAsLeagueSeasonHistory(leagueId){
 }
 function switchTab(name){
   currentTab=name;
-  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','knockout','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig','bl2'];
+  const names=['live','today','upcoming','finished','history','standings','scorers','cards','comeback','cl','el','uecl','efbet','pl','bl','seriea','laliga','ligue1','superlig','bl2'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',names[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -713,7 +708,6 @@ async function loadCurrentTab(){
   else if(currentTab==='scorers')loadScorers();
   else if(currentTab==='cards')loadCards();
   else if(currentTab==='comeback')loadComeback(true);
-  else if(currentTab==='knockout')loadKnockout();
   else if(currentTab==='cl')loadChampionsLeagueAS();
   else if(currentTab==='el')loadEuropaLeagueAS();
   else if(currentTab==='uecl')loadUECL();
@@ -2213,21 +2207,13 @@ function buildScorersFromMatches(matches){
     .sort((a,b)=>b.goals-a.goals||b.assists-a.assists);
 }
 
-const STAGE_LABELS={
-  'LAST_32':'🔵 1/16-финал (Round of 32)',
-  'ROUND_OF_32':'🔵 1/16-финал (Round of 32)',
-  'LAST_16':'🟢 1/8-финал (Round of 16)',
-  'ROUND_OF_16':'🟢 1/8-финал (Round of 16)',
-  'QUARTER_FINALS':'🟡 Четвъртфинал',
-  'SEMI_FINALS':'🟠 Полуфинал',
-  'THIRD_PLACE':'🥉 Мач за 3-то място',
-  'FINAL':'🏆 ФИНАЛ'
-};
-const STAGE_ORDER={
-  'LAST_32':1,'ROUND_OF_32':1,'LAST_16':2,'ROUND_OF_16':2,
-  'QUARTER_FINALS':3,'SEMI_FINALS':4,'THIRD_PLACE':5,'FINAL':6
-};
-
+// FOOTBALL DASHBOARD PR 4 (виж "Премахване на таб НОКАУТ") - loadWCKnockoutData()/
+// computeWCAliveTeams()/getWCAliveTeamIds() остават НЕПИПНАТИ - ползват се от
+// ГОЛМАЙСТОРИ (apiSportsScorersBlockHtml-поток чрез getWCAliveTeamIds() по-долу)
+// и ОБРАТИ (loadComeback()). Премахнати са само STAGE_LABELS/STAGE_ORDER и
+// loadKnockout() - те бяха специфични ИЗКЛЮЧИТЕЛНО за визуализацията на
+// самостоятелния таб НОКАУТ (вече премахнат от навигацията/HTML/switchTab()),
+// без друг потребител в кодовата база.
 async function loadWCKnockoutData(force){
   if(wcKnockoutMatchesCache && !force) return wcKnockoutMatchesCache;
   try{
@@ -2273,43 +2259,6 @@ async function getWCAliveTeamIds(force){
   const matches=await loadWCKnockoutData(force);
   wcAliveTeamsCache=computeWCAliveTeams(matches);
   return wcAliveTeamsCache;
-}
-
-async function loadKnockout(){
-  const c=document.getElementById('knockout-content');
-  c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
-  try{
-    // Щом финалът е приключил, турнирът не се променя повече — спираме
-    // принудителното презареждане (force) и показваме архивен бадж, вместо
-    // да правим ненужни заявки към API-то при всяко отваряне на таба.
-    const alreadyArchived=wcKnockoutMatchesCache&&wcKnockoutMatchesCache.some(m=>m.stage==='FINAL'&&m.status==='FINISHED');
-    const matches=await loadWCKnockoutData(!alreadyArchived);
-    wcAliveTeamsCache=computeWCAliveTeams(matches);
-    const knockout=matches.filter(m=>m.stage && m.stage!=='GROUP_STAGE');
-    if(!knockout.length){
-      c.innerHTML='<div class="no-data">Нокаут фазата още не е стартирала или API-то все още не връща данни за нея.</div>';
-      return;
-    }
-    const finalDone=knockout.some(m=>m.stage==='FINAL'&&m.status==='FINISHED');
-    const groups={};
-    knockout.forEach(m=>{
-      const st=m.stage;
-      if(!groups[st])groups[st]=[];
-      groups[st].push(m);
-    });
-    const orderedStages=Object.keys(groups).sort((a,b)=>(STAGE_ORDER[a]||99)-(STAGE_ORDER[b]||99));
-    let html=finalDone?`<div style="margin:0 16px 12px;padding:8px 12px;background:rgba(255,214,0,0.06);border:1px solid rgba(255,214,0,0.25);border-radius:10px;font-size:10px;color:var(--yellow);text-align:center">🏁 Турнирът приключи — архивен изглед, без автоматично опресняване</div>`:'';
-    orderedStages.forEach(st=>{
-      const label=STAGE_LABELS[st]||st;
-      html+=`<div class="comp-header">${label}</div>`;
-      groups[st].slice().sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate)).forEach(m=>{
-        html+=renderMatch(m,false,null,null,null);
-      });
-    });
-    c.innerHTML=html;
-  }catch(e){
-    c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;
-  }
 }
 
 // FOOTBALL DASHBOARD PR 2 (виж "TTL кеширане на ГОЛМАЙСТОРИ") - loadScorers()
