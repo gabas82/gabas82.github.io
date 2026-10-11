@@ -337,11 +337,28 @@ const EXTRA_AS_LEAGUE_IDS=[172,203,79,848];
 // СЛЕД сортирането - виж limitSortedUpcoming() в football-logic.js).
 const UPCOMING_WINDOW_DAYS=21;
 const UPCOMING_MAX_PER_COMP=10;
-async function fetchExtraASFixturesByDate(dateStr){
+// FOOTBALL DASHBOARD PR 5a (виж "Разграничаване на API грешки и празни данни -
+// ДНЕС + СВЪРШИЛИ") - преди, всеки rejected резултат тук се пропускаше напълно
+// тихо (forEach-ът обработваше само fulfilled) - неразличимо от легитимно 0
+// мача в деня за всичките 4 допълнителни лиги. Новият, опционален параметър
+// `warnings` (масив) е ЧИСТО АДИТИВЕН - когато не е подаден (всички
+// извиквания преди тази задача), поведението е 100% същото както преди -
+// пълна обратна съвместимост. loadToday()/loadFinished() (единствените
+// извикващи) вече подават споделен масив, за да получат ясно съобщение за
+// всяка провалена лига вместо тихо пропускане.
+async function fetchExtraASFixturesByDate(dateStr,warnings){
   const season=currentSeasonYear();
   const results=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&date='+dateStr)));
   const out=[];
-  results.forEach(r=>{if(r.status==='fulfilled')out.push(...(r.value.response||[]));});
+  results.forEach((r,i)=>{
+    if(r.status==='fulfilled'){
+      out.push(...(r.value.response||[]));
+    }else if(warnings){
+      const leagueId=EXTRA_AS_LEAGUE_IDS[i];
+      const label=(AS_LEAGUES.find(l=>l.id===leagueId)||{}).title||('лига '+leagueId);
+      warnings.push(apiErrorMessage(r.reason, label));
+    }
+  });
   return out;
 }
 const FLAGS={
@@ -1814,38 +1831,89 @@ async function loadLive(){
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
+// FOOTBALL DASHBOARD PR 5a (виж "Разграничаване на API грешки и празни данни -
+// ДНЕС + СВЪРШИЛИ") - преди, fd.org и AS заявките бяха в общ Promise.all с
+// тих .catch(()=>[]) на AS страната - провал на fd.org убиваше ЦЕЛИЯ изглед
+// (outer catch, generic e.message, без apiErrorMessage()), а провал на AS
+// изчезваше напълно тихо. Ако всичко се провали, потребителят вижда "Няма
+// мачове днес" - неразличимо от реално свободен ден. Сега Promise.allSettled
+// пази частичен успех между двата доставчика и dataWarnings показва ясно
+// съобщение (apiErrorMessage(), без минута/ден догадка за rate limit) за
+// всяка провалена страна, ПРЕДИ успешно получените мачове (ако има такива).
 async function loadToday(){
   const c=document.getElementById('today-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const today=getToday();
-    const[fdRes,extraRaw]=await Promise.all([
+    const dataWarnings=[];
+    const[fdResult,extraResult]=await Promise.allSettled([
       apiFetch('/matches?date='+today),
-      fetchExtraASFixturesByDate(today).catch(()=>[])
+      fetchExtraASFixturesByDate(today,dataWarnings)
     ]);
-    const matches=[...(fdRes.matches||[]),...extraRaw.map(asFixtureToMatch)];
-    if(!matches.length){c.innerHTML='<div class="no-data">Няма мачове днес</div>';return;}
+    let fdMatches=[];
+    if(fdResult.status==='fulfilled'){
+      fdMatches=fdResult.value.matches||[];
+    }else{
+      dataWarnings.push(apiErrorMessage(fdResult.reason, 'днешните мачове (football-data.org)'));
+    }
+    const extraRaw=extraResult.status==='fulfilled'?extraResult.value:[];
+    if(extraResult.status==='rejected'){
+      dataWarnings.push(apiErrorMessage(extraResult.reason, 'допълнителните лиги (api-sports.io)'));
+    }
+    const matches=[...fdMatches,...extraRaw.map(asFixtureToMatch)];
+    const warningsHtml=dataWarnings.map(w=>`<div class="error-box" style="margin:8px 16px">${w}</div>`).join('');
+    if(!matches.length){c.innerHTML=warningsHtml||'<div class="no-data">Няма мачове днес</div>';return;}
     matches.sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
-    c.innerHTML=matches.map(m=>renderMatch(m,false,null,null,null)).join('');
+    c.innerHTML=warningsHtml+matches.map(m=>renderMatch(m,false,null,null,null)).join('');
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
+// FOOTBALL DASHBOARD PR 5a (виж "Разграничаване на API грешки и празни данни -
+// ДНЕС + СВЪРШИЛИ") - преди, единният Promise.all означаваше, че провал на
+// ЕДИН fd.org ден (вчера ИЛИ днес) захвърляше ЦЕЛИЯ резултат (включително
+// успешно получения друг ден и успешните AS лиги) - outer catch, generic
+// e.message. Сега Promise.allSettled пази всеки от 4-те източника поотделно -
+// частичен успех се запазва, dataWarnings показва ясно съобщение
+// (apiErrorMessage()) за всеки провалил се източник. Прогнозната
+// верификация (ticksHtml по-долу) и визуализацията на успешно заредените
+// мачове са напълно непипнати.
 async function loadFinished(){
   const c=document.getElementById('finished-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const yesterday=getDateMinus(1),today=getToday();
-    const[d1,d2,extra1,extra2]=await Promise.all([
+    const dataWarnings=[];
+    const[d1Result,d2Result,extra1Result,extra2Result]=await Promise.allSettled([
       apiFetch('/matches?date='+yesterday+'&status=FINISHED'),
       apiFetch('/matches?date='+today+'&status=FINISHED'),
-      fetchExtraASFixturesByDate(yesterday).catch(()=>[]),
-      fetchExtraASFixturesByDate(today).catch(()=>[])
+      fetchExtraASFixturesByDate(yesterday,dataWarnings),
+      fetchExtraASFixturesByDate(today,dataWarnings)
     ]);
+    let d1Matches=[],d2Matches=[];
+    if(d1Result.status==='fulfilled'){
+      d1Matches=d1Result.value.matches||[];
+    }else{
+      dataWarnings.push(apiErrorMessage(d1Result.reason, 'вчерашните мачове (football-data.org)'));
+    }
+    if(d2Result.status==='fulfilled'){
+      d2Matches=d2Result.value.matches||[];
+    }else{
+      dataWarnings.push(apiErrorMessage(d2Result.reason, 'днешните мачове (football-data.org)'));
+    }
+    const extra1=extra1Result.status==='fulfilled'?extra1Result.value:[];
+    const extra2=extra2Result.status==='fulfilled'?extra2Result.value:[];
+    if(extra1Result.status==='rejected'){
+      dataWarnings.push(apiErrorMessage(extra1Result.reason, 'допълнителните лиги (api-sports.io, вчера)'));
+    }
+    if(extra2Result.status==='rejected'){
+      dataWarnings.push(apiErrorMessage(extra2Result.reason, 'допълнителните лиги (api-sports.io, днес)'));
+    }
     const extraFinished=[...extra1,...extra2]
       .filter(f=>['FT','AET','PEN','AWD','WO'].includes(f.fixture?.status?.short))
       .map(asFixtureToMatch);
-    const matches=[...(d2.matches||[]),...(d1.matches||[]),...extraFinished];
-    if(!matches.length){c.innerHTML='<div class="no-data">Няма приключили мачове</div>';return;}
+    const matches=[...d2Matches,...d1Matches,...extraFinished];
+    const warningsHtml=dataWarnings.map(w=>`<div class="error-box" style="margin:8px 16px">${w}</div>`).join('');
+    if(!matches.length){c.innerHTML=warningsHtml||'<div class="no-data">Няма приключили мачове</div>';return;}
     matches.sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
     const hist=getHistory();
     const html=matches.map(m=>{
@@ -1887,7 +1955,7 @@ async function loadFinished(){
         ${ticksHtml}
       </div>`;
     }).join('');
-    c.innerHTML=html;
+    c.innerHTML=warningsHtml+html;
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
