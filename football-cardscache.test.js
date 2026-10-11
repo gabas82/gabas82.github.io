@@ -151,10 +151,14 @@ describe('fetchCardsCached() - директни тестове на реални
 // --- 2. Wiring тестове - loadCards() с РЕАЛНИЯ fetchCardsCached (не мок) ---
 describe('loadCards() wiring - TTL кеш през СЪЩИЯ реален fetchCardsCached (не мок)', () => {
   function buildLoadCards({ apiFetchAS }) {
+    // PR 5d (виж "Разграничаване на API грешки и празни данни - КАРТОНИ") -
+    // loadCards() вече вика apiErrorMessage() (PR #40/5e) при грешка - трябва
+    // да се екстрактне заедно с нея, иначе е undefined в sandbox-а.
     const combinedSrc = [
       extractStatement(html, 'const CARDS_CACHE_TTL_MS='),
       extractStatement(html, 'const cardsCache='),
       extractStatement(html, 'const cardsInflight='),
+      extractBraced(html, 'function apiErrorMessage('),
       extractBraced(html, 'async function fetchCardsCached('),
       extractBraced(html, 'async function loadCards('),
     ].join('\n');
