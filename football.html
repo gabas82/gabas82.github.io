@@ -2515,6 +2515,38 @@ async function loadScorers(){
   }finally{endAsForeground();}
 }
 
+// FOOTBALL DASHBOARD PR 3 (виж "TTL кеширане на КАРТОНИ") - loadCards() тегли
+// наново ВСИЧКИ класации (12 състезания × 2 заявки жълти+червени = 24 заявки
+// общо) НАНОВО при всяко отваряне на таба/натискане на ОБНОВИ - дори данните
+// реално да не са се променили в последните няколко минути. Заедно с
+// ГОЛМАЙСТОРИ (вече решено в PR 2), идентифициран в пълния технически одит
+// като основна причина за "Too many requests" грешки от дневния лимит.
+// Общ TTL кеш + inflight dedup, ТОЧНО ОГЛЕДАЛЕН на доказания модел от PR 2
+// (fetchScorersCached()) - отделен cardsCache/cardsInflight, за да няма НИКАКЪВ
+// шанс за колизия на ключове с ГОЛМАЙСТОРИ (отделни кеш пространства за
+// отделни табове, вместо споделен обект). Ключът включва доставчик+тип
+// статистика (yellowcards/redcards)+лига+сезон - жълти/червени картони,
+// различни лиги и различни сезони никога не споделят запис. Кешира се САМО
+// успешен резултат - грешка/rate-limit/невалиден отговор (хвърлени от
+// apiFetchAS()) НЕ се записват, следващото отваряне на таба опитва отново
+// мрежата. Натрупаните картони тук са статистика за играна сезонна форма,
+// НЕ официално потвърдено дисциплинарно наказание/спиране - кеширането не
+// променя това значение, само честотата на самите заявки.
+const CARDS_CACHE_TTL_MS=15*60*1000;
+const cardsCache={};    // key -> {data,ts}
+const cardsInflight={}; // същия key space - защита срещу паралелни дублирани заявки
+async function fetchCardsCached(key,fetchFn){
+  const cached=cardsCache[key];
+  if(cached&&cached.ts>Date.now()-CARDS_CACHE_TTL_MS)return cached.data;
+  if(cardsInflight[key])return cardsInflight[key];
+  const promise=(async()=>{
+    const data=await fetchFn();
+    cardsCache[key]={data,ts:Date.now()};
+    return data;
+  })();
+  cardsInflight[key]=promise;
+  try{return await promise;}finally{delete cardsInflight[key];}
+}
 async function loadCards(){
   beginAsForeground();
   try{
@@ -2531,9 +2563,22 @@ async function loadCards(){
       // Само текущия сезон - без fallback към миналия. Ако новият сезон още
       // няма изиграни картони, показваме изрично "няма данни", вместо да
       // подменяме тихо с миналогодишна класация.
+      // Валидацията на response (масив) е ВЪТРЕ във fetchFn-а, подаден на
+      // fetchCardsCached() - хвърлена грешка тук се случва ПРЕДИ записа в
+      // кеша (виж fetchCardsCached() по-горе), затова невалиден/непълен
+      // отговор НИКОГА не се кешира като успешна статистика, дори самият
+      // apiFetchAS() формално да резолвира без throw.
       const[yData,rData]=await Promise.all([
-        apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season),
-        apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+season)
+        fetchCardsCached('as_yellowcards_'+asLeagueId+'_'+season,async()=>{
+          const d=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season);
+          if(!Array.isArray(d.response))throw new Error('Невалиден отговор от api-sports.io (жълти картони).');
+          return d;
+        }),
+        fetchCardsCached('as_redcards_'+asLeagueId+'_'+season,async()=>{
+          const d=await apiFetchAS('/players/topredcards?league='+asLeagueId+'&season='+season);
+          if(!Array.isArray(d.response))throw new Error('Невалиден отговор от api-sports.io (червени картони).');
+          return d;
+        })
       ]);
       const yArr=(yData.response||[]);
       const rArr=(rData.response||[]);
