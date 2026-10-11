@@ -439,6 +439,29 @@ function calcConfidence(pred, odds){
   return{score,factors};
 }
 
+// ЗАДАЧА 6.2 (виж "Sample Size Indicator") - ЧИСТО ОПИСАТЕЛНА категория за
+// РАЗМЕРА на историческата извадка зад прогнозата (колко FINISHED мача са
+// налични за двата отбора) - НЕ е измерена статистическа надеждност/точност
+// и НЕ влиза в calcConfidence()/buildPrediction() (и двете остават напълно
+// непипнати - виж одита от Задача №6/6.1: calcConfidence() вече никога не
+// чете hMatchesN/aMatchesN). Прагове - по-слабата от двете извадки
+// (Math.min) определя категорията, огледално на вече съществуващия модел в
+// sampleSizeHtml() (football.html) - "по-слабото от двата отбора ограничава
+// целия сигнал". Етикетите са изрично неутрални (размер, не качество/
+// сигурност/точност) - "Голяма извадка" НЕ означава "гарантирана точност".
+function sampleReliabilityTier(hMatchesN, aMatchesN){
+  const hN=Number.isFinite(hMatchesN)?hMatchesN:0;
+  const aN=Number.isFinite(aMatchesN)?aMatchesN:0;
+  const minN=Math.min(hN,aN);
+  let tier,label;
+  if(minN<=2){tier=1;label='Крайно малка извадка';}
+  else if(minN<=4){tier=2;label='Малка извадка';}
+  else if(minN<=9){tier=3;label='Умерена извадка';}
+  else if(minN<=19){tier=4;label='Добра извадка';}
+  else{tier=5;label='Голяма извадка';}
+  return{hMatchesN:hN,aMatchesN:aN,minN,tier,label};
+}
+
 // КАЛИБРАЦИЯ (Етап A, виж discussion-а "не искам произволни проценти, които
 // изглеждат убедително, но не са доказани") - групира вече записаната история
 // (savePrediction() пази суровите проценти в h.pred, updateHistoryResults()
@@ -693,6 +716,7 @@ if (typeof module !== 'undefined' && module.exports) {
     buildAsSeasonHistoryParams, buildAsSeasonHistoryQuery, calcPct, poissonProb, calcGoalMarkets,
     goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
     saveHistory, migrateHistory, getUnresolvedAsLeagueIds, calcForm, formDotsHtml, buildPrediction, calcConfidence,
+    sampleReliabilityTier,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,

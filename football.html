@@ -738,7 +738,16 @@ async function loadCurrentTab(){
   else if(currentTab==='bl2')loadBundesliga2AS();
 }
 function updateTime(){document.getElementById('update-time').textContent=new Date().toLocaleTimeString('bg-BG');}
-function savePrediction(m,pred){
+// ЗАДАЧА 6.2 (виж "Sample Size Indicator") - опционален трети параметър
+// `sampleTier` (от sampleReliabilityTier(), football-logic.js) - ЧИСТО
+// адитивен запис на hMatchesN/aMatchesN/sampleTier в историята, за бъдеща
+// калибрация (дали категориите по размер на извадката действително
+// корелират с реална точност - НЕ твърдим това сега, само подготвяме
+// данните). Ако не е подаден (стари извиквания/тестове), полетата просто
+// НЕ се добавят към записа - JSON.stringify() изпуска undefined ключове,
+// затова стари И нови записи без тях коректно означават "неизвестно",
+// НИКОГА n=0 (виж дискусията - разлика между "0 мача" и "не записано").
+function savePrediction(m,pred,sampleTier){
   if(!pred)return;
   // PRE-MATCH ONLY (виж discussion-а "качество на статистиката") - LIVE
   // прогнози НЕ се записват в историята от самия източник (не само филтрират
@@ -754,7 +763,9 @@ function savePrediction(m,pred){
   // football-logic.js) - нужни за isPreMatchPrediction()/cross-provider
   // dedup. Стари записи отпреди тая промяна просто ги нямат - четящият код
   // пада на fallback (виж коментарите там), не чупи нищо.
-  hist.push({id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',compId:m.competition?.id??null,statusAtSave:m.status||null,pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10},result:null,savedAt:Date.now()});
+  const entry={id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',compId:m.competition?.id??null,statusAtSave:m.status||null,pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10},result:null,savedAt:Date.now()};
+  if(sampleTier){entry.hMatchesN=sampleTier.hMatchesN;entry.aMatchesN=sampleTier.aMatchesN;entry.sampleTier=sampleTier.tier;}
+  hist.push(entry);
   saveHistory(hist);
 }
 const AS_STATUS_MAP={
@@ -1102,6 +1113,25 @@ function confidenceHtml(conf, hn, an){
     </div>
     ${conf.factors.length?`<div style="display:flex;gap:4px;flex-wrap:wrap">${conf.factors.map(f=>`<span style="font-size:9px;background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.2);color:var(--green);padding:2px 6px;border-radius:8px">${f}</span>`).join('')}</div>`:''}
     <div style="font-size:8px;color:var(--muted);margin-top:6px">* мярка за категоричност на модела, не гаранция за точност</div>
+  </div>`;
+}
+
+// ЗАДАЧА 6.2 (виж "Sample Size Indicator") - компактен, ОТДЕЛЕН индикатор за
+// размера на историческата извадка, показан веднага до "СИЛА НА СИГНАЛА"
+// (confidenceHtml() по-горе) - НЕ дублира вече съществуващия sampleSizeHtml()
+// банер (той остава непипнат, с отделен, по-подробен текст над тук). tier
+// идва от sampleReliabilityTier() (football-logic.js) - чисто описателна
+// категория за БРОЯ наблюдения, не статистическа надеждност/точност.
+// Изрично НЕ ползва думи като "гарантирана"/"точност 5/5"/"висока
+// вероятност за успех" - само неутрален брой + категория по размер.
+function sampleTierChipHtml(tier, hn, an){
+  if(!tier)return '';
+  const col=tier.tier>=4?'var(--green)':tier.tier>=3?'var(--yellow)':'var(--muted)';
+  return `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:4px 0 8px;font-size:9px;color:var(--muted)">
+    <span>📏 Размер на извадката:</span>
+    <span style="color:var(--text)">${hn} <b>${tier.hMatchesN}</b> / ${an} <b>${tier.aMatchesN}</b> мача</span>
+    <span style="padding:1px 7px;border-radius:7px;border:1px solid ${col};color:${col}">${tier.label}</span>
+    <span style="width:100%;font-size:8px">* описва БРОЯ налични наблюдения, не статистическа надеждност или точност на прогнозата</span>
   </div>`;
 }
 
@@ -1723,7 +1753,8 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
     const pred=buildPrediction(m,allMatches);
     const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
     if(pred){
-      savePrediction(m,pred);
+      const sampleTier=sampleReliabilityTier(pred.hMatchesN,pred.aMatchesN);
+      savePrediction(m,pred,sampleTier);
       const conf=calcConfidence(pred);
       const dcPred=calcDoubleChance(pred.hWin,pred.draw,pred.aWin);
       const scorerPlayers=calcTopScorers(m,allMatches,wcScorersCache);
@@ -1733,6 +1764,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       predHtml=`<div class="pred-section">
         ${sampleSizeHtml(pred,hn,an)}
         ${confidenceHtml(conf,hn,an)}
+        ${sampleTierChipHtml(sampleTier,hn,an)}
         ${betBuilder}
         ${scorerBetHtml}
         ${scorerHtml}
