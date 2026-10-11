@@ -2434,6 +2434,17 @@ async function loadScorers(){
   for(const comp of COMPS){
     if(comp.id===2000)continue;
     if(comp.id===2018)continue;
+    // FOOTBALL DASHBOARD PR 1 (виж "одит на ГОЛМАЙСТОРИ - грешни играчи за
+    // България") - fd.org competition id 2016 НЕ покрива Efbet Liga (вече
+    // изрично третирано като такова в loadStandings() по-горе - "Ефбет Лига
+    // (България) не се покрива от football-data.org"). Циклa тук пропускаше
+    // тая проверка и теглеше /competitions/2016/scorers директно от fd.org,
+    // връщайки голмайстори от каквото ID 2016 реално представлява там - НЕ
+    // Efbet Liga играчи, показани грешно под хедъра "България". Пропускаме
+    // го тук и ползваме СЪЩИЯ apiSportsScorersBlockHtml() модел, вече
+    // работещ за Сюпер Лиг/ЛЕ/ЛК по-долу, с правилния AS league ID (172,
+    // COMPS_AS_MAP[2016]).
+    if(comp.id===2016)continue;
     try{
       const data=await apiFetch('/competitions/'+comp.id+'/scorers?limit=50&_t='+ts);
       const sc=data.scorers||[];if(!sc.length)continue;
@@ -2458,10 +2469,11 @@ async function loadScorers(){
     }catch(e){}
   }
 
-  // Сюпер Лиг, Лига Европа и Лига на конференциите не се покриват от
-  // football-data.org (виж skip-а на 2018 в цикъла по-горе) - теглят се през
-  // api-sports.io, със същия хелпър, който вече отбелязва кога показва
-  // предишен сезон (защото новият още няма голове).
+  // Ефбет Лига, Сюпер Лиг, Лига Европа и Лига на конференциите не се покриват
+  // (надеждно) от football-data.org (виж skip-а на 2016/2018 в цикъла
+  // по-горе) - теглят се през api-sports.io, със същия хелпър, който вече
+  // отбелязва кога показва предишен сезон (защото новият още няма голове).
+  html+=await apiSportsScorersBlockHtml(172,'🇧🇬','Ефбет Лига');
   html+=await apiSportsScorersBlockHtml(203,'🇹🇷','Сюпер Лиг');
   html+=await apiSportsScorersBlockHtml(3,'🟠','Лига Европа');
   html+=await apiSportsScorersBlockHtml(848,'🔵','Лига на конференциите');
