@@ -2530,6 +2530,15 @@ async function loadCards(){
   const season=currentSeasonYear();
   const CARD_COMPS=[...COMPS,{id:'tr_superlig',name:'Сюпер Лиг',flag:'🇹🇷'}];
   const CARD_AS_MAP={...COMPS_AS_MAP,tr_superlig:203};
+  // FOOTBALL DASHBOARD PR 5d (виж "Разграничаване на API грешки и празни
+  // данни - КАРТОНИ") - жълтите и червените картони бяха теглени с
+  // Promise.all([yellow,red]) - провал на САМО една от двете заявки хвърляше
+  // веднага (Promise.all отхвърля на ПЪРВИЯ провал), губейки напълно вече
+  // успешно получения резултат на другата - дори жълтите картони да дойдоха
+  // наред, един провален опит за червени караше ЦЯЛАТА лига да изглежда
+  // като грешка и в двата панела. Promise.allSettled() обработва двете
+  // заявки НЕЗАВИСИМО - успешната се показва нормално, провалената получава
+  // собствено ясно съобщение (apiErrorMessage(), PR #40/5e) само в своя панел.
   for(const comp of CARD_COMPS){
     const asLeagueId=CARD_AS_MAP[comp.id];
     if(!asLeagueId)continue;
@@ -2542,7 +2551,7 @@ async function loadCards(){
       // кеша (виж fetchCardsCached() по-горе), затова невалиден/непълен
       // отговор НИКОГА не се кешира като успешна статистика, дори самият
       // apiFetchAS() формално да резолвира без throw.
-      const[yData,rData]=await Promise.all([
+      const[yResult,rResult]=await Promise.allSettled([
         fetchCardsCached('as_yellowcards_'+asLeagueId+'_'+season,async()=>{
           const d=await apiFetchAS('/players/topyellowcards?league='+asLeagueId+'&season='+season);
           if(!Array.isArray(d.response))throw new Error('Невалиден отговор от api-sports.io (жълти картони).');
@@ -2554,8 +2563,6 @@ async function loadCards(){
           return d;
         })
       ]);
-      const yArr=(yData.response||[]);
-      const rArr=(rData.response||[]);
       const parseCardPlayers=(arr)=>arr.map(p=>{
         const stat=p.statistics?.[0]||{};
         return{
@@ -2565,26 +2572,39 @@ async function loadCards(){
           red:stat.cards?.red||0
         };
       });
-      const yParsed=parseCardPlayers(yArr).filter(p=>p.yellow>0).slice(0,8);
-      const rParsed=parseCardPlayers(rArr).filter(p=>p.red>0).slice(0,5);
       const cols='24px 1fr 50px 30px 30px';
       const noDataNote=`<div style="padding:12px 16px;color:var(--muted);font-size:11px">⚠️ Сезон ${season}/${String(season+1).slice(-2)} все още няма картонна статистика за ${comp.name} — появява се с изиграните мачове.</div>`;
-      if(yParsed.length){
-        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
-        yParsed.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
-        yHtml+='</div>';
+      if(yResult.status==='fulfilled'){
+        const yParsed=parseCardPlayers(yResult.value.response||[]).filter(p=>p.yellow>0).slice(0,8);
+        if(yParsed.length){
+          yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
+          yParsed.forEach((s,i)=>{yHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
+          yHtml+='</div>';
+        } else {
+          yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>${noDataNote}`;
+        }
       } else {
-        yHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>${noDataNote}`;
+        yHtml+=`<div class="error-box" style="margin:8px 16px">${apiErrorMessage(yResult.reason, comp.name)}</div>`;
       }
-      if(rParsed.length){
-        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
-        rParsed.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
-        rHtml+='</div>';
+      if(rResult.status==='fulfilled'){
+        const rParsed=parseCardPlayers(rResult.value.response||[]).filter(p=>p.red>0).slice(0,5);
+        if(rParsed.length){
+          rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div><div class="big-table"><div class="big-header" style="grid-template-columns:${cols}"><div>#</div><div>ИГРАЧ</div><div>ОТБОР</div><div style="color:var(--yellow)">🟨</div><div style="color:var(--red)">🟥</div></div>`;
+          rParsed.forEach((s,i)=>{rHtml+=`<div class="big-row" style="grid-template-columns:${cols}"><div class="s-pos">${i+1}</div><div class="s-name">${s.name}</div><div class="s-team">${getFlag(s.team)} ${s.team}</div><div class="s-yel">${s.yellow}</div><div class="s-red">${s.red}</div></div>`;});
+          rHtml+='</div>';
+        } else {
+          rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>${noDataNote}`;
+        }
       } else {
-        rHtml+=`<div class="comp-header">${comp.flag} ${comp.name}</div>${noDataNote}`;
+        rHtml+=`<div class="error-box" style="margin:8px 16px">${apiErrorMessage(rResult.reason, comp.name)}</div>`;
       }
     }catch(e){
-      yHtml+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;
+      // Непредвидена грешка извън самите две fetchCardsCached заявки (напр.
+      // при самото рендериране) - Promise.allSettled() никога не хвърля,
+      // затова тук се очаква да НЕ се влиза практически никога; пазим го
+      // единствено като защитна мрежа, огледална на старото поведение.
+      yHtml+=`<div class="error-box" style="margin:8px 16px">${apiErrorMessage(e, comp.name)}</div>`;
+      rHtml+=`<div class="error-box" style="margin:8px 16px">${apiErrorMessage(e, comp.name)}</div>`;
     }
   }
   yc.innerHTML=yHtml||'<div class="no-data">Няма данни за жълти картони</div>';
