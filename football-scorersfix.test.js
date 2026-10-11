@@ -34,7 +34,15 @@ const TEST_COMPS = [
 ];
 
 function buildLoadScorers({ apiFetch, apiFetchAS, getWCAliveTeamIds, buildScorersFromMatches }) {
+  // PR 2 (виж "TTL кеширане на ГОЛМАЙСТОРИ") - loadScorers()/apiSportsScorersBlockHtml()
+  // вече минават през fetchScorersCached() - трябва да се екстрактне заедно с тях,
+  // иначе е undefined в sandbox-а. Всеки buildLoadScorers() извиква нов new Function(...),
+  // затова scorersCache/scorersInflight са чисти (без данни от предходни тестове) на всяко извикване.
   const combinedSrc = [
+    extractStatement(html, 'const SCORERS_CACHE_TTL_MS='),
+    extractStatement(html, 'const scorersCache='),
+    extractStatement(html, 'const scorersInflight='),
+    extractBraced(html, 'async function fetchScorersCached('),
     extractBraced(html, 'async function apiSportsScorersBlockHtml('),
     extractBraced(html, 'async function loadScorers('),
   ].join('\n');

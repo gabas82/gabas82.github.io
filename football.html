@@ -2312,17 +2312,50 @@ async function loadKnockout(){
   }
 }
 
+// FOOTBALL DASHBOARD PR 2 (виж "TTL кеширане на ГОЛМАЙСТОРИ") - loadScorers()
+// тегли ВСИЧКИ класации (fd.org WC2026 + fd.org по COMPS + 4x AS topscorers,
+// ~17 заявки общо) НАНОВО при всяко отваряне на таба/натискане на ОБНОВИ -
+// дори класациите реално да не са се променили в последните няколко минути.
+// Общ TTL кеш + inflight dedup, огледален на fetchAsSeasonFixtures() (PR B) и
+// fetchH2HCached() (D3) - fetchScorersCached(key,fetchFn) приема ПРОИЗВОЛЕН
+// стабилен ключ (доставчик+лига/състезание+сезон) и произволна async функция
+// за реалната заявка. Ключът НИКОГА не включва _t=Date.now() бъстинг
+// параметъра, използван в самия мрежов URL по-долу (виж извикванията) - той
+// остава само част от fetch заявката, иначе всеки опит щеше да е "уникален"
+// ключ и кешът никога нямаше да удря. Кешира се САМО успешен резултат (вкл.
+// легитимно празен масив/0 голмайстори) - грешка/rate-limit/невалиден
+// отговор (хвърлени от apiFetch()/apiFetchAS()) НЕ се записват в кеша,
+// хвърлянето става преди записа - следващото отваряне на таба опитва отново
+// мрежата. Отделни ключови пространства по доставчик+лига/състезание+сезон
+// (fd_scorers_<compId>, as_topscorers_<leagueId>_<season>, и т.н.) - нулев
+// риск от смесване на играчи между лиги/сезони. Напълно отделен от
+// wcScorersCache/loadWCScorers() (D5) - тях не се пипат тук.
+const SCORERS_CACHE_TTL_MS=15*60*1000;
+const scorersCache={};    // key -> {data,ts}
+const scorersInflight={}; // същия key space - защита срещу паралелни дублирани заявки
+async function fetchScorersCached(key,fetchFn){
+  const cached=scorersCache[key];
+  if(cached&&cached.ts>Date.now()-SCORERS_CACHE_TTL_MS)return cached.data;
+  if(scorersInflight[key])return scorersInflight[key];
+  const promise=(async()=>{
+    const data=await fetchFn();
+    scorersCache[key]={data,ts:Date.now()};
+    return data;
+  })();
+  scorersInflight[key]=promise;
+  try{return await promise;}finally{delete scorersInflight[key];}
+}
 // Общ хелпър за голмайстори на състезание, което се тегли изцяло през
 // api-sports.io (football-data.org не го покрива) - виж Сюпер Лиг блока по-долу
 // за оригиналния embed вариант; тук е изведен, за да се преизползва за ЛЕ/ЛК.
 async function apiSportsScorersBlockHtml(leagueId, flag, name){
   try{
     const season=currentSeasonYear();
-    let data=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+season);
+    let data=await fetchScorersCached('as_topscorers_'+leagueId+'_'+season,()=>apiFetchAS('/players/topscorers?league='+leagueId+'&season='+season));
     let arr=data.response||[];
     let usedSeason=season;
     if(!arr.length){
-      data=await apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1));
+      data=await fetchScorersCached('as_topscorers_'+leagueId+'_'+(season-1),()=>apiFetchAS('/players/topscorers?league='+leagueId+'&season='+(season-1)));
       arr=data.response||[];
       usedSeason=season-1;
     }
@@ -2370,7 +2403,7 @@ async function loadScorers(){
     let wcSource='';
     let wcCount=0;
     try{
-      const wcData=await apiFetch('/competitions/2000/matches?_t='+ts);
+      const wcData=await fetchScorersCached('fd_wc2026_matches',()=>apiFetch('/competitions/2000/matches?_t='+ts));
       const wcMatches=wcData.matches||[];
       const wcFinished=wcMatches.filter(m=>m.status==='FINISHED');
       if(wcFinished.length>0){
@@ -2380,7 +2413,7 @@ async function loadScorers(){
       }
     }catch(e2){}
     if(!wcScorers.length){
-      const fallback=await apiFetch('/competitions/2000/scorers?limit=50&_t='+ts);
+      const fallback=await fetchScorersCached('fd_wc2026_scorers_fallback',()=>apiFetch('/competitions/2000/scorers?limit=50&_t='+ts));
       const fsc=fallback.scorers||[];
       wcScorers=fsc.map(s=>({
         id:null,
@@ -2446,7 +2479,7 @@ async function loadScorers(){
     // COMPS_AS_MAP[2016]).
     if(comp.id===2016)continue;
     try{
-      const data=await apiFetch('/competitions/'+comp.id+'/scorers?limit=50&_t='+ts);
+      const data=await fetchScorersCached('fd_scorers_'+comp.id,()=>apiFetch('/competitions/'+comp.id+'/scorers?limit=50&_t='+ts));
       const sc=data.scorers||[];if(!sc.length)continue;
       const cols='28px 1fr 60px 30px 30px';
       html+=`<div class="comp-header">${comp.flag} ${comp.name}</div>
