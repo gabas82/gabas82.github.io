@@ -20,9 +20,22 @@ function extractFunction(src, name) {
   }
   return src.slice(idx, i);
 }
+function extractBraced(src, startMarker) {
+  const idx = src.indexOf(startMarker);
+  if (idx === -1) throw new Error(`не намерих: ${startMarker}`);
+  let depth = 0, start = src.indexOf('{', idx), i = start;
+  for (; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+  }
+  return src.slice(idx, i);
+}
 
 const html = fs.readFileSync('./football.html', 'utf8');
-const code = extractFunction(html, 'loadUpcoming');
+// ЗАДАЧА 6.1 (виж "Historical Data Reliability") - loadUpcoming() вече вика
+// apiErrorMessage() за историческите грешки (historyWarnings) - екстрактваме
+// РЕАЛНАТА функция (не стъб), огледално на football-comebackerror.test.js.
+const code = extractBraced(html, 'function apiErrorMessage(') + '\n' + extractFunction(html, 'loadUpcoming');
 
 // Малък, тестов конфигуриран списък (не истинските 11+11 от football.html) -
 // достатъчен да тества МЕХАНИЗМА (видимост/таван/сортиране/H2H), без да
@@ -133,7 +146,7 @@ describe('loadUpcoming - F3a: всички конфигурирани състе
     expect(html).not.toContain('Възможна пауза');
   });
 
-  it('провалена историческа заявка -> НЕ добавя "Възможна пауза" (не използва липсата на данни като доказателство за обратното), но мачовата секция остава видима', async () => {
+  it('провалена историческа заявка -> НЕ добавя "Възможна пауза" (не използва липсата на данни като доказателство за обратното), мачовата секция остава видима, и (ЗАДАЧА 6.1) ясно error-box предупреждение се показва вместо тихо поглъщане', async () => {
     const apiFetch = (p) => {
       if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [] });
       if (p.includes('status=FINISHED')) return Promise.reject(new Error('history fetch boom'));
@@ -145,7 +158,12 @@ describe('loadUpcoming - F3a: всички конфигурирани състе
     expect(html).toContain('Premier League');
     expect(html).toContain('Няма мачове в следващите 21 дни.');
     expect(html).not.toContain('Възможна пауза');
-    expect(html).not.toContain('error-box'); // мълчаливо провалена вътрешна заявка не трябва да спира целия таб (F3b ще добави по-прецизна диагностика)
+    // ЗАДАЧА 6.1 (виж "Historical Data Reliability") - преди, провалената
+    // историческа заявка изчезваше напълно тихо (неразличимо от реално малка
+    // извадка - точно рискът, посочен в одита на Задача №6, ЕТАП 4). Сега
+    // показва ясно предупреждение, без да маха мачовите секции.
+    expect(html).toContain('error-box');
+    expect(html).toContain('history fetch boom');
   });
 
   it('частичен провал на ЕДНА extra api-sports лига не маркира другите състезания', async () => {

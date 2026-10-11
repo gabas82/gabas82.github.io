@@ -2008,22 +2008,44 @@ async function loadUpcoming(){
     let upcoming=upData.matches||[];
     let allMatches=[];
     const ts=Date.now();
+    // FOOTBALL DASHBOARD ЗАДАЧА 6.1 (виж "Historical Data Reliability") -
+    // historyWarnings разграничава провалена историческа заявка (API грешка/
+    // rate limit) от реално малка/липсваща история - преди, и единният
+    // Promise.all по-долу, и липсващия else клон за histD (по-долу) поглъщаха
+    // грешки напълно тихо, затова allMatches ставаше по-кратък по начин,
+    // неразличим от "отборът просто има малко изиграни мачове" - точно
+    // сценарият, който ЕТАП 4 на одита (Задача №6) посочи. Чисто адитивно -
+    // не пипа buildPrediction()/calcConfidence()/savePrediction()/историята на
+    // записаните прогнози/кеша (fetchAsLeagueSeasonHistory() остава непипната),
+    // само проследява и показва КОИ източници на allMatches са се провалили.
+    const historyWarnings=[];
     try{
-      const[h,wc]=await Promise.all([
+      const[hResult,wcResult]=await Promise.allSettled([
         apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),
         apiFetch('/competitions/2000/matches?_t='+ts)
       ]);
-      const wcAll=wc.matches||[];
-      const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
-      allMatches=[...(h.matches||[]),...wcFinishedOnly];
-      // Нокаут мачовете на Световното (напр. двата полуфинала) понякога са
-      // разделени с повече от 3 дни един от друг — 3-дневният прозорец на
-      // основната заявка пропуска втория. Тук ги добавяме отделно, без
-      // ограничение по дата, за да не изчезват от таб ПРОГНОЗИ.
-      const wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
-      const existingIds=new Set(upcoming.map(m=>String(m.id)));
-      wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
-    }catch(e){}
+      if(hResult.status==='fulfilled'){
+        allMatches=[...(hResult.value.matches||[])];
+      }else{
+        historyWarnings.push(apiErrorMessage(hResult.reason, 'историческите мачове за прогнозите (football-data.org)'));
+      }
+      if(wcResult.status==='fulfilled'){
+        const wcAll=wcResult.value.matches||[];
+        const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
+        allMatches=[...allMatches,...wcFinishedOnly];
+        // Нокаут мачовете на Световното (напр. двата полуфинала) понякога са
+        // разделени с повече от 3 дни един от друг — 3-дневният прозорец на
+        // основната заявка пропуска втория. Тук ги добавяме отделно, без
+        // ограничение по дата, за да не изчезват от таб ПРОГНОЗИ.
+        const wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
+        const existingIds=new Set(upcoming.map(m=>String(m.id)));
+        wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
+      }else{
+        historyWarnings.push(apiErrorMessage(wcResult.reason, 'World Cup 2026'));
+      }
+    }catch(e){
+      historyWarnings.push(apiErrorMessage(e, 'историческите данни за прогнозите'));
+    }
     // Ефбет Лига, Сюпер Лиг, 2. Бундеслига и Лига на конференциите не се
     // покриват от football-data.org, затова таб ПРОГНОЗИ ги пропускаше - тук
     // ги добавяме отделно през api-sports.io, аналогично на моделите за
@@ -2063,9 +2085,18 @@ async function loadUpcoming(){
         }
         if(histD.status==='fulfilled'){
           histD.value.matches.forEach(f=>allMatches.push(asFixtureToMatch(f)));
+        }else{
+          // ЗАДАЧА 6.1 - преди, провалена история тук изчезваше напълно тихо
+          // (allMatches просто по-кратък) - за разлика от nextD по-горе, който
+          // ВЕЧЕ имаше extraFetchFailedKeys следене. Същият label модел като
+          // ОБРАТИ (PR 5b) - човешкото име на лигата от AS_LEAGUES.
+          const label=(AS_LEAGUES.find(l=>l.id===id)||{}).title||('лига '+id);
+          historyWarnings.push(apiErrorMessage(histD.reason, label));
         }
       });
-    }catch(e){}
+    }catch(e){
+      historyWarnings.push(apiErrorMessage(e, 'допълнителните лиги (api-sports.io)'));
+    }
     // F2a ХРОНОЛОГИЧНО СОРТИРАНЕ (виж discussion-а "прогнозите не трябва да
     // зависят от реда на отваряне на табовете") - allMatches е сглобен от
     // няколко различни fetch-а по-горе (football-data.org + Световно + extra
@@ -2163,7 +2194,14 @@ async function loadUpcoming(){
         html+=`<div class="no-data">${s.emptyMessage}</div>`;
       }
     });
-    c.innerHTML=html;
+    // ЗАДАЧА 6.1 - historyWarnings (изчислен по-горе) се показва ВЕДНЪЖ, като
+    // отделен банер ПРЕДИ секциите - различно от extraFetchFailedKeys/
+    // s.errorMessage по-горе (тия касаят ЛИПСВАЩИ предстоящи мачове в
+    // конкретна секция; historyWarnings касае КАЧЕСТВОТО на историческите
+    // данни зад прогнозите във всички секции едновременно) - без дублиране,
+    // понеже всеки от двата механизма пише в собствен, непресичащ се списък.
+    const historyWarningsHtml=historyWarnings.map(w=>`<div class="error-box" style="margin:8px 16px">${w}</div>`).join('');
+    c.innerHTML=historyWarningsHtml+html;
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
   }finally{endAsForeground();}
 }
