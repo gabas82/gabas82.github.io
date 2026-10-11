@@ -128,6 +128,7 @@ describe('ГОЛМАЙСТОРИ (loadScorers()) продължава да ра�
       extractStatement(html, 'const SCORERS_CACHE_TTL_MS='),
       extractStatement(html, 'const scorersCache='),
       extractStatement(html, 'const scorersInflight='),
+      extractBraced(html, 'function apiErrorMessage('),
       extractBraced(html, 'async function fetchScorersCached('),
       extractBraced(html, 'async function apiSportsScorersBlockHtml('),
       extractBraced(html, 'async function loadWCKnockoutData('),
