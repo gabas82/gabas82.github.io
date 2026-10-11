@@ -183,9 +183,11 @@ describe('ОБРАТИ (loadComeback()) продължава да работи �
     const combinedSrc = [
       extractStatement(html, 'const COMPS=['),
       extractStatement(html, 'const EXTRA_AS_LEAGUE_IDS='),
+      extractStatement(html, 'const AS_LEAGUES='),
       extractStatement(html, 'let wcKnockoutMatchesCache='),
       extractStatement(html, 'let wcAliveTeamsCache='),
       extractStatement(html, 'let comebackStatsCache='),
+      extractBraced(html, 'function apiErrorMessage('),
       extractBraced(html, 'async function loadWCKnockoutData('),
       extractBraced(html, 'function computeWCAliveTeams('),
       extractBraced(html, 'async function getWCAliveTeamIds('),

@@ -2702,6 +2702,18 @@ function buildComebackStats(allMatchesByComp, wcAlive){
   return result;
 }
 
+// FOOTBALL DASHBOARD PR 5b (виж "Разграничаване на API грешки и празни данни -
+// ОБРАТИ") - преди, и трите мрежови стъпки по-долу поглъщаха грешки напълно
+// тихо (catch(e){}) - ако ВСИЧКИТЕ се провалеха едновременно, allMatchesByComp
+// остава {} и потребителят вижда "Няма достатъчно данни за изчисление" -
+// неразличимо от "API-то реално е недостъпно в момента" (виж discussion-а
+// "дали API грешки могат погрешно да изглеждат като нулев брой обрати" - ДА,
+// точно тук). dataWarnings събира ясни съобщения (apiErrorMessage(), вече
+// внедрен в PR #40/5e) за ВСЯКА провалена стъпка - подават се на
+// renderComebackStats() като ЧИСТО АДИТИВЕН втори параметър, показани в
+// самостоятелен error-box ПРЕДИ успешно получените данни (ако има такива) -
+// нулева промяна в calcComebackStatsForTeam()/buildComebackStats() (самата
+// дефиниция/изчисление на "обрат" остава непипнато), нулеви нови заявки.
 async function loadComeback(forceRefresh){
   const c=document.getElementById('comeback-content');
   if(comebackStatsCache&&!forceRefresh){
@@ -2713,12 +2725,15 @@ async function loadComeback(forceRefresh){
     const today=getToday();
     const dateFrom=getDateMinus(90);
     const allMatchesByComp={};
+    const dataWarnings=[];
 
     let generalMatches=[];
     try{
       const gen=await apiFetch('/matches?dateFrom='+dateFrom+'&dateTo='+today+'&status=FINISHED');
       generalMatches=gen.matches||[];
-    }catch(e){}
+    }catch(e){
+      dataWarnings.push(apiErrorMessage(e, 'основните първенства (football-data.org)'));
+    }
 
     generalMatches.forEach(m=>{
       const cid=m.competition?.id;
@@ -2734,16 +2749,25 @@ async function loadComeback(forceRefresh){
       const wcFinished=(wcMatches||[]).filter(m=>m.status==='FINISHED');
       if(wcFinished.length)allMatchesByComp[2000]=wcFinished;
       wcAlive=await getWCAliveTeamIds();
-    }catch(e){}
+    }catch(e){
+      dataWarnings.push(apiErrorMessage(e, 'World Cup 2026'));
+    }
 
     // Ефбет Лига, Сюпер Лиг и 2. Бундеслига не се покриват от football-data.org
     // (виж generalMatches по-горе) - допълваме ги отделно през api-sports.io,
-    // аналогично на ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ/LIVE другаде в кода.
+    // аналогично на ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ/LIVE другаде в кода. Всеки провален
+    // (rejected) резултат в Promise.allSettled по-долу вече добавя собствено
+    // ясно съобщение с името на лигата, вместо само да се пропуска тихо.
     try{
       const season=currentSeasonYear();
       const extraResults=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=30')));
-      extraResults.forEach(r=>{
-        if(r.status!=='fulfilled')return;
+      extraResults.forEach((r,i)=>{
+        if(r.status!=='fulfilled'){
+          const leagueId=EXTRA_AS_LEAGUE_IDS[i];
+          const label=(AS_LEAGUES.find(l=>l.id===leagueId)||{}).title||('лига '+leagueId);
+          dataWarnings.push(apiErrorMessage(r.reason, label));
+          return;
+        }
         (r.value.response||[])
           .filter(f=>['FT','AET','PEN','AWD','WO'].includes(f.fixture?.status?.short))
           .forEach(f=>{
@@ -2753,23 +2777,28 @@ async function loadComeback(forceRefresh){
             allMatchesByComp[cid].push(m);
           });
       });
-    }catch(e){}
+    }catch(e){
+      dataWarnings.push(apiErrorMessage(e, 'допълнителните лиги (api-sports.io)'));
+    }
 
     comebackStatsCache=buildComebackStats(allMatchesByComp, wcAlive);
-    renderComebackStats(comebackStatsCache);
+    renderComebackStats(comebackStatsCache, dataWarnings);
   }catch(e){
     c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;
   }
 }
 
-function renderComebackStats(statsByComp){
+function renderComebackStats(statsByComp, warnings){
   const c=document.getElementById('comeback-content');
   const compIds=Object.keys(statsByComp);
+  const warningsHtml=(warnings&&warnings.length)
+    ? warnings.map(w=>`<div class="error-box" style="margin:8px 16px">${w}</div>`).join('')
+    : '';
   if(!compIds.length){
-    c.innerHTML='<div class="no-data">Няма достатъчно данни за изчисление.<br>Опитай отново след като приключат повече мачове.</div>';
+    c.innerHTML=warningsHtml||'<div class="no-data">Няма достатъчно данни за изчисление.<br>Опитай отново след като приключат повече мачове.</div>';
     return;
   }
-  let html='';
+  let html=warningsHtml;
   const COMEBACK_EXTRA_COMPS=[
     {id:'as_172',name:'Ефбет Лига',flag:'🇧🇬'},
     {id:'as_203',name:'Сюпер Лиг',flag:'🇹🇷'},
