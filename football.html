@@ -1043,6 +1043,39 @@ function importHistory(event){
 }
 function clearHistory(){if(confirm('Изчисти цялата история?\nТова действие е необратимо!')){if(confirm('Сигурен ли си? Всички прогнози ще се загубят!')){localStorage.removeItem(HIST_KEY);localStorage.removeItem('football_pred_history');loadHistory();}}}
 
+// F3 (виж discussion-а "прозрачност на историческата извадка") - показва
+// колко реални FINISHED мача стоят зад pred.hMatchesN/pred.aMatchesN
+// (football-logic.js, buildPrediction() - вече изчислени от seasonRate(),
+// чисто адитивни полета, не нови изчисления). ЧИСТО ИНФОРМАЦИОННО - не
+// пипа hWin/draw/aWin/над-под/Г-Г/calcConfidence()/Bet Builder, само показва
+// числа, които моделът вече смята, но досега никога не излизаха от функцията.
+// Прагът следва Math.min(N,M) - по-слабото от двата отбора ограничава целия
+// сигнал. Включва ЯВНО уточнение, че N/M са домакински+гостуващи МЕСТЕ,
+// защото моделът не разделя отделно "мачове у дома" от "мачове навън"
+// (виж discussion-а "одит на прогнозните вероятности" - т.4/5) - неточен
+// етикет тук би подвел повече, отколкото би помогнал. flex-wrap:wrap
+// (огледално на transparencyHtml в calibrationHtml()) - не прелива на тесен
+// Android екран.
+function sampleSizeHtml(pred, hn, an){
+  if(!pred)return '';
+  const hN=pred.hMatchesN??0, aN=pred.aMatchesN??0;
+  const minN=Math.min(hN,aN);
+  let warn='';
+  if(minN<=2)warn='<span style="color:var(--red)">⚠️ Крайно малка извадка</span>';
+  else if(minN<=4)warn='<span style="color:var(--yellow)">⚠️ Малка извадка</span>';
+  else if(minN<=9)warn='<span style="color:var(--muted)">Умерена извадка</span>';
+  return `<div style="margin:8px 0;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+      <span style="font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:2px">📊 ИСТОРИЧЕСКА ИЗВАДКА</span>
+      ${warn?`<span style="font-size:10px">${warn}</span>`:''}
+    </div>
+    <div style="font-size:10px;color:var(--text);display:flex;flex-wrap:wrap;gap:8px 14px">
+      <span>${hn}: <b>${hN}</b> завършени мача</span>
+      <span>${an}: <b>${aN}</b> завършени мача</span>
+    </div>
+    <div style="font-size:8px;color:var(--muted);margin-top:6px">* вкл. домакински и гостуващи срещи на отбора. Формата ползва до последните 5, сезонните показатели - цялата налична история. По-малка извадка = по-слабо доказан сигнал, не непременно грешна прогноза.</div>
+  </div>`;
+}
 function confidenceHtml(conf, hn, an){
   if(!conf)return '';
   const col=conf.score>=75?'var(--green)':conf.score>=55?'var(--yellow)':'var(--red)';
@@ -1687,6 +1720,7 @@ function renderMatch(m,showPred,allMatches,h2hMatches,liveStats){
       const scorerBetHtml=scorerBetSuggestionHtml(scorerPlayers,hf,af,hId);
       const betBuilder=buildBetBuilder(pred,hn,an,hf,af,scorerPlayers,hId,aId);
       predHtml=`<div class="pred-section">
+        ${sampleSizeHtml(pred,hn,an)}
         ${confidenceHtml(conf,hn,an)}
         ${betBuilder}
         ${scorerBetHtml}

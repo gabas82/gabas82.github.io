@@ -398,7 +398,13 @@ function buildPrediction(match,allMatches){
   const expCorners=Math.round(expTotal*1.8+5.5);
   const cornersOver=Math.min(80,Math.max(20,expCorners>=10?Math.round(50+(expCorners-10)*8):Math.round(50-(10-expCorners)*8)));
   const cornersUnder=100-cornersOver; // чист комплемент, огледално на under25/noBtts
-  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,cornersUnder,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100),hWinRatePct:Math.round(hWinRate*100),aWinRatePct:Math.round(aWinRate*100)};
+  // F3 (виж discussion-а "прозрачност на историческата извадка") - hSeason.n/
+  // aSeason.n вече се пресмятат вътре в seasonRate() по-горе (точния брой
+  // FINISHED мачове, използвани за hWinRate/aWinRate - СЪЩИЯТ филтър захранва
+  // и avgGAll/avgCAll), но досега никога не излизаха извън тая функция. Чисто
+  // адитивни полета - не пипат никоя от съществуващите формули/изчисления
+  // по-горе, само предават вече изчислено число за показване на UI.
+  return{hId,aId,hWin:hWinAdj,draw:drawP,aWin:aWinAdj,over25:over25P,under25:under25P,btts:bttsP,noBtts:100-bttsP,expH:expH.toFixed(1),expA:expA.toFixed(1),topScores:scores.slice(0,4),htScores:htS.slice(0,4),expCorners,cornersOver,cornersUnder,expYellow:Math.round((hFS<6&&aFS<6)?3.5:3),hForm,aForm,g10:goalBefore10(expH,expA),gm,gmHt,htRatio:Math.round(htRatio*100),hWinRatePct:Math.round(hWinRate*100),aWinRatePct:Math.round(aWinRate*100),hMatchesN:hSeason?hSeason.n:0,aMatchesN:aSeason?aSeason.n:0};
 }
 
 function calcConfidence(pred, odds){
