@@ -160,6 +160,7 @@ describe('loadScorers() wiring - TTL кеш през СЪЩИЯ реален fet
       extractStatement(html, 'const SCORERS_CACHE_TTL_MS='),
       extractStatement(html, 'const scorersCache='),
       extractStatement(html, 'const scorersInflight='),
+      extractBraced(html, 'function apiErrorMessage('),
       extractBraced(html, 'async function fetchScorersCached('),
       extractBraced(html, 'async function apiSportsScorersBlockHtml('),
       extractBraced(html, 'async function loadScorers('),
@@ -286,10 +287,15 @@ describe('loadScorers() wiring - TTL кеш през СЪЩИЯ реален fet
     };
     const { loadScorers, getHtml } = buildLoadScorers({ apiFetch: emptyFd, apiFetchAS });
     await loadScorers();
-    expect(getHtml()).not.toContain('Ефбет Лига'); // първи опит - грешка, секцията липсва
+    // PR 5c (виж "Разграничаване на API грешки и празни данни - ГОЛМАЙСТОРИ") -
+    // първи опит - грешка - вече показва явен error-box (apiErrorMessage()),
+    // не мълчаливо изчезване на секцията.
+    expect(getHtml()).toContain('error-box');
+    expect(getHtml()).toContain('Ефбет Лига');
     await loadScorers(); // "следващо отваряне на таба" - грешката не е кеширана, затова опитва пак
     expect(attempt).toBe(2);
     expect(getHtml()).toContain('Закъснял Efbet Играч'); // възстановено успешно
+    expect(getHtml()).not.toContain('error-box'); // старата грешка не се пази след успешното възстановяване
   });
 
   it('различни лиги/сезони не се смесват - Ефбет (172) и Сюпер Лиг (203) държат отделни кеш записи едновременно', async () => {

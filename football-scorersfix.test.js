@@ -42,6 +42,7 @@ function buildLoadScorers({ apiFetch, apiFetchAS, getWCAliveTeamIds, buildScorer
     extractStatement(html, 'const SCORERS_CACHE_TTL_MS='),
     extractStatement(html, 'const scorersCache='),
     extractStatement(html, 'const scorersInflight='),
+    extractBraced(html, 'function apiErrorMessage('),
     extractBraced(html, 'async function fetchScorersCached('),
     extractBraced(html, 'async function apiSportsScorersBlockHtml('),
     extractBraced(html, 'async function loadScorers('),
@@ -105,7 +106,14 @@ describe('loadScorers() - PR 1: България вече НЕ тегли от f
     expect(htmlOut).toContain('Левски София');
   });
 
-  it('5а. API грешка за league=172 - секцията "Ефбет Лига" липсва напълно, НЕ се показват играчи от друга лига като заместители', async () => {
+  it('5а. API грешка за league=172 - ясно съобщение за грешка (PR 5c), НЕ се показват играчи от друга лига като заместители', async () => {
+    // PR 5c (виж "Разграничаване на API грешки и празни данни - ГОЛМАЙСТОРИ") -
+    // преди секцията изчезваше напълно при грешка (тихо поглъщане,
+    // неразличимо от легитимно празен резултат); сега apiSportsScorersBlockHtml()
+    // връща явен error-box с apiErrorMessage(), споменаващ "Ефбет Лига" - затова
+    // тестът вече ПОТВЪРЖДАВА наличието на ясно съобщение, не отсъствието му.
+    // Инвариантата от оригиналния одит остава: никога не се показва играч от
+    // друга лига под хедъра "Ефбет Лига" като мълчаливо заместване.
     const otherLeaguePlayer = {
       player: { name: 'Играч От Друга Лига' },
       statistics: [{ team: { name: 'Чужд Отбор' }, goals: { total: 99, assists: 0 } }],
@@ -118,11 +126,11 @@ describe('loadScorers() - PR 1: България вече НЕ тегли от f
     const { loadScorers, getHtml } = buildLoadScorers({ apiFetch: emptyFd, apiFetchAS });
     await loadScorers();
     const htmlOut = getHtml();
-    expect(htmlOut).not.toContain('Ефбет Лига'); // секцията изцяло липсва при грешка
+    expect(htmlOut).toContain('error-box');
+    expect(htmlOut).toContain('Ефбет Лига'); // явно съобщение за точно тая лига, не мълчание
     // "Играч От Друга Лига" легитимно се появява, но ЕДИНСТВЕНО под своя СОБСТВЕН
     // "Сюпер Лиг" comp-header - намираме НАЙ-БЛИЗКИЯ ПРЕДХОЖДАЩ comp-header и
-    // потвърждаваме, че е точно "Сюпер Лиг", не "Ефбет Лига" (каквато дори не
-    // съществува в изхода тук).
+    // потвърждаваме, че е точно "Сюпер Лиг", не "Ефбет Лига".
     const otherPlayerIdx = htmlOut.indexOf('Играч От Друга Лига');
     expect(otherPlayerIdx).toBeGreaterThan(-1);
     const headerMatches = [...htmlOut.slice(0, otherPlayerIdx).matchAll(/<div class="comp-header">([^<]*)<\/div>/g)];
