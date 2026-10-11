@@ -2100,6 +2100,31 @@ async function loadUpcoming(){
   }finally{endAsForeground();}
 }
 
+// FOOTBALL DASHBOARD PR 5e (виж "Разграничаване на API грешки и празни данни -
+// КЛАСАЦИЯ") - loadStandings() вече показваше error-box по състезание при
+// грешка (comp.name: e.message), но "достигнат лимит на заявките" изглеждаше
+// идентично на всяка друга API грешка - потребителят нямаше начин да разбере
+// дали да чака малко (rate limit) или проблемът е друг. apiErrorMessage()
+// ползва ВЕЧЕ съществуващите флагове - err.isRateLimit от apiFetchAS() (PR #29,
+// data.errors.rateLimit) и err.providerErrorCode от apiFetch() (PR C1,
+// data.errorCode===429 за football-data.org) - нулеви нови API заявки,
+// нулева промяна в самите заявки. Минутен СРЕЩУ дневен лимит умишлено НЕ се
+// разграничава - и двата доставчика губят rate-limit header-ите си (fd.org:
+// X-Requests-Available-Minute/-Day; api-sports.io: x-ratelimit-*) през Worker-а
+// (new Response(data) без forward на upstream headers - виж worker.js), затова
+// само JSON тялото остава достъпно - то позволява "лимит достигнат изобщо"
+// (generic), не "коя точно граница" - разграничаване там би било само догадка,
+// точно каквото задачата изрично забранява (ЕТАП 2, точка 5).
+function apiErrorMessage(e, label){
+  const suffix = label ? ' за ' + label : '';
+  if(e && (e.isRateLimit || e.providerErrorCode===429)){
+    return '⏳ Достигнат лимит на заявките към API-то' + suffix + '. Опитай отново след малко.';
+  }
+  if(e && e.isNetworkError){
+    return '📡 Няма връзка с API-то' + suffix + '. Провери интернет връзката и опитай отново.';
+  }
+  return '⚠️ ' + (label ? label + ': ' : '') + (e && e.message ? e.message : 'Неизвестна грешка.');
+}
 async function loadStandings(){
   const c=document.getElementById('standings-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
@@ -2119,7 +2144,7 @@ async function loadStandings(){
         html+=`<div class="big-table"><div class="big-header" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div>#</div><div>ОТБОР</div><div>И</div><div>В</div><div>З</div><div>Г</div><div>ТО</div></div>`;
         table.forEach(row=>{html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.rank}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.name}</div><div class="num">${row.all?.played??0}</div><div class="num">${row.all?.win??0}</div><div class="num">${row.all?.lose??0}</div><div class="num">${row.all?.goals?.for??0}:${row.all?.goals?.against??0}</div><div class="pts">${row.points}</div></div>`;});
         html+='</div>';
-      }catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}
+      }catch(e){html+=`<div class="error-box" style="margin:8px 16px">${apiErrorMessage(e, comp.name)}</div>`;}
       continue;
     }
     try{
@@ -2160,7 +2185,7 @@ async function loadStandings(){
         (group.table||[]).forEach(row=>{html+=`<div class="big-row" style="grid-template-columns:24px 1fr 24px 24px 24px 40px 36px"><div class="s-pos">${row.position}</div><div class="s-name">${getFlag(row.team?.name)} ${row.team?.shortName||row.team?.name}</div><div class="num">${row.playedGames}</div><div class="num">${row.won}</div><div class="num">${row.lost}</div><div class="num">${row.goalsFor}:${row.goalsAgainst}</div><div class="pts">${row.points}</div></div>`;});
         html+='</div>';
       });
-    }catch(e){html+=`<div class="error-box" style="margin:8px 16px">⚠️ ${comp.name}: ${e.message}</div>`;}
+    }catch(e){html+=`<div class="error-box" style="margin:8px 16px">${apiErrorMessage(e, comp.name)}</div>`;}
   }
   c.innerHTML=html||'<div class="no-data">Няма данни</div>';
 }
