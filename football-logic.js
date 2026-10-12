@@ -277,6 +277,19 @@ function findMatchingRecord(candidates, targetId, homeNames, awayNames, targetDa
   });
 }
 
+// ЗАДАЧА 7.1 (виж "Prediction Model Versioning", одита от Задача №7, ЕТАП 3 -
+// "историята не позволява разграничаване на прогнози преди/след PR #48/#49")
+// - чисто ДОКУМЕНТАЛЕН идентификатор на текущата математика в buildPrediction(),
+// записван от savePrediction() (football.html) САМО в НОВИ записи, занапред.
+// Версиите по-долу са маркери за развитието на модела, НЕ се приписват
+// ретроактивно на съществуващи записи:
+//   v1 - исторически модел (преди ЗАДАЧА 6.4A/6.4B-A).
+//   v2 - след goal average small-sample shrinkage (ЗАДАЧА 6.4A, PR #48).
+//   v3 - след season win-rate small-sample shrinkage (ЗАДАЧА 6.4B-A, PR #49) -
+//        текущата версия.
+// buildPrediction()/calcCalibration() остават напълно непипнати - тая
+// константа НЕ влияе на никакво изчисление, само на какво се пише в историята.
+const PREDICTION_MODEL_VERSION='v3';
 const HIST_KEY='football_pred_history_v2';
 function getHistory(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return[];}}
 function saveHistory(arr){try{localStorage.setItem(HIST_KEY,JSON.stringify(arr));}catch(e){}}
@@ -768,7 +781,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     getToday, getDateMinus, getDatePlus, currentSeasonYear, getAsSeasonStartDate,
     buildAsSeasonHistoryParams, buildAsSeasonHistoryQuery, calcPct, poissonProb, calcGoalMarkets,
-    goalBefore10, computeRegularScore, durationBadge, HIST_KEY, getHistory,
+    goalBefore10, computeRegularScore, durationBadge, PREDICTION_MODEL_VERSION, HIST_KEY, getHistory,
     saveHistory, migrateHistory, getUnresolvedAsLeagueIds, calcForm, formDotsHtml, buildPrediction, calcConfidence,
     sampleReliabilityTier,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,

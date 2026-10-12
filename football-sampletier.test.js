@@ -9,7 +9,7 @@
 // sampleSizeHtml(), без промяна в calcConfidence()/buildPrediction().
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import { sampleReliabilityTier, buildPrediction, calcConfidence, getHistory, saveHistory, HIST_KEY, sortMatchesByDate } from './football-logic.js';
+import { sampleReliabilityTier, buildPrediction, calcConfidence, getHistory, saveHistory, HIST_KEY, PREDICTION_MODEL_VERSION, sortMatchesByDate } from './football-logic.js';
 
 const html = fs.readFileSync('./football.html', 'utf8');
 
@@ -30,8 +30,8 @@ function buildSampleTierChipHtml() {
 }
 function buildSavePrediction() {
   const code = extractBraced(html, 'function savePrediction(');
-  const fn = new Function('getHistory', 'saveHistory', code + '\nreturn savePrediction;');
-  return fn(getHistory, saveHistory);
+  const fn = new Function('getHistory', 'saveHistory', 'PREDICTION_MODEL_VERSION', code + '\nreturn savePrediction;');
+  return fn(getHistory, saveHistory, PREDICTION_MODEL_VERSION);
 }
 
 function clearHist() { try { localStorage.removeItem(HIST_KEY); } catch (e) {} }
