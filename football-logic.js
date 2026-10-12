@@ -708,6 +708,43 @@ function buildCalibrationReport(history,compsAsMap){
   };
 }
 
+// ЗАДАЧА 7.3 (виж "Version-Aware Calibration", одита от Задача №7.2 - "калибрацията
+// не трябва да смесва прогнози от различни версии на модела") - ЧИСТО разделяне
+// на историята по точната стойност на h.modelVersion, БЕЗ намеса в
+// filterReliableHistory()/isPreMatchPrediction()/isCrossProviderDuplicate()/
+// calcCalibration()/buildCalibrationReport() (всичките остават изцяло непипнати
+// по-горе) - UI-то (calibrationHtml() във football.html) ги извиква ОТДЕЛНО, по
+// веднъж на всяка версия/legacy подгрупа, върху резултата оттук.
+// Записи без modelVersion (или с невалидна/непразна-низова стойност - null,
+// undefined, число, празен низ) попадат в `legacy` - НЕ в някоя версионна
+// група - точно както стари записи отпреди ЗАДАЧА 7.1 нямат полето изобщо.
+// Бъдещи версии (v4, v5, ...) автоматично получават СВОЯ отделна група в
+// `groups` (keyed по точния низ) - никога не могат да "протекат" във v3 или
+// в legacy, понеже групирането е по СТРОГО равенство на низа, не по префикс/
+// включване. Нищо тук не мутира подадения масив или отделните записи (само
+// READ + нов push в НОВИ масиви) и НЕ пише в localStorage.
+function compareModelVersionKeys(a,b){
+  const ma=/^v(\d+)$/.exec(a),mb=/^v(\d+)$/.exec(b);
+  if(ma&&mb)return Number(ma[1])-Number(mb[1]);
+  return a<b?-1:a>b?1:0;
+}
+function splitHistoryByModelVersion(history){
+  const all=history||[];
+  const groups={};
+  const legacy=[];
+  all.forEach(h=>{
+    const v=h&&typeof h.modelVersion==='string'&&h.modelVersion?h.modelVersion:null;
+    if(v){
+      if(!groups[v])groups[v]=[];
+      groups[v].push(h);
+    }else{
+      legacy.push(h);
+    }
+  });
+  const versions=Object.keys(groups).sort(compareModelVersionKeys);
+  return{versions,groups,legacy};
+}
+
 // F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
 // автоматично за незапочнал сезон") - loadASLeagueTab() в football.html строи
 // allRaw от ТРИ Promise.allSettled резултата (next/last/live fixtures). Досега
@@ -788,7 +825,7 @@ if (typeof module !== 'undefined' && module.exports) {
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, calcOverBttsJoint,
+    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, splitHistoryByModelVersion, calcOverBttsJoint,
     classifyAsLeagueTabEmptyState, sortMatchesByDate,
     limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
   };

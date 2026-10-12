@@ -910,9 +910,22 @@ async function updateHistoryResults(){
 // връщат точните числа независимо от него, тук само решаваме КАК да ги
 // оцветим.
 const CALIBRATION_LOW_SAMPLE_N=10;
-function calibrationHtml(hist){
-  const report=buildCalibrationReport(hist,COMPS_AS_MAP);
-  if(!report.markets.some(m=>m.rows.length))return '';
+// ЗАДАЧА 7.3 (виж "Version-Aware Calibration", одита от Задача №7.2 -
+// "калибрацията не трябва да смесва прогнози от различни версии на модела")
+// - рендерира ЕДИН calibrationHtml() отчет (вече връщан от
+// buildCalibrationReport(), football-logic.js, НЕПИПНАТ) под ясен надпис
+// `heading` - ("Модел v3" / "По-стари версии / неизвестна версия" / бъдещо
+// "Модел v4"). При 0 надеждни (резолвнати + pre-match + de-dup-нати) записи
+// за тая група показва изрично "няма достатъчно данни", вместо да скрие
+// секцията мълчаливо (разлика от "версията никога не се е появявала" -
+// тогава calibrationHtml() по-долу въобще не вика тая функция за нея).
+function calibrationReportSectionHtml(report, heading){
+  if(report.reliableCount===0){
+    return `<div class="hist-stats" style="margin-top:8px">
+      <div class="hist-stats-title">🎯 КАЛИБРАЦИЯ — ${heading}</div>
+      <div style="font-size:9px;color:var(--yellow)">⚠️ Няма достатъчно данни още (0 валидни pre-match прогнози за тая група).</div>
+    </div>`;
+  }
   const sections=report.markets.filter(m=>m.rows.length).map(m=>{
     const rows=m.rows.map(r=>{
       const diff=r.actualPct-r.avgPredictedPct;
@@ -930,7 +943,8 @@ function calibrationHtml(hist){
   }).join('');
   // TRANSPARENCY (виж discussion-а) - общо/резолвнати/валидни pre-match/
   // изключени закъснели/изключени дублирани - за да е ясно ОТКЪДЕ идва n-ят
-  // по-долу, не само самото число.
+  // по-долу, не само самото число. Сега по ВЕРСИЯ/legacy подгрупа, не за
+  // смесената обща история - виж calibrationHtml() по-долу.
   const transparencyHtml=`<div style="display:flex;flex-wrap:wrap;gap:8px 14px;font-size:9px;color:var(--muted);margin-bottom:6px">
     <span>общо записи: ${report.totalHistory}</span>
     <span>резолвнати: ${report.totalResolved}</span>
@@ -939,11 +953,31 @@ function calibrationHtml(hist){
     <span style="color:var(--yellow)">изкл. дублирани: ${report.excludedDuplicate}</span>
   </div>`;
   return `<div class="hist-stats" style="margin-top:8px">
-    <div class="hist-stats-title">🎯 КАЛИБРАЦИЯ ПО ВЕРОЯТНОСТ</div>
+    <div class="hist-stats-title">🎯 КАЛИБРАЦИЯ — ${heading}</div>
     <div style="font-size:9px;color:var(--muted);margin-bottom:4px">При добра калибрация "прогн." и "реално" във всяка кофа би трябвало да са близки. Малко n в кофа (&lt;${CALIBRATION_LOW_SAMPLE_N}) = все още ненадеждна преценка, не грешка в модела.</div>
     ${transparencyHtml}
     ${sections}
   </div>`;
+}
+// Разделя историята по modelVersion (splitHistoryByModelVersion(),
+// football-logic.js, ЧИСТА/непипната тук) и вика buildCalibrationReport()
+// ОТДЕЛНО за всяка версия и за legacy/unknown подгрупата - НИКОГА за цялата
+// смесена история наведно (виж ЕТАП 1/2 от Задача 7.3 - "не смесвай версии").
+// Секция за дадена версия се показва само ако версията РЕАЛНО се среща в
+// историята (≥1 суров запис) - legacy секцията само ако има ≥1 такъв запис.
+function calibrationHtml(hist){
+  const split=splitHistoryByModelVersion(hist);
+  if(!split.versions.length&&!split.legacy.length)return '';
+  let html='';
+  split.versions.forEach(v=>{
+    const report=buildCalibrationReport(split.groups[v],COMPS_AS_MAP);
+    html+=calibrationReportSectionHtml(report,`Модел ${v}`);
+  });
+  if(split.legacy.length){
+    const report=buildCalibrationReport(split.legacy,COMPS_AS_MAP);
+    html+=calibrationReportSectionHtml(report,'По-стари версии / неизвестна версия');
+  }
+  return html;
 }
 function loadHistory(){
   migrateHistory();
