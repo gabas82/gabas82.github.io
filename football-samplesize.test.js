@@ -143,9 +143,14 @@ describe('sampleSizeHtml() - F3: прагове според Math.min(N,M) (ре
 });
 
 describe('F3 регресия - вероятностите и Bet Builder са ИДЕНТИЧНИ с/без новите полета', () => {
-  it('hWin/draw/aWin/over25/btts остават точно същите стойности като преди F3 (anchor от одита)', () => {
-    // Същия сценарий "2/2 убедителни победи" от доклада за одита на вероятностите -
-    // потвърждава, че F3 не е променил НИТО ЕДНА формула.
+  it('hWin/draw/aWin/over25/btts - anchor от одита, обновен след ЗАДАЧА 6.4A (Goal Average Shrinkage)', () => {
+    // Същия сценарий "2/2 убедителни победи" от доклада за одита на вероятностите.
+    // Оригиналният anchor (93/5/2, over25=88, btts=25) беше преди ЗАДАЧА 6.4A -
+    // сега avgGAll()/avgCAll() изглаждат суровата средна към baseline при малка
+    // извадка (hMatchesN=aMatchesN=2 тук), затова числата ИЗРИЧНО се променят -
+    // точно целта на 6.4A (намалено влияние на единични екстремни резултати).
+    // Тестът пак потвърждава: 1X2 сборът е 100%, новите полета (hMatchesN/
+    // aMatchesN от F3/Задача 6.2) присъстват и не заменят нищо съществуващо.
     const match = { homeTeam: { id: 1, name: 'Strong FC' }, awayTeam: { id: 2, name: 'Weak FC' } };
     const allMatches = [
       { status: 'FINISHED', utcDate: '2026-08-01', homeTeam: { id: 1, name: 'Strong FC' }, awayTeam: { id: 99, name: 'X' }, score: { fullTime: { home: 5, away: 0 }, halfTime: { home: 2, away: 0 } } },
@@ -154,11 +159,11 @@ describe('F3 регресия - вероятностите и Bet Builder са �
       { status: 'FINISHED', utcDate: '2026-08-08', homeTeam: { id: 96, name: 'W' }, awayTeam: { id: 2, name: 'Weak FC' }, score: { fullTime: { home: 4, away: 0 }, halfTime: { home: 2, away: 0 } } },
     ];
     const pred = buildPrediction(match, allMatches);
-    expect(pred.hWin).toBe(93);
+    expect(pred.hWin).toBe(87);
     expect(pred.draw).toBe(5);
-    expect(pred.aWin).toBe(2);
-    expect(pred.over25).toBe(88);
-    expect(pred.btts).toBe(25);
+    expect(pred.aWin).toBe(8);
+    expect(pred.over25).toBe(63);
+    expect(pred.btts).toBe(47);
     expect(pred.hWin + pred.draw + pred.aWin).toBe(100);
     // И новите полета присъстват, НЕ заменят/изместват нищо съществуващо.
     expect(pred.hMatchesN).toBe(2);
