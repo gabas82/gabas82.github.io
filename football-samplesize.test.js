@@ -143,12 +143,13 @@ describe('sampleSizeHtml() - F3: прагове според Math.min(N,M) (ре
 });
 
 describe('F3 регресия - вероятностите и Bet Builder са ИДЕНТИЧНИ с/без новите полета', () => {
-  it('hWin/draw/aWin/over25/btts - anchor от одита, обновен след ЗАДАЧА 6.4A (Goal Average Shrinkage)', () => {
+  it('hWin/draw/aWin/over25/btts - anchor от одита, обновен след ЗАДАЧА 6.4A и 6.4B-A', () => {
     // Същия сценарий "2/2 убедителни победи" от доклада за одита на вероятностите.
-    // Оригиналният anchor (93/5/2, over25=88, btts=25) беше преди ЗАДАЧА 6.4A -
-    // сега avgGAll()/avgCAll() изглаждат суровата средна към baseline при малка
-    // извадка (hMatchesN=aMatchesN=2 тук), затова числата ИЗРИЧНО се променят -
-    // точно целта на 6.4A (намалено влияние на единични екстремни резултати).
+    // Оригиналният anchor (93/5/2, over25=88, btts=25) беше преди ЗАДАЧА 6.4A.
+    // След 6.4A (goal average shrinkage): 87/5/8, over25=63, btts=47.
+    // След 6.4B-A (season win-rate shrinkage): hWin/draw/aWin се изместват ОТНОВО
+    // (суровия 100%/0% win rate при n=2 вече не влиза директно в 1X2 формулата),
+    // докато over25/btts остават същите (goal shrinkage канала е непипнат).
     // Тестът пак потвърждава: 1X2 сборът е 100%, новите полета (hMatchesN/
     // aMatchesN от F3/Задача 6.2) присъстват и не заменят нищо съществуващо.
     const match = { homeTeam: { id: 1, name: 'Strong FC' }, awayTeam: { id: 2, name: 'Weak FC' } };
@@ -159,9 +160,9 @@ describe('F3 регресия - вероятностите и Bet Builder са �
       { status: 'FINISHED', utcDate: '2026-08-08', homeTeam: { id: 96, name: 'W' }, awayTeam: { id: 2, name: 'Weak FC' }, score: { fullTime: { home: 4, away: 0 }, halfTime: { home: 2, away: 0 } } },
     ];
     const pred = buildPrediction(match, allMatches);
-    expect(pred.hWin).toBe(87);
-    expect(pred.draw).toBe(5);
-    expect(pred.aWin).toBe(8);
+    expect(pred.hWin).toBe(74);
+    expect(pred.draw).toBe(12);
+    expect(pred.aWin).toBe(14);
     expect(pred.over25).toBe(63);
     expect(pred.btts).toBe(47);
     expect(pred.hWin + pred.draw + pred.aWin).toBe(100);

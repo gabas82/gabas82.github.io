@@ -362,10 +362,41 @@ function buildPrediction(match,allMatches){
       const og=isH?(m.score?.fullTime?.away??0):(m.score?.fullTime?.home??0);
       if(mg>og)w++;else if(mg===og)d++;else l++;
     });
-    return{winRate:w/rel.length,drawRate:d/rel.length,lossRate:l/rel.length,n:rel.length};
+    // ЗАДАЧА 6.4B-A - `w` (суровия брой победи) е нов, чисто адитивен ключ -
+    // winRate/drawRate/lossRate/n остават ТОЧНО същите изчисления, нулева
+    // промяна. Нужен е по-долу, за да се избегне round-trip през
+    // winRate*n (float imprecision риск), при изграждането на shrinkWinRate().
+    return{winRate:w/rel.length,drawRate:d/rel.length,lossRate:l/rel.length,n:rel.length,w};
   }
   const hSeason=seasonRate(allMatches,hId),aSeason=seasonRate(allMatches,aId);
+  // hWinRate/aWinRate остават СУРОВИ (непипнати) - захранват ЕДИНСТВЕНО
+  // hWinRatePct/aWinRatePct по-долу (публично показаната "сезон W%" статистика
+  // в UI) - виж ЗАДАЧА 6.4B-A точно под тях за стойността, която РЕАЛНО влиза
+  // в 1X2 формулата.
   const hWinRate=hSeason?hSeason.winRate:0.33,aWinRate=aSeason?aSeason.winRate:0.33;
+
+  // ЗАДАЧА 6.4B-A (виж "Season Win-Rate Small-Sample Shrinkage") - преди,
+  // hWinRate/aWinRate захранваха 1X2 формулата директно със суровия сезонен
+  // win rate още от n=1 нататък (само n=0 падаше на 0.33 fallback) - 1 победа
+  // означаваше 100% суров winRate, 1 загуба - 0%, без никакво изглаждане
+  // (виж одита от Задача №6.4B - "n=1 може да е по-екстремен от n=0", същия
+  // клас дефект вече фиксиран за голове в 6.4A). WINRATE_SHRINKAGE_K=4 е
+  // работна хипотеза (sensitivity проверено за k=2/4/8 - виж discussion-а),
+  // НЕ статистически доказан оптимум. WINRATE_SHRINKAGE_PRIOR=0.33 е СЪЩАТА
+  // стойност като съществуващия fallback по-горе - при n=0 shrinkWinRate()
+  // връща точно 0.33 (нулева промяна от преди). ВАЖНО: shrinkWinRate() НЕ
+  // пипа hWinRate/aWinRate (суровите, публично показани стойности) - само
+  // въвежда ОТДЕЛНА, самостоятелна стойност (hWinRateShrunk/aWinRateShrunk),
+  // ползвана ЕДИНСТВЕНО в hWinP/aWinP формулата по-долу. seasonRate() самата
+  // (winRate/drawRate/lossRate/n) остава напълно непипната.
+  const WINRATE_SHRINKAGE_PRIOR=0.33;
+  const WINRATE_SHRINKAGE_K=4;
+  function shrinkWinRate(season){
+    if(!season)return WINRATE_SHRINKAGE_PRIOR;
+    return (season.w+WINRATE_SHRINKAGE_PRIOR*WINRATE_SHRINKAGE_K)/(season.n+WINRATE_SHRINKAGE_K);
+  }
+  const hWinRateShrunk=shrinkWinRate(hSeason);
+  const aWinRateShrunk=shrinkWinRate(aSeason);
 
   // ЗАДАЧА 6.4A (виж "Goal Average Small-Sample Shrinkage") - преди, avgGAll()/
   // avgCAll() захранваха expH/expA със суровата средна още от n=1 нататък (само
@@ -399,8 +430,8 @@ function buildPrediction(match,allMatches){
   const htRatio=(hHtRatio+aHtRatio)/2;
 
   const hFS=fScore(hForm),aFS=fScore(aForm),tot=hFS+aFS+1;
-  const hWinP=Math.round(((hFS/tot)*0.35+(expH/expTotal)*0.35+hWinRate*0.30)*100);
-  const aWinP=Math.round(((aFS/tot)*0.35+(expA/expTotal)*0.35+aWinRate*0.30)*100);
+  const hWinP=Math.round(((hFS/tot)*0.35+(expH/expTotal)*0.35+hWinRateShrunk*0.30)*100);
+  const aWinP=Math.round(((aFS/tot)*0.35+(expA/expTotal)*0.35+aWinRateShrunk*0.30)*100);
   const drawP=Math.max(5,100-hWinP-aWinP);
   // NaN guard (виж discussion-а "патологичен 1X2 случай") - hWinP/aWinP ТЕОРЕТИЧНО
   // могат едновременно да се закръглят до 0 (екстремно рядко - изисква drawP да
