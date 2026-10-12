@@ -367,8 +367,31 @@ function buildPrediction(match,allMatches){
   const hSeason=seasonRate(allMatches,hId),aSeason=seasonRate(allMatches,aId);
   const hWinRate=hSeason?hSeason.winRate:0.33,aWinRate=aSeason?aSeason.winRate:0.33;
 
-  const expH=Math.max(0.3,((hAvgG??1.2)+(aAvgC??1.2))/2*1.1);
-  const expA=Math.max(0.3,((aAvgG??1.2)+(hAvgC??1.2))/2*0.9);
+  // ЗАДАЧА 6.4A (виж "Goal Average Small-Sample Shrinkage") - преди, avgGAll()/
+  // avgCAll() захранваха expH/expA със суровата средна още от n=1 нататък (само
+  // n=0 падаше на ??1.2 fallback) - един единствен мач 5:0 давеше expH директно
+  // на 5.0, без никакво изглаждане (виж одита от Задача №6/6.4 - "n=1 може да е
+  // по-екстремен от n=0"). GOAL_SHRINKAGE_K=4 е работна хипотеза (sensitivity
+  // проверено за k=2/4/8 - виж discussion-а), НЕ статистически доказан оптимум.
+  // GOAL_SHRINKAGE_BASELINE=1.2 е СЪЩАТА стойност като съществуващия ??1.2
+  // fallback - при n=0 shrinkGoalAvg() връща точно baseline (нулева промяна от
+  // преди). avgGAll()/avgCAll() САМИ остават напълно непипнати (включително
+  // null-връщането им при n=0, което пази guard-а по-горе) - hSeason.n/aSeason.n
+  // (вече изчислени от seasonRate(), точно същия филтър) дават n без нужда от
+  // повторно броене. seasonRate()/calcForm()/техните тегла - непипнати.
+  const GOAL_SHRINKAGE_BASELINE=1.2;
+  const GOAL_SHRINKAGE_K=4;
+  function shrinkGoalAvg(rawAvg,n){
+    if(rawAvg===null||!n)return GOAL_SHRINKAGE_BASELINE;
+    return (rawAvg*n+GOAL_SHRINKAGE_BASELINE*GOAL_SHRINKAGE_K)/(n+GOAL_SHRINKAGE_K);
+  }
+  const hAvgGShrunk=shrinkGoalAvg(hAvgG,hSeason?hSeason.n:0);
+  const hAvgCShrunk=shrinkGoalAvg(hAvgC,hSeason?hSeason.n:0);
+  const aAvgGShrunk=shrinkGoalAvg(aAvgG,aSeason?aSeason.n:0);
+  const aAvgCShrunk=shrinkGoalAvg(aAvgC,aSeason?aSeason.n:0);
+
+  const expH=Math.max(0.3,(hAvgGShrunk+aAvgCShrunk)/2*1.1);
+  const expA=Math.max(0.3,(aAvgGShrunk+hAvgCShrunk)/2*0.9);
   const expTotal=expH+expA;
 
   const hHtRatio=htAvgAll(allMatches,hId)??0.45;
