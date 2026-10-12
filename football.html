@@ -2064,7 +2064,20 @@ async function loadUpcoming(){
       if(wcResult.status==='fulfilled'){
         const wcAll=wcResult.value.matches||[];
         const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
-        allMatches=[...allMatches,...wcFinishedOnly];
+        // ЗАДАЧА 6.3 (виж "WC Finished Matches Deduplication") - основната
+        // fd.org заявка (/matches?...&status=FINISHED, без competitions=
+        // филтър) обикновено ВЕЧЕ връща Световните мачове, попадащи в
+        // нейния 180-дневен прозорец (виж коментара няколко реда по-долу за
+        // SCHEDULED-страната - идентичен доставчик/endpoint, същата причина)
+        // - без тая проверка, allMatches би съдържал ЕДИН И СЪЩ WC мач два
+        // пъти, раздувайки hMatchesN/aMatchesN и изкривявайки сезонния W%/
+        // 1X2 проценти (виж одита от Задача №6.3). Id-базиран Set, огледален
+        // на existingIds по-долу - пази ПЪРВИЯ срещнат запис (от основната
+        // заявка), добавя WC мач САМО ако id-то му още не присъства.
+        const existingMatchIds=new Set(allMatches.map(m=>String(m.id)));
+        wcFinishedOnly.forEach(m=>{
+          if(!existingMatchIds.has(String(m.id))){allMatches.push(m);existingMatchIds.add(String(m.id));}
+        });
         // Нокаут мачовете на Световното (напр. двата полуфинала) понякога са
         // разделени с повече от 3 дни един от друг — 3-дневният прозорец на
         // основната заявка пропуска втория. Тук ги добавяме отделно, без
