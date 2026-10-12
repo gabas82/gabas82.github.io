@@ -763,7 +763,7 @@ function savePrediction(m,pred,sampleTier){
   // football-logic.js) - нужни за isPreMatchPrediction()/cross-provider
   // dedup. Стари записи отпреди тая промяна просто ги нямат - четящият код
   // пада на fallback (виж коментарите там), не чупи нищо.
-  const entry={id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',compId:m.competition?.id??null,statusAtSave:m.status||null,pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10},result:null,savedAt:Date.now()};
+  const entry={id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',compId:m.competition?.id??null,statusAtSave:m.status||null,modelVersion:PREDICTION_MODEL_VERSION,pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10},result:null,savedAt:Date.now()};
   if(sampleTier){entry.hMatchesN=sampleTier.hMatchesN;entry.aMatchesN=sampleTier.aMatchesN;entry.sampleTier=sampleTier.tier;}
   hist.push(entry);
   saveHistory(hist);
