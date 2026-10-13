@@ -545,8 +545,27 @@ function calibrationBucket(pct){
   const b=Math.min(90,Math.floor(pct/10)*10);
   return b+'-'+(b+9)+'%';
 }
+// ЗАДАЧА 7.5 (виж "Reliable Version-Aware History Statistics", одита от
+// Задача №7.4 - "СТАТИСТИКА и КАЛИБРАЦИЯ класифицират ЕДИН и същ вероятностен
+// вектор по различен начин при равенство") - единен, детерминистичен избор
+// на най-вероятния 1X2 изход от (hWin,draw,aWin), споделен МЕЖДУ
+// CALIBRATION_MARKETS ('1x2' pick по-долу) И статистиката в football.html
+// (calcReliableHistoryStats()) - никога повече дублирана/разминаваща се
+// argmax логика. Приоритет при равенство: 1 -> X -> 2 (изрично поискано
+// правило, НЕ probability математика - buildPrediction() остава напълно
+// непипнат). Преди тая задача CALIBRATION_MARKETS ползваше различна (>=
+// hWin-first, но aWin-second) конвенция - за НЕ-tie вход (уникален максимум)
+// резултатът е идентичен с преди; разлика има само в редките точни ties.
+function pick1X2Winner(hWin,draw,aWin){
+  if(hWin>=draw&&hWin>=aWin)return'1';
+  if(draw>=aWin)return'X';
+  return'2';
+}
 const CALIBRATION_MARKETS=[
-  {key:'1x2',label:'1X2',pick:(p)=>p.hWin>=p.aWin&&p.hWin>=p.draw?{pct:p.hWin,hit:(r)=>r.winner==='1'}:p.aWin>=p.hWin&&p.aWin>=p.draw?{pct:p.aWin,hit:(r)=>r.winner==='2'}:{pct:p.draw,hit:(r)=>r.winner==='X'}},
+  {key:'1x2',label:'1X2',pick:(p)=>{
+    const w=pick1X2Winner(p.hWin,p.draw,p.aWin);
+    return w==='1'?{pct:p.hWin,hit:(r)=>r.winner==='1'}:w==='2'?{pct:p.aWin,hit:(r)=>r.winner==='2'}:{pct:p.draw,hit:(r)=>r.winner==='X'};
+  }},
   {key:'over25',label:'НАД/ПОД 2.5',pick:(p)=>p.over25>50?{pct:p.over25,hit:(r)=>r.total>2.5}:{pct:100-p.over25,hit:(r)=>r.total<=2.5}},
   {key:'btts',label:'Г/Г',pick:(p)=>p.btts>50?{pct:p.btts,hit:(r)=>r.gg}:{pct:100-p.btts,hit:(r)=>!r.gg}},
   {key:'dc',label:'ДВОЕН ШАНС',pick:(p)=>{const dc=calcDoubleChance(p.hWin,p.draw,p.aWin);return{pct:dc.pct,hit:(r)=>doubleChanceHit(dc.pick,r.winner)};}},
@@ -745,6 +764,59 @@ function splitHistoryByModelVersion(history){
   return{versions,groups,legacy};
 }
 
+// ЗАДАЧА 7.5 (виж "Reliable Version-Aware History Statistics", одита от
+// Задача №7.4) - изчислява СЪЩИТЕ 7 "СТАТИСТИКА" метрики (1 ДОМАКИН/X РАВЕН/
+// 2 ГОСТ/НАД-ПОД 2.5/Г-Г ДА-НЕ/ДВОЕН ШАНС), но върху ВЕЧЕ филтриран "надежден"
+// подмасив (filterReliableHistory()'s .reliable - resolved + &&h.pred +
+// pre-match + cross-provider dedup, НЕПИПНАТ) - вместо самостоятелния слаб
+// filter(h=>h.result&&!h.result.decidedAfterRegulation), който loadHistory()
+// (football.html) ползваше преди тая задача. Numerator/denominator
+// конвенциите за всяка метрика остават ТОЧНО същите като преди (виж одита) -
+// само кохортата (reliable вместо суров wr) и 1X2 tie-break-а
+// (pick1X2Winner() вместо старото строго '>') се променят. over25/btts/dc
+// подборните формули (p.over25>50/p.btts>50/calcDoubleChance) остават
+// напълно непипнати - само 1X2 argmax-ът се унифицира.
+function calcReliableHistoryStats(reliable){
+  let homeCorrect=0,homeTotal=0,drawCorrect=0,drawTotal=0,awayCorrect=0,awayTotal=0;
+  let overCorrect=0,overTotal=0,underCorrect=0,underTotal=0;
+  let bttsYesCorrect=0,bttsYesTotal=0,bttsNoCorrect=0,bttsNoTotal=0;
+  let dcCorrect=0,dcTotal=0;
+  (reliable||[]).forEach(h=>{
+    const p=h.pred,r=h.result;
+    const pw=pick1X2Winner(p.hWin,p.draw,p.aWin);
+    if(pw==='1'){homeTotal++;if(pw===r.winner)homeCorrect++;}
+    else if(pw==='X'){drawTotal++;if(pw===r.winner)drawCorrect++;}
+    else{awayTotal++;if(pw===r.winner)awayCorrect++;}
+    if(p.over25>50){overTotal++;if(r.total>2.5)overCorrect++;}
+    else{underTotal++;if(r.total<=2.5)underCorrect++;}
+    if(p.btts>50){bttsYesTotal++;if(r.gg)bttsYesCorrect++;}
+    else{bttsNoTotal++;if(!r.gg)bttsNoCorrect++;}
+    const dc=calcDoubleChance(p.hWin,p.draw,p.aWin);
+    dcTotal++;if(doubleChanceHit(dc.pick,r.winner))dcCorrect++;
+  });
+  return{
+    homeCorrect,homeTotal,drawCorrect,drawTotal,awayCorrect,awayTotal,
+    overCorrect,overTotal,underCorrect,underTotal,
+    bttsYesCorrect,bttsYesTotal,bttsNoCorrect,bttsNoTotal,
+    dcCorrect,dcTotal,
+  };
+}
+// Високо ниво на абстракция за УИ (football.html, огледално на
+// buildCalibrationReport()) - филтрира, после подава надеждния подмасив на
+// calcReliableHistoryStats() по-горе.
+function buildReliableStatsReport(history,compsAsMap){
+  const f=filterReliableHistory(history,compsAsMap);
+  return{
+    stats:calcReliableHistoryStats(f.reliable),
+    totalHistory:f.totalHistory,
+    totalResolved:f.totalResolved,
+    preMatchCount:f.preMatchCount,
+    excludedLate:f.excludedLate,
+    excludedDuplicate:f.excludedDuplicate,
+    reliableCount:f.reliable.length,
+  };
+}
+
 // F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
 // автоматично за незапочнал сезон") - loadASLeagueTab() в football.html строи
 // allRaw от ТРИ Promise.allSettled резултата (next/last/live fixtures). Досега
@@ -823,9 +895,10 @@ if (typeof module !== 'undefined' && module.exports) {
     sampleReliabilityTier,
     formatMatchDateTime, normalizeFootballDataScorers, normalizeApiSportsScorers, topTwoScorers,
     calcDoubleChance, doubleChanceHit, doubleChanceLabel, findTeamTopScorer, findMatchingRecord,
-    calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS,
+    calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS, pick1X2Winner,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
-    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, splitHistoryByModelVersion, calcOverBttsJoint,
+    pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, splitHistoryByModelVersion,
+    calcReliableHistoryStats, buildReliableStatsReport, calcOverBttsJoint,
     classifyAsLeagueTabEmptyState, sortMatchesByDate,
     limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
   };
