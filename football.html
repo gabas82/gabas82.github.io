@@ -873,12 +873,46 @@ function extractASLiveStats(f){
 // Реконсилира резултати за прогнози, записани от ШЛ/ЛЕ/ЛК/ЕФБЕТ (id-та с префикс "as_"),
 // понеже те не идват от football-data.org и основната updateHistoryResults логика
 // не може да ги открие.
-async function updateHistoryResultsAS(hist){
+// FOOTBALL DASHBOARD ЗАДАЧА 9.4 (виж "AS Background History Pressure
+// Control", incident follow-up от Задача №9.0-9.3 - "background AS
+// резолюция може да изхарчи AS квота преди foreground user action да
+// получи шанс"). Три промени:
+// (1) опционален `skipAs` параметър (default falsy - ВСИЧКИ съществуващи
+//     извикващи, вкл. всеки директен unit тест на тая функция, остават
+//     напълно непипнати) - true само от bootstrap цикъла на
+//     backgroundHistorySync() (виж там) - дава на foreground действието
+//     100% AS бюджет в критичния opening прозорец. Обмислен е и
+//     алтернативен self-contained "one-shot флаг, консумиран на първото
+//     извикване въобще" вариант (без параметър през 3 функции) - отхвърлен,
+//     защото би подвел ВСЕКИ съществуващ директен unit тест на
+//     updateHistoryResultsAS() (всеки от тях Е собственото си "първо"
+//     извикване в own свеж harness) да получи тих skip вместо реалното
+//     поведение, което тестват - нарушава изисквания "съществуващата
+//     resolution семантика непроменена". Explicit, default-falsy параметър
+//     е единственият вариант, доказано съвместим с 100% съществуващите
+//     тестове без промяна в тях.
+// (2) Заявките към лигите вече са ПОСЛЕДОВАТЕЛНИ (for+await), не
+//     Promise.allSettled(map(...)) - max concurrency=1, с ПОВТОРНА
+//     asForegroundActiveCount проверка преди ВСЯКА отделна лига (не само
+//     веднъж на входа, виж коментара (Д) по-долу) - foreground активност
+//     по средата спира цикъла незабавно, останалите лиги просто изчакват
+//     следващия 5-мин тик, нищо не се губи.
+// (3) Засечен isRateLimit спира цикъла незабавно и активира
+//     asHistorySyncRateLimitedUntil (чисто защитен client-side cooldown -
+//     НЕ твърдение за реалния provider quota-reset прозорец) - следващите
+//     тикове изцяло пропускат AS опита, докато изтече. Foreground AS
+//     заявки (loadUpcoming/loadScorers/loadCards/loadASLeagueTab) НЕ са
+//     засегнати - cooldown-ът пипа ИЗКЛЮЧИТЕЛНО background резолюцията.
+const AS_HISTORY_RATE_LIMIT_COOLDOWN_MS=15*60*1000;
+let asHistorySyncRateLimitedUntil=0;
+async function updateHistoryResultsAS(hist,skipAs){
+  if(skipAs)return false;
   const toUpdate=hist.filter(h=>!h.result&&String(h.id).startsWith('as_'));
   if(!toUpdate.length)return false;
   // (Д) Фонът отстъпва на тежко AS зареждане, задействано от потребителя -
   // нищо не се губи, следващият 5-мин тик опитва пак (виж asForegroundActiveCount).
   if(asForegroundActiveCount>0)return false;
+  if(Date.now()<asHistorySyncRateLimitedUntil)return false;
   let changed=false;
   try{
     const season=currentSeasonYear();
@@ -887,9 +921,18 @@ async function updateHistoryResultsAS(hist){
     // (football-logic.js) за точната логика, вкл. безопасния legacy fallback.
     const{leagueIds,legacyFallback}=getUnresolvedAsLeagueIds(hist);
     const targetLeagueIds=legacyFallback?AS_LEAGUES.map(l=>l.id):leagueIds;
-    const results=await Promise.allSettled(targetLeagueIds.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=30')));
     const allFixtures=[];
-    results.forEach(r=>{if(r.status==='fulfilled')allFixtures.push(...(r.value.response||[]));});
+    for(const id of targetLeagueIds){
+      if(asForegroundActiveCount>0)break;
+      if(Date.now()<asHistorySyncRateLimitedUntil)break;
+      try{
+        const data=await apiFetchAS('/fixtures?league='+id+'&season='+season+'&last=30');
+        allFixtures.push(...(data.response||[]));
+      }catch(e){
+        if(e&&e.isRateLimit){asHistorySyncRateLimitedUntil=Date.now()+AS_HISTORY_RATE_LIMIT_COOLDOWN_MS;break;}
+        // не-rate-limit провал за ТАЯ лига - пропуска се, останалите лиги продължават (тая обиколка)
+      }
+    }
     toUpdate.forEach(h=>{
       const fid=String(h.id).replace('as_','');
       const f=allFixtures.find(x=>String(x.fixture?.id)===fid);
@@ -916,7 +959,12 @@ async function updateHistoryResultsAS(hist){
 // поведение, saveHistory() извикване) - само wrapped в единен in-flight
 // slot, огледално на fdInflightRequests/asInflightRequests модела.
 let historyResultsInFlight=null;
-async function updateHistoryResults(){
+// ЗАДАЧА 9.4 - `skipAs` се препредава надолу към updateHistoryResultsAS().
+// На практика единственият caller, който го подава (true), е
+// backgroundHistorySync()'s еднократен bootstrap извикване - виж там за
+// пълния discussion. loadHistory() (другият caller) никога не го подава -
+// неговото поведение остава изцяло непроменено.
+async function updateHistoryResults(skipAs){
   if(historyResultsInFlight)return historyResultsInFlight;
   const promise=(async()=>{
   const hist=getHistory();
@@ -961,7 +1009,7 @@ async function updateHistoryResults(){
     });
   }catch(e){}
   try{
-    const changedAS=await updateHistoryResultsAS(hist);
+    const changedAS=await updateHistoryResultsAS(hist,skipAs);
     if(changedAS)changed=true;
   }catch(e){}
   if(changed)saveHistory(hist);
@@ -3488,17 +3536,24 @@ migrateHistory();
 // (В) Single-flight lock - предотвратява 2 едновременни цикъла (напр. бавна
 // мрежа + следващия setInterval тик, преди първия да е приключил).
 let historySyncInFlight=false;
-async function backgroundHistorySync(){
+// ЗАДАЧА 9.4 (виж "AS Background History Pressure Control") - `isBootstrapCycle`
+// (true само на еднократното извикване точно по-долу, веднага при page load)
+// препредава skipAs=true надолу до updateHistoryResultsAS() - тоя ЕДИН цикъл
+// изцяло пропуска AS резолюцията, давайки на foreground потребителското
+// действие (първия таб click) 100% AS бюджет в критичния opening прозорец.
+// Всеки следващ тик (setInterval, без аргумент) резолвира AS нормално. FD
+// частта на updateHistoryResults() е НЕПРОМЕНЕНА и на двата call site-а.
+async function backgroundHistorySync(isBootstrapCycle){
   if(historySyncInFlight)return;
   historySyncInFlight=true;
   try{
-    await updateHistoryResults();
+    await updateHistoryResults(isBootstrapCycle);
     if(currentTab==='history')loadHistory();
   }finally{
     historySyncInFlight=false;
   }
 }
-backgroundHistorySync();
+backgroundHistorySync(true);
 setInterval(backgroundHistorySync,5*60*1000);
 
 // На компютър няма как да се "плъзне" лентата с табове с пръст както на

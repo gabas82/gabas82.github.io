@@ -42,6 +42,12 @@ const combinedSrc = [
   extractStatement(html, 'let asForegroundActiveCount=0;'),
   extractBraced(html, 'function beginAsForeground('),
   extractBraced(html, 'function endAsForeground('),
+  // ЗАДАЧА 9.4 (виж "AS Background History Pressure Control") -
+  // updateHistoryResultsAS() вече ползва собствен module-level
+  // AS_HISTORY_RATE_LIMIT_COOLDOWN_MS/asHistorySyncRateLimitedUntil -
+  // екстрактваме ги явно.
+  extractStatement(html, 'const AS_HISTORY_RATE_LIMIT_COOLDOWN_MS='),
+  extractStatement(html, 'let asHistorySyncRateLimitedUntil='),
   extractBraced(html, 'async function updateHistoryResultsAS('),
   // ЗАДАЧА 9.1 (виж "History Single-Flight") - updateHistoryResults() вече
   // ползва собствен module-level historyResultsInFlight (shared-promise
@@ -227,21 +233,32 @@ describe('rate limit - запазване на кеша + възстановяв
     expect(changed).toBe(false);
     expect(hist[0].result).toBeNull();
   });
-  it('възстановяване - следващ успешен цикъл коректно продължава съпоставянето след предходен rate-limit', async () => {
-    let call = 0;
-    const fetchMock = vi.fn(() => {
-      call++;
-      if (call === 1) return okResponse({ errors: { rateLimit: 'Too many requests.' }, results: 0, response: [] });
-      return okResponse({ response: [{ fixture: { id: 1, status: { short: 'FT' } }, goals: { home: 2, away: 1 } }] });
-    });
-    const h = buildHarness({ fetchImpl: fetchMock });
-    const hist = [asHistEntry(1, 172)];
-    const changed1 = await h.updateHistoryResultsAS(hist);
-    expect(changed1).toBe(false);
-    expect(hist[0].result).toBeNull();
-    const changed2 = await h.updateHistoryResultsAS(hist);
-    expect(changed2).toBe(true);
-    expect(hist[0].result).toEqual({ hg: 2, ag: 1, total: 3, gg: true, winner: '1' });
+  it('възстановяване - след ЗАДАЧА 9.4 cooldown изтичане, следващ цикъл коректно продължава съпоставянето след предходен rate-limit', async () => {
+    // ЗАДАЧА 9.4 (виж "AS Background History Pressure Control") - rate-limit
+    // вече активира asHistorySyncRateLimitedUntil cooldown (15 мин) - веднага
+    // следващ опит (без изчакване) вече коректно НЕ retry-ва (виж новия тест
+    // "cooldown активен" по-долу) - възстановяването тук изисква cooldown-ът
+    // да е изтекъл, не просто "следващо извикване".
+    vi.useFakeTimers();
+    try {
+      let call = 0;
+      const fetchMock = vi.fn(() => {
+        call++;
+        if (call === 1) return okResponse({ errors: { rateLimit: 'Too many requests.' }, results: 0, response: [] });
+        return okResponse({ response: [{ fixture: { id: 1, status: { short: 'FT' } }, goals: { home: 2, away: 1 } }] });
+      });
+      const h = buildHarness({ fetchImpl: fetchMock });
+      const hist = [asHistEntry(1, 172)];
+      const changed1 = await h.updateHistoryResultsAS(hist);
+      expect(changed1).toBe(false);
+      expect(hist[0].result).toBeNull();
+      vi.advanceTimersByTime(15 * 60 * 1000 + 1000); // след cooldown-а
+      const changed2 = await h.updateHistoryResultsAS(hist);
+      expect(changed2).toBe(true);
+      expect(hist[0].result).toEqual({ hg: 2, ag: 1, total: 3, gg: true, winner: '1' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('коректно приключване на прогноза (end-to-end, непроменена логика за съпоставяне)', async () => {
     const fetchMock = vi.fn(() => okResponse({ response: [{ fixture: { id: 42, status: { short: 'FT' } }, goals: { home: 0, away: 0 } }] }));
@@ -250,6 +267,113 @@ describe('rate limit - запазване на кеша + възстановяв
     const changed = await h.updateHistoryResultsAS(hist);
     expect(changed).toBe(true);
     expect(hist[0].result).toEqual({ hg: 0, ag: 0, total: 0, gg: false, winner: 'X' });
+  });
+});
+
+// ЗАДАЧА 9.4 (виж "AS Background History Pressure Control", incident
+// follow-up от Задача №9.0-9.3) - background AS history резолюция вече:
+// bootstrap цикъл изцяло пропуска AS; последователно изпълнение (max
+// concurrency=1) с повторна foreground проверка на всяка стъпка; rate-limit
+// cooldown. Нулева промяна в FD поведението/match-съпоставящата логика.
+// apiFetchAS() е многослойна async обвивка (inflight registry + fetch() +
+// r.json() + errors проверка) - резолвирането на мока отнема НЯКОЛКО
+// microtask hop-а преди for-loop-ът в updateHistoryResultsAS() реално да
+// стигне до следващото извикване. flushMicrotasks() изчаква достатъчно
+// tick-ове детерминистично, без реално чакане (fake/real timers).
+async function flushMicrotasks(n = 15) { for (let i = 0; i < n; i++) await Promise.resolve(); }
+
+describe('updateHistoryResultsAS() - ЗАДАЧА 9.4: AS background history pressure control', () => {
+  it('A) bootstrap цикъл (isBootstrapCycle=true) -> 0 background AS заявки, независимо от нерешена история', async () => {
+    saveHistory([asHistEntry(1, 172), asHistEntry(2, 203)]);
+    const fetchMock = vi.fn(() => okResponse({ response: [] }));
+    const apiFetchMock = vi.fn(async () => ({ matches: [] }));
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock });
+    await h.backgroundHistorySync(true);
+    expect(fetchMock).not.toHaveBeenCalled(); // нулеви AS заявки на bootstrap цикъла
+    expect(apiFetchMock).toHaveBeenCalledTimes(2); // FD частта си върви нормално, непипната
+  });
+
+  it('B) нормален (interval) цикъл - AS заявките са СТРИКТНО последователни, max concurrency=1', async () => {
+    const hist = [asHistEntry(1, 172), asHistEntry(2, 203), asHistEntry(3, 79)];
+    const resolvers = [];
+    const fetchMock = vi.fn(() => new Promise(res => resolvers.push(res)));
+    const h = buildHarness({ fetchImpl: fetchMock });
+    const p = h.updateHistoryResultsAS(hist);
+    await flushMicrotasks();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // само първата - НЕ всичките 3 наведнъж
+    resolvers[0](okResponse({ response: [] }));
+    await flushMicrotasks();
+    expect(fetchMock).toHaveBeenCalledTimes(2); // чак сега втората
+    resolvers[1](okResponse({ response: [] }));
+    await flushMicrotasks();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    resolvers[2](okResponse({ response: [] }));
+    await p;
+  });
+
+  it('D) foreground стане активен ПО СРЕДА на цикъла -> следващата background заявка НЕ стартира', async () => {
+    const hist = [asHistEntry(1, 172), asHistEntry(2, 203), asHistEntry(3, 79)];
+    const resolvers = [];
+    const fetchMock = vi.fn(() => new Promise(res => resolvers.push(res)));
+    const h = buildHarness({ fetchImpl: fetchMock });
+    const p = h.updateHistoryResultsAS(hist);
+    await flushMicrotasks();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    h.beginAsForeground(); // потребител стартира foreground AS зареждане ПО СРЕДА на цикъла
+    resolvers[0](okResponse({ response: [] })); // първата заявка резолвира нормално
+    await p; // цикълът трябва да спре тук - заявка 2 никога не стартира
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('E) rate-limit на заявка K (2-ра от 3) -> точно K заявки направени, 3-тата НИКОГА не стартира', async () => {
+    const hist = [asHistEntry(1, 172), asHistEntry(2, 203), asHistEntry(3, 79)];
+    let call = 0;
+    const fetchMock = vi.fn(() => {
+      call++;
+      if (call === 2) return okResponse({ errors: { rateLimit: 'too many' }, response: [] });
+      return okResponse({ response: [] });
+    });
+    const h = buildHarness({ fetchImpl: fetchMock });
+    await h.updateHistoryResultsAS(hist);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // точно K=2, лигата на позиция 3 никога не е питана
+  });
+
+  it('F) активен rate-limit cooldown -> 0 background AS заявки на следващия опит (дори извън foreground)', async () => {
+    vi.useFakeTimers();
+    try {
+      const hist = [asHistEntry(1, 172)];
+      const fetchMock = vi.fn(() => okResponse({ errors: { rateLimit: 'too many' }, response: [] }));
+      const h = buildHarness({ fetchImpl: fetchMock });
+      await h.updateHistoryResultsAS(hist);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(60 * 1000); // 1 мин по-късно - cooldown-ът (15 мин) все още тече
+      await h.updateHistoryResultsAS(hist);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // пак 1 - нулева нова заявка докато cooldown тече
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('H) обикновен (НЕ rate-limit) провал на една лига -> следващата лига продължава да се обработва', async () => {
+    const hist = [asHistEntry(1, 172), asHistEntry(2, 203)];
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('league=172')) return Promise.reject(new Error('network boom'));
+      return okResponse({ response: [{ fixture: { id: 2, status: { short: 'FT' } }, goals: { home: 1, away: 0 } }] });
+    });
+    const h = buildHarness({ fetchImpl: fetchMock });
+    const changed = await h.updateHistoryResultsAS(hist);
+    expect(changed).toBe(true); // лигата 203 е обработена нормално, въпреки провала на 172
+    expect(hist[1].result).toEqual({ hg: 1, ag: 0, total: 1, gg: false, winner: '1' });
+    expect(hist[0].result).toBeNull(); // лигата 172 остава нерезолвната - следващ цикъл ще опита пак
+  });
+
+  it('I) FD поведението на updateHistoryResults() остава непроменено (regression)', async () => {
+    saveHistory([asHistEntry(1, 172)]);
+    const fetchMock = vi.fn(() => okResponse({ response: [] }));
+    const apiFetchMock = vi.fn(async () => ({ matches: [] }));
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock });
+    await h.backgroundHistorySync(); // interval-стил извикване, без isBootstrapCycle
+    expect(apiFetchMock).toHaveBeenCalledTimes(2); // FD частта - точно както преди 9.4
   });
 });
 
