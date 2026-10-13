@@ -1031,6 +1031,56 @@ function historyStatsHtml(hist){
   }
   return html;
 }
+// ЗАДАЧА 7.7 (виж "1X2 Proper Scoring Metrics", спецификацията от READ-ONLY
+// одита Задача №7.6) - UI heuristic прагове по validCount, НЕ статистически
+// доказани универсални граници - виж calc1X2ProperScores() (football-logic.js)
+// за точните прагове (0/1-4/5-9/10-29/30+).
+const PROPER_SCORES_SAMPLE_WARNINGS={
+  extremely_small:'⚠️ Крайно малка извадка — числото е практически неинформативно.',
+  small:'⚠️ Малка извадка — може драстично да се промени със следващите резултати.',
+  moderate:'ℹ️ Умерена извадка — все още внимавай с интерпретацията.',
+  more_reliable:'ℹ️ По-надеждна извадка (не е статистическо доказателство за бъдещо качество).',
+};
+// Рендерира ЕДИН buildProperScoresReport() отчет (football-logic.js,
+// НЕПИПНАТ) под ясен надпис `heading`, огледално на
+// calibrationReportSectionHtml()/statsReportSectionHtml() по-горе. Brier
+// Score/Log Loss НИКОГА не се представят без explicit label на convention-а
+// (sum/0-2 за Brier, natural log за Log Loss) - виж discussion-а "не
+// допускай UI да показва Brier Score без да е ясно коя convention ползваме".
+function properScoresReportSectionHtml(report,heading){
+  if(report.validCount===0){
+    return `<div class="hist-stats"><div class="hist-stats-title">📐 PROPER SCORES — ${heading}</div>
+      <div style="font-size:9px;color:var(--yellow)">⚠️ Няма достатъчно данни още (0 валидни записа за тая група).</div>
+    </div>`;
+  }
+  const warn=PROPER_SCORES_SAMPLE_WARNINGS[report.sampleTier]||'';
+  return `<div class="hist-stats"><div class="hist-stats-title">📐 PROPER SCORES — ${heading} (N=${report.validCount})</div>
+    <div style="font-size:9px;color:var(--muted);margin-bottom:4px">Brier Score (sum, диапазон 0–2, по-ниско = по-добре) · Log Loss (natural log, по-ниско = по-добре). Baseline при равен дял 33/33/34: Brier≈0.667, Log Loss≈1.099.</div>
+    <div class="hist-stats-grid" style="grid-template-columns:1fr 1fr">
+      <div class="hist-stat"><div class="hist-stat-val info">${report.brier.toFixed(3)}</div><div class="hist-stat-label">BRIER SCORE</div></div>
+      <div class="hist-stat"><div class="hist-stat-val info">${report.logLoss.toFixed(3)}</div><div class="hist-stat-label">LOG LOSS</div></div>
+    </div>
+    ${warn?`<div style="font-size:9px;color:var(--yellow);margin-top:6px">${warn}</div>`:''}
+  </div>`;
+}
+// Разделя историята по modelVersion (splitHistoryByModelVersion(), вече
+// ползвана от calibrationHtml()/historyStatsHtml() по-горе) и вика
+// buildProperScoresReport() ОТДЕЛНО за всяка версия/legacy подгрупа -
+// НИКОГА за цялата смесена история наведно.
+function properScoresHtml(hist){
+  const split=splitHistoryByModelVersion(hist);
+  if(!split.versions.length&&!split.legacy.length)return '';
+  let html='';
+  split.versions.forEach(v=>{
+    const report=buildProperScoresReport(split.groups[v],COMPS_AS_MAP);
+    html+=properScoresReportSectionHtml(report,`Модел ${v}`);
+  });
+  if(split.legacy.length){
+    const report=buildProperScoresReport(split.legacy,COMPS_AS_MAP);
+    html+=properScoresReportSectionHtml(report,'По-стари версии / неизвестна версия');
+  }
+  return html;
+}
 function loadHistory(){
   migrateHistory();
   updateHistoryResults();
@@ -1043,6 +1093,7 @@ function loadHistory(){
   if(!hist.length){sc.innerHTML='';c.innerHTML='<div class="no-data">Няма записани прогнози още.<br><br>Отвори таб ПРОГНОЗИ за да се запазят автоматично.</div>';return;}
   sc.innerHTML=historyStatsHtml(hist);
   sc.innerHTML+=calibrationHtml(hist);
+  sc.innerHTML+=properScoresHtml(hist);
   c.innerHTML=hist.map(h=>{
     const p=h.pred;
     const date=new Date(h.date).toLocaleDateString('bg-BG',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
