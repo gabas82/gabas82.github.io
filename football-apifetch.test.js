@@ -159,6 +159,10 @@ describe('updateHistoryResults() - влияние на новата apiFetch г�
     extractStatement(combinedHtml, 'let asHistorySyncRateLimitedUntil='),
     extractBraced(combinedHtml, 'async function updateHistoryResultsAS('),
     'let historyResultsInFlight=null;',
+    // PR #58 FINAL REVIEW FIX - нова module-level променлива, ползвана
+    // вътре в updateHistoryResults() (виж football-apioptimization.test.js
+    // за самия regression тест на race-а, който тя неутрализира).
+    'let foregroundHistoryRequestPending=false;',
     extractBraced(combinedHtml, 'async function updateHistoryResults('),
   ].join('\n');
 

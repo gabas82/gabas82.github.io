@@ -54,6 +54,10 @@ const combinedSrc = [
   // single-flight), отделен от backgroundHistorySync()'s historySyncInFlight
   // по-долу - двата guard-а са независими слоеве, виж коментара в football.html.
   'let historyResultsInFlight=null;',
+  // PR #58 FINAL REVIEW FIX - foregroundHistoryRequestPending е нова
+  // module-level променлива, ползвана вътре в updateHistoryResults() за да
+  // неутрализира race-а между bootstrap skipAs и single-flight joining.
+  'let foregroundHistoryRequestPending=false;',
   extractBraced(html, 'async function updateHistoryResults('),
   extractStatement(html, 'let historySyncInFlight=false;'),
   extractBraced(html, 'async function backgroundHistorySync('),
@@ -444,6 +448,76 @@ describe('updateHistoryResults() - ЗАДАЧА 9.1: single-flight на само
     const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock, currentTab: 'history', loadHistoryStub });
     await Promise.all([h.backgroundHistorySync(), h.updateHistoryResults()]);
     expect(loadHistoryStub).toHaveBeenCalledTimes(1); // само backgroundHistorySync() го вика, точно веднъж
+  });
+});
+
+// PR #58 FINAL REVIEW FIX - race condition между bootstrap skipAs=true
+// (ЗАДАЧА 9.4) и single-flight-то (ЗАДАЧА 9.1): ако loadHistory()'s директно
+// updateHistoryResults() (без skipAs) се включи към вече стартирал bootstrap
+// цикъл ДОКАТО неговите FD заявки са pending, single-flight guard-ът би
+// върнал/изчакал СЪЩИЯ промис и изпълнението би се управлявало единствено от
+// bootstrap-а (skipAs=true) - AS резолюцията на тоя цикъл би се пропуснала
+// мълчаливо, въпреки изричното foreground ИСТОРИЯ действие. Тестовете по-долу
+// доказват: (1) race-ът е реален за тая последователност - FIX-ът
+// (foregroundHistoryRequestPending/effectiveSkipAs) го неутрализира; (2)
+// обратният ред (foreground създава цикъла, bootstrap се включва после) НЕ е
+// проблем още по дефиниция - creator-ът вече е foreground (skipAs=falsy), AS
+// резолюцията никога не е била в риск да се пропусне. (Забележка: в реалната
+// production последователност обратният ред е структурно невъзможен -
+// backgroundHistorySync(true) тръгва синхронно, преди render-а на страницата,
+// а currentTab стартира като 'live', не 'history' - потребител физически не
+// може да натисне ИСТОРИЯ преди bootstrap-ът дори да е започнал. Тестваме го
+// въпреки това, за пълнота на механизма.)
+describe('updateHistoryResults() - PR #58 FINAL REVIEW FIX: foreground ИСТОРИЯ не трябва да губи AS резолюция заради bootstrap skip', () => {
+  it('bootstrap FD pending -> foreground се включва -> AS резолюцията на цикъла СЕ случва (skip override), FD заявен ТОЧНО веднъж', async () => {
+    saveHistory([asHistEntry(501, 172)]);
+    const fdResolvers = [];
+    const apiFetchMock = vi.fn(() => new Promise(res => fdResolvers.push(res)));
+    const fetchMock = vi.fn(() => okResponse({ response: [{ fixture: { id: 501, status: { short: 'FT' } }, goals: { home: 2, away: 1 } }] }));
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock });
+
+    // 2-4: bootstrap (skipAs=true) стартира, FD заявките тръгват и остават pending
+    const bootstrapPromise = h.backgroundHistorySync(true);
+    await flushMicrotasks();
+    expect(apiFetchMock).toHaveBeenCalledTimes(2); // bootstrap-ът вече е заявил FD, двете все още pending
+
+    // 5-7: "потребителят натиска ИСТОРИЯ" = loadHistory()-стил директно
+    // извикване, СЛЕД като FD вече е pending - historyResultsInFlight вече
+    // съществува -> тоя caller е JOINER, не creator
+    const foregroundPromise = h.updateHistoryResults();
+
+    fdResolvers.forEach(r => r({ matches: [] })); // bootstrap-ът FD завършва
+    await Promise.all([bootstrapPromise, foregroundPromise]);
+
+    // AS резолюцията на ТОЗИ (единствения) цикъл СЕ Е СЛУЧИЛА, въпреки
+    // skipAs=true на bootstrap-а (creator-а) - foreground join-ът по средата
+    // е override-нал effectiveSkipAs за тоя цикъл
+    expect(fetchMock).toHaveBeenCalledTimes(1); // точно 1 AS заявка (лига 172)
+    expect(getHistory()[0].result).toEqual({ hg: 2, ag: 1, total: 3, gg: true, winner: '1' });
+    // single-flight защитата си стои - FD е заявен ТОЧНО за 1 цикъл (2
+    // заявки), НЕ дублирано заради втория (foreground) caller
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('обратен ред: foreground създава цикъла първи (без skipAs), bootstrap(true) се включва втори -> AS резолюцията пак не е пропусната (creator-ът вече е foreground)', async () => {
+    saveHistory([asHistEntry(777, 203)]);
+    const fdResolvers = [];
+    const apiFetchMock = vi.fn(() => new Promise(res => fdResolvers.push(res)));
+    const fetchMock = vi.fn(() => okResponse({ response: [{ fixture: { id: 777, status: { short: 'FT' } }, goals: { home: 0, away: 0 } }] }));
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock });
+
+    const foregroundPromise = h.updateHistoryResults(); // потребителят пръв - става creator
+    await flushMicrotasks();
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+
+    const bootstrapPromise = h.backgroundHistorySync(true); // bootstrap се включва ВТОРИ, към вече съществуващ цикъл
+
+    fdResolvers.forEach(r => r({ matches: [] }));
+    await Promise.all([foregroundPromise, bootstrapPromise]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // AS резолюцията не е пропусната
+    expect(apiFetchMock).toHaveBeenCalledTimes(2); // нулев дублиран FD fetch
+    expect(getHistory()[0].result).toEqual({ hg: 0, ag: 0, total: 0, gg: false, winner: 'X' });
   });
 });
 

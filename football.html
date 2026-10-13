@@ -964,8 +964,26 @@ let historyResultsInFlight=null;
 // backgroundHistorySync()'s еднократен bootstrap извикване - виж там за
 // пълния discussion. loadHistory() (другият caller) никога не го подава -
 // неговото поведение остава изцяло непроменено.
+// PR #58 FINAL REVIEW FIX - race condition между single-flight (по-горе) и
+// bootstrap skipAs: ако loadHistory() (skipAs=falsy) се включи към вече
+// стартирал bootstrap цикъл (skipAs=true) ДОКАТО FD заявките му са pending,
+// single-flight guard-ът по-долу връща/изчаква СЪЩИЯ промис на joiner-а и
+// изцяло ИГНОРИРА неговия собствен skipAs аргумент - изпълнението се управлява
+// само от аргументите на СЪЗДАТЕЛЯ (bootstrap-а). Резултат: явно foreground
+// ИСТОРИЯ действие би получило мълчаливо пропусната AS резолюция, която
+// потребителят никога не е поискал да пропусне. foregroundHistoryRequestPending
+// е единствената добавка - вдига се от JOINING caller с falsy skipAs, нулира
+// се при старта на всеки НОВ (не-joining) цикъл, и превключва effectiveSkipAs
+// точно преди updateHistoryResultsAS() извикването по-долу. FD логиката,
+// single-flight защитата (все още точно 1 изпълнение на тялото) и бройката
+// FD заявки са изцяло непроменени - нулев дублиран fetch.
+let foregroundHistoryRequestPending=false;
 async function updateHistoryResults(skipAs){
-  if(historyResultsInFlight)return historyResultsInFlight;
+  if(historyResultsInFlight){
+    if(!skipAs)foregroundHistoryRequestPending=true;
+    return historyResultsInFlight;
+  }
+  foregroundHistoryRequestPending=false;
   const promise=(async()=>{
   const hist=getHistory();
   if(!hist.length)return;
@@ -1009,7 +1027,8 @@ async function updateHistoryResults(skipAs){
     });
   }catch(e){}
   try{
-    const changedAS=await updateHistoryResultsAS(hist,skipAs);
+    const effectiveSkipAs=skipAs&&!foregroundHistoryRequestPending;
+    const changedAS=await updateHistoryResultsAS(hist,effectiveSkipAs);
     if(changedAS)changed=true;
   }catch(e){}
   if(changed)saveHistory(hist);
