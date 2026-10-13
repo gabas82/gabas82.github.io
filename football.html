@@ -763,7 +763,29 @@ function savePrediction(m,pred,sampleTier){
   // football-logic.js) - нужни за isPreMatchPrediction()/cross-provider
   // dedup. Стари записи отпреди тая промяна просто ги нямат - четящият код
   // пада на fallback (виж коментарите там), не чупи нищо.
-  const entry={id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',compId:m.competition?.id??null,statusAtSave:m.status||null,modelVersion:PREDICTION_MODEL_VERSION,pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10},result:null,savedAt:Date.now()};
+  //
+  // ЗАДАЧА 8.1 (виж "Preserve Pre-Match Selector Metadata", одита от
+  // Задача №8.0 - "confidence/hForm/aForm никога не се пазят, бъдещ
+  // selector не може да се replay-не честно") - чисто АДИТИВЕН snapshot
+  // на вече съществуващи pre-match изходи, точно както са в момента на
+  // извикването (не преизчислени по-късно от историята):
+  //   - confidence: calcConfidence(pred) - СЪЩАТА чиста функция, НЕПИПНАТА,
+  //     извикана ТУК (at save-time, върху същия pred), не derived от бъдеща
+  //     история. score/factors копирани (factors shallow copy - масив).
+  //   - pred.hForm/aForm/expH/expA/hWinRatePct/aWinRatePct/gm/gmHt/htRatio -
+  //     ВСИЧКИ вече присъстват директно в buildPrediction()'s връщания
+  //     обект (нулево ново изчисление, нулева нова API заявка) - копирани
+  //     тук (shallow copy за hForm/aForm/gm/gmHt, за да НЕ държим референция
+  //     към обекта, който вика savePrediction() евентуално по-късно мутира).
+  // ИЗРИЧНО ИЗКЛЮЧЕНИ от pred snapshot-а: pred.hMatchesN/pred.aMatchesN -
+  // entry.hMatchesN/entry.aMatchesN (от sampleTier по-долу) вече са
+  // установеният, единствен източник за тях (виж discussion-а "не създавай
+  // втори конфликтен източник за същите стойности", Задача 8.1 т.5) -
+  // буквално СЪЩИТЕ стойности (sampleTier идва от sampleReliabilityTier(
+  // pred.hMatchesN,pred.aMatchesN) на call site-а), затова НЕ се дублират
+  // в pred.
+  const conf=calcConfidence(pred);
+  const entry={id,date:m.utcDate,home:m.homeTeam?.shortName||m.homeTeam?.name||'—',away:m.awayTeam?.shortName||m.awayTeam?.name||'—',comp:m.competition?.name||'',compId:m.competition?.id??null,statusAtSave:m.status||null,modelVersion:PREDICTION_MODEL_VERSION,pred:{hWin:pred.hWin,draw:pred.draw,aWin:pred.aWin,over25:pred.over25,btts:pred.btts,g10:pred.g10,expH:pred.expH,expA:pred.expA,hWinRatePct:pred.hWinRatePct,aWinRatePct:pred.aWinRatePct,gm:pred.gm?{...pred.gm}:pred.gm,gmHt:pred.gmHt?{...pred.gmHt}:pred.gmHt,htRatio:pred.htRatio,hForm:pred.hForm?[...pred.hForm]:pred.hForm,aForm:pred.aForm?[...pred.aForm]:pred.aForm},confidence:conf?{score:conf.score,factors:conf.factors?[...conf.factors]:conf.factors}:null,result:null,savedAt:Date.now()};
   if(sampleTier){entry.hMatchesN=sampleTier.hMatchesN;entry.aMatchesN=sampleTier.aMatchesN;entry.sampleTier=sampleTier.tier;}
   hist.push(entry);
   saveHistory(hist);
