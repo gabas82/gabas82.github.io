@@ -37,7 +37,14 @@ function buildLoadComeback({ apiFetch, apiFetchAS }) {
     extractStatement(html, 'const AS_STATUS_MAP='),
     extractStatement(html, 'let wcKnockoutMatchesCache='),
     extractStatement(html, 'let wcAliveTeamsCache='),
+    // ЗАДАЧА 9.3 (виж "Comeback Dead-Cache Fix") - loadComeback() вече
+    // референцира COMEBACK_CACHE_TTL_MS/comebackStatsCacheAt - екстрактваме
+    // ги явно, иначе са implicit globals в sloppy-mode scope-а (работеше
+    // случайно досега само защото всеки тест тук вика loadComeback(true),
+    // което short-circuit-ва read guard-а преди да стигне до тях).
+    extractStatement(html, 'const COMEBACK_CACHE_TTL_MS='),
     extractStatement(html, 'let comebackStatsCache='),
+    extractStatement(html, 'let comebackStatsCacheAt='),
     extractBraced(html, 'function apiErrorMessage('),
     extractBraced(html, 'async function loadWCKnockoutData('),
     extractBraced(html, 'function computeWCAliveTeams('),

@@ -450,7 +450,16 @@ function pollCompScorers(){
 }
 setInterval(pollCompScorers,2000);
 let wcScorersCache=[];
+// FOOTBALL DASHBOARD ЗАДАЧА 9.3 (виж "Comeback / ОБРАТИ Dead-Cache Fix",
+// одита от Задача №9.0/9.2 - "comebackStatsCache съществува, но единственият
+// production caller винаги подава force=true - read path-ът е практически
+// недостижим"). Собствена TTL константа (НЕ COMMON с SCORERS_CACHE_TTL_MS/
+// CARDS_CACHE_TTL_MS, въпреки че числено съвпада днес) - умишлено semantic
+// independence (виж discussion-а), утре comeback TTL трябва да може да се
+// промени без scorers/cards да се променят с него.
+const COMEBACK_CACHE_TTL_MS=15*60*1000;
 let comebackStatsCache=null;
+let comebackStatsCacheAt=0;
 let wcKnockoutMatchesCache=null;
 let wcAliveTeamsCache=null;
 
@@ -739,7 +748,12 @@ async function loadCurrentTab(){
   else if(currentTab==='standings')loadStandings();
   else if(currentTab==='scorers')loadScorers();
   else if(currentTab==='cards')loadCards();
-  else if(currentTab==='comeback')loadComeback(true);
+  // ЗАДАЧА 9.3 (виж "Comeback Dead-Cache Fix") - нормалната табова навигация
+  // вече НЕ bypass-ва TTL-а безусловно (преди: loadComeback(true) на ВСЯКО
+  // отваряне, правейки comebackStatsCache практически недостижим). forceRefresh
+  // параметърът остава в contract-а на loadComeback() за бъдещ explicit
+  // "обнови" caller, ако такъв се добави по-късно.
+  else if(currentTab==='comeback')loadComeback();
   else if(currentTab==='cl')loadChampionsLeagueAS();
   else if(currentTab==='el')loadEuropaLeagueAS();
   else if(currentTab==='uecl')loadUECL();
@@ -3232,7 +3246,10 @@ function buildComebackStats(allMatchesByComp, wcAlive){
 // дефиниция/изчисление на "обрат" остава непипнато), нулеви нови заявки.
 async function loadComeback(forceRefresh){
   const c=document.getElementById('comeback-content');
-  if(comebackStatsCache&&!forceRefresh){
+  // ЗАДАЧА 9.3 - TTL-ограничен cache hit. forceRefresh (ако някога бъде
+  // подаден true от бъдещ explicit "обнови" caller) винаги bypass-ва,
+  // независимо от TTL - запазен contract.
+  if(comebackStatsCache&&!forceRefresh&&(Date.now()-comebackStatsCacheAt<COMEBACK_CACHE_TTL_MS)){
     renderComebackStats(comebackStatsCache);
     return;
   }
@@ -3297,8 +3314,24 @@ async function loadComeback(forceRefresh){
       dataWarnings.push(apiErrorMessage(e, 'допълнителните лиги (api-sports.io)'));
     }
 
-    comebackStatsCache=buildComebackStats(allMatchesByComp, wcAlive);
-    renderComebackStats(comebackStatsCache, dataWarnings);
+    const stats=buildComebackStats(allMatchesByComp, wcAlive);
+    // ЗАДАЧА 9.3 (виж checkpoint discussion-а - "success-only aggregate
+    // cache") - СТРОГО правило, одобрено изрично: пише се в
+    // comebackStatsCache/comebackStatsCacheAt САМО когато dataWarnings е
+    // напълно празен (нито една от 3-те под-части - FD general/WC/4× AS
+    // extra лиги - не е провалена). При ЧАСТИЧЕН ИЛИ ПЪЛЕН провал,
+    // текущият `stats` се РЕНДЕРИРА нормално (с видимите warnings), но
+    // НЕ презаписва предишен валиден snapshot - ако вече имаше GOOD cache
+    // (от по-рано успешна обиколка), той остава напълно непипнат (данни
+    // И timestamp), запазвайки оригиналния си TTL прозорец. Умишлено НЕ
+    // толерираме частичен успех като "валиден за кеширане" - виж
+    // discussion-а за точния tradeoff (без API saving по време на
+    // provider degradation, вместо това).
+    if(!dataWarnings.length){
+      comebackStatsCache=stats;
+      comebackStatsCacheAt=Date.now();
+    }
+    renderComebackStats(stats, dataWarnings);
   }catch(e){
     c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;
   }
