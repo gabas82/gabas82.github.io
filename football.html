@@ -2149,6 +2149,139 @@ async function fetchH2HCached(key,fetcher){
   h2hInflight[key]=promise;
   try{return await promise;}finally{delete h2hInflight[key];}
 }
+// ЗАДАЧА 8.3 (виж "Daily Candidate Universe — Data Layer", одита от Задача
+// №8.2) - извлечен data layer от loadUpcoming()'s fetch логика по-долу,
+// параметризиран по explicit dateFrom/dateTo, БЕЗ DOM/рендъринг, БЕЗ Top-N
+// selection/ranking, БЕЗ savePrediction() (нищо не се записва в историята).
+// loadUpcoming() (UI, НЕПРОМЕНЕН по-долу) продължава да ползва
+// UPCOMING_WINDOW_DAYS=21 + UPCOMING_MAX_PER_COMP=10 - тая функция НЕ
+// прилага UPCOMING_MAX_PER_COMP (daily candidate universe трябва да види
+// ВСИЧКИ eligible мачове в прозореца, не само първите 10 на competition -
+// тоя лимит е чисто UI оптимизация, виж одита от Задача №8.2 т.E). Преизползва
+// СЪЩИТЕ provider заявки/кеш механизми (apiFetch/apiFetchAS/
+// fetchAsLeagueSeasonHistory/COMPS/EXTRA_AS_LEAGUE_IDS) - нулев нов provider,
+// нулева нова cache логика (виж discussion-а "НЕ оптимизирай още" - Задача
+// 8.2, т.8). Cross-provider dedup чрез dedupCandidateUniverse()
+// (football-logic.js, preизползва isCrossProviderDuplicate()/COMPS_AS_MAP,
+// НЕ нов dedup стандарт). Връщаната `candidates` е масив от СУРОВИ match
+// обекти (не обвитите wrapper-и) - извикващият код може директно да подаде
+// candidate + result.allMatches на buildPrediction() - тая функция самата
+// НЕ го прави (остава строго data layer, без prediction-computation
+// отговорност, без ranking).
+async function fetchCandidateUniverse(dateFrom,dateTo){
+  const candidateWrappers=[];
+  let allMatches=[];
+  const providersUsed=new Set();
+  const warnings=[];
+  let fdOk=false,wcOk=false;
+  const asLeagueLoaded={};
+
+  try{
+    const upData=await apiFetch('/matches?dateFrom='+dateFrom+'&dateTo='+dateTo+'&status=SCHEDULED,TIMED');
+    (upData.matches||[]).forEach(m=>candidateWrappers.push(buildCandidateWrapper(m)));
+    fdOk=true;
+    providersUsed.add('football-data.org');
+  }catch(e){
+    warnings.push(apiErrorMessage(e,'предстоящи мачове (football-data.org)'));
+  }
+
+  try{
+    const histResult=await apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+dateTo+'&status=FINISHED');
+    allMatches=[...(histResult.matches||[])];
+  }catch(e){
+    warnings.push(apiErrorMessage(e,'историческите мачове (football-data.org)'));
+  }
+
+  try{
+    const wcData=await apiFetch('/competitions/2000/matches?_t='+Date.now());
+    const wcAll=wcData.matches||[];
+    const wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
+    const existingIds=new Set(candidateWrappers.map(c=>String(c.match.id)));
+    wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){candidateWrappers.push(buildCandidateWrapper(m));existingIds.add(String(m.id));}});
+    const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
+    const existingMatchIds=new Set(allMatches.map(m=>String(m.id)));
+    wcFinishedOnly.forEach(m=>{if(!existingMatchIds.has(String(m.id))){allMatches.push(m);existingMatchIds.add(String(m.id));}});
+    wcOk=true;
+    providersUsed.add('football-data.org');
+  }catch(e){
+    warnings.push(apiErrorMessage(e,'World Cup 2026'));
+  }
+
+  const season=currentSeasonYear();
+  const extraResults=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(async id=>{
+    const[dayD,histD]=await Promise.allSettled([
+      apiFetchAS('/fixtures?league='+id+'&season='+season+'&from='+dateFrom+'&to='+dateTo),
+      fetchAsLeagueSeasonHistory(id)
+    ]);
+    return{id,dayD,histD};
+  }));
+  extraResults.forEach(r=>{
+    if(r.status!=='fulfilled')return;
+    const{id,dayD,histD}=r.value;
+    const label=(AS_LEAGUES.find(l=>l.id===id)||{}).title||('лига '+id);
+    if(dayD.status==='fulfilled'){
+      (dayD.value.response||[]).forEach(f=>{
+        const m=asFixtureToMatch(f);
+        if(['SCHEDULED','TIMED'].includes(m.status))candidateWrappers.push(buildCandidateWrapper(m));
+      });
+      asLeagueLoaded[id]=true;
+      providersUsed.add('api-sports.io');
+    }else{
+      asLeagueLoaded[id]=false;
+      warnings.push(apiErrorMessage(dayD.reason,label));
+    }
+    if(histD.status==='fulfilled'){
+      histD.value.matches.forEach(f=>allMatches.push(asFixtureToMatch(f)));
+    }else{
+      warnings.push(apiErrorMessage(histD.reason,label));
+    }
+  });
+
+  allMatches=sortMatchesByDate(allMatches);
+  const dedup=dedupCandidateUniverse(candidateWrappers,COMPS_AS_MAP);
+
+  const competitionsExpected=COMPS.length+EXTRA_AS_LEAGUE_IDS.length;
+  const nonWcCompsLoaded=fdOk?(COMPS.length-1):0; // COMPS включва СП(2000) - броено отделно (wcOk)
+  const wcLoaded=wcOk?1:0;
+  const extraLoaded=Object.values(asLeagueLoaded).filter(Boolean).length;
+  const competitionsLoaded=nonWcCompsLoaded+wcLoaded+extraLoaded;
+
+  return{
+    candidateDate:dateFrom===dateTo?dateFrom:(dateFrom+'..'+dateTo),
+    candidates:dedup.matches,
+    allMatches,
+    competitionsExpected,
+    competitionsLoaded,
+    matchesFound:dedup.matches.length,
+    excludedDuplicate:dedup.excludedDuplicate,
+    providersUsed:[...providersUsed],
+    universeStatus:classifyUniverseStatus(competitionsLoaded,competitionsExpected),
+    warnings,
+    generatedAt:Date.now(),
+  };
+}
+// Europe/Berlin "ден" режим (виж discussion-а "canonical day") - fetchCandidateUniverse()
+// по-горе приема суров dateFrom/dateTo (UTC-базиран на провайдърите, НЕ
+// гарантирано подравнен с Berlin денонощието). Тук изтегляме умишлено
+// по-широк прозорец [berlinDay-1, berlinDay+1] (3 дни), после филтрираме
+// ЛОКАЛНО чрез isInBerlinDay() - мач около полунощ (UTC или Berlin) винаги
+// попада в ПРАВИЛНИЯ календарен ден, независимо от суровата API граница.
+// История (allMatches)/competitionsLoaded/providersUsed остават от
+// fetchCandidateUniverse() непроменени - само candidates/matchesFound/
+// candidateDate се прецизират към точния Berlin ден.
+async function fetchDailyCandidateUniverse(berlinDay){
+  const day=berlinDay||getToday();
+  const windowFrom=addCalendarDays(day,-1);
+  const windowTo=addCalendarDays(day,1);
+  const raw=await fetchCandidateUniverse(windowFrom,windowTo);
+  const candidates=raw.candidates.filter(m=>isInBerlinDay(m.utcDate,day));
+  return{
+    ...raw,
+    candidateDate:day,
+    candidates,
+    matchesFound:candidates.length,
+  };
+}
 async function loadUpcoming(){
   // (Д) брояч нагоре за целия живот на функцията - покрива и extra-AS блока,
   // и AS-source H2H заявките по-долу, не само единична под-секция.
