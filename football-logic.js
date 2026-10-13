@@ -817,6 +817,72 @@ function buildReliableStatsReport(history,compsAsMap){
   };
 }
 
+// ЗАДАЧА 7.7 (виж "1X2 Proper Scoring Metrics", спецификацията от READ-ONLY
+// одита Задача №7.6, с изрична корекция: ε е САМО numerical safety guard
+// срещу ln(0), НЕ омекотяване на лоши прогнози - затова 1e-15, не 0.01) -
+// Brier Score (SUM convention, диапазон 0-2) и Log Loss (natural log) за 1X2,
+// върху ВЕЧЕ филтриран "надежден" подмасив (filterReliableHistory()'s
+// .reliable - resolved + pre-match + dedup + decidedAfterRegulation
+// exclusion, НЕПИПНАТ - виж buildProperScoresReport() по-долу). Чиста
+// функция - нулеви API заявки, нулево четене на localStorage, нулева
+// мутация на entries/отделните записи.
+// VALIDATION (на ниво отделен запис, ПРЕДИ скоринг): hWin/draw/aWin трябва
+// да са Number.isFinite И в [0,100]; winner трябва да е точно '1'/'X'/'2';
+// сборът трябва да е в [99,101] - извън тоя толеранс записа се изключва
+// (excludedInvalid), вътре в него (вкл. точно 99/101, но !==100) се
+// renormalize-ва ЛОКАЛНО само за скоринга (деление на реалния sum, не на
+// константата 100) - НИКОГА не презаписва history/localStorage.
+const PROPER_SCORES_LOG_LOSS_EPSILON=1e-15;
+function calc1X2ProperScores(entries){
+  let validCount=0,excludedInvalid=0,brierSum=0,logLossSum=0;
+  (entries||[]).forEach(h=>{
+    const p=h&&h.pred,r=h&&h.result;
+    if(!p||!r){excludedInvalid++;return;}
+    const hWin=p.hWin,draw=p.draw,aWin=p.aWin;
+    if(!Number.isFinite(hWin)||!Number.isFinite(draw)||!Number.isFinite(aWin)){excludedInvalid++;return;}
+    if(hWin<0||hWin>100||draw<0||draw>100||aWin<0||aWin>100){excludedInvalid++;return;}
+    const winner=r.winner;
+    if(winner!=='1'&&winner!=='X'&&winner!=='2'){excludedInvalid++;return;}
+    const sum=hWin+draw+aWin;
+    if(sum<99||sum>101){excludedInvalid++;return;}
+    const p1=hWin/sum,pX=draw/sum,p2=aWin/sum;
+    const o1=winner==='1'?1:0,oX=winner==='X'?1:0,o2=winner==='2'?1:0;
+    brierSum+=(p1-o1)*(p1-o1)+(pX-oX)*(pX-oX)+(p2-o2)*(p2-o2);
+    const pActual=winner==='1'?p1:winner==='X'?pX:p2;
+    logLossSum+=-Math.log(Math.max(pActual,PROPER_SCORES_LOG_LOSS_EPSILON));
+    validCount++;
+  });
+  let sampleTier;
+  if(validCount===0)sampleTier='none';
+  else if(validCount<=4)sampleTier='extremely_small';
+  else if(validCount<=9)sampleTier='small';
+  else if(validCount<=29)sampleTier='moderate';
+  else sampleTier='more_reliable';
+  return{
+    validCount,excludedInvalid,
+    brier:validCount?brierSum/validCount:null,
+    logLoss:validCount?logLossSum/validCount:null,
+    sampleTier,
+  };
+}
+// Високо ниво на абстракция за УИ (football.html, огледално на
+// buildCalibrationReport()/buildReliableStatsReport()) - ползва СЪЩЕСТВУВАЩИЯ
+// filterReliableHistory() (не паралелен reliability pipeline), после подава
+// надеждния подмасив на calc1X2ProperScores() по-горе.
+function buildProperScoresReport(history,compsAsMap){
+  const f=filterReliableHistory(history,compsAsMap);
+  const scores=calc1X2ProperScores(f.reliable);
+  return{
+    ...scores,
+    totalHistory:f.totalHistory,
+    totalResolved:f.totalResolved,
+    preMatchCount:f.preMatchCount,
+    excludedLate:f.excludedLate,
+    excludedDuplicate:f.excludedDuplicate,
+    reliableCount:f.reliable.length,
+  };
+}
+
 // F1 ДИАГНОСТИКА (виж discussion-а "Празен API отговор да не се приема
 // автоматично за незапочнал сезон") - loadASLeagueTab() в football.html строи
 // allRaw от ТРИ Promise.allSettled резултата (next/last/live fixtures). Досега
@@ -898,7 +964,8 @@ if (typeof module !== 'undefined' && module.exports) {
     calcTopScorers, calibrationBucket, calcCalibration, CALIBRATION_MARKETS, pick1X2Winner,
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
     pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, splitHistoryByModelVersion,
-    calcReliableHistoryStats, buildReliableStatsReport, calcOverBttsJoint,
+    calcReliableHistoryStats, buildReliableStatsReport,
+    calc1X2ProperScores, buildProperScoresReport, calcOverBttsJoint,
     classifyAsLeagueTabEmptyState, sortMatchesByDate,
     limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
   };
