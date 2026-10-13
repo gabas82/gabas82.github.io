@@ -62,6 +62,7 @@ describe('loadUpcoming() wiring - Лига на конференциите пр�
     extractStatement(html, 'const COMPS=['),
     extractStatement(html, 'const AS_LEAGUES=['),
     extractStatement(html, 'const EXTRA_AS_LEAGUE_IDS='),
+    extractBraced(html, 'async function fetchFdHistoryAndWc('),
     extractBraced(html, 'async function loadUpcoming('),
   ].join('\n');
 

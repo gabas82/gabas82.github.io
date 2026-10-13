@@ -39,6 +39,7 @@ function extractBraced(src, startMarker) {
 }
 
 const code = extractBraced(html, 'function apiErrorMessage(')
+  + '\n' + extractFunction(html, 'fetchFdHistoryAndWc')
   + '\n' + extractFunction(html, 'fetchCandidateUniverse')
   + '\n' + extractFunction(html, 'fetchDailyCandidateUniverse');
 
@@ -60,7 +61,7 @@ function asFixtureToMatch(f) {
   };
 }
 
-function buildFns({ apiFetch, apiFetchAS, fetchAsLeagueSeasonHistory, currentSeasonYear, getDateMinus, getToday }) {
+function buildFns({ apiFetch, apiFetchAS, fetchAsLeagueSeasonHistory, currentSeasonYear, getDateMinus, getToday, extraAsLeagueIds, asLeagues }) {
   const fn = new Function(
     'apiFetch', 'getDateMinus', 'apiFetchAS', 'currentSeasonYear', 'EXTRA_AS_LEAGUE_IDS', 'asFixtureToMatch',
     'sortMatchesByDate', 'COMPS', 'AS_LEAGUES', 'COMPS_AS_MAP', 'fetchAsLeagueSeasonHistory',
@@ -70,7 +71,7 @@ function buildFns({ apiFetch, apiFetchAS, fetchAsLeagueSeasonHistory, currentSea
   );
   return fn(
     apiFetch, getDateMinus || (() => '2026-05-01'), apiFetchAS, currentSeasonYear || (() => 2026),
-    TEST_EXTRA_AS_LEAGUE_IDS, asFixtureToMatch, sortMatchesByDate, TEST_COMPS, TEST_AS_LEAGUES, TEST_COMPS_AS_MAP,
+    extraAsLeagueIds || TEST_EXTRA_AS_LEAGUE_IDS, asFixtureToMatch, sortMatchesByDate, TEST_COMPS, asLeagues || TEST_AS_LEAGUES, TEST_COMPS_AS_MAP,
     fetchAsLeagueSeasonHistory || (async () => ({ matches: [], blendingPrevSeason: false })),
     buildCandidateWrapper, dedupCandidateUniverse, classifyUniverseStatus,
     getToday || (() => '2026-11-01'), addCalendarDays, isInBerlinDay
@@ -210,6 +211,117 @@ describe('fetchCandidateUniverse() - ЗАДАЧА 8.3: data layer, без DOM/ra
 
   it('N) нула нови UI-only API зависимости - кодът не вика standings/scorers/cards/H2H', () => {
     expect(code).not.toMatch(/standings|scorers|Cards|H2H|h2h/i);
+  });
+});
+
+describe('fetchCandidateUniverse() - ЗАДАЧА 8.4: historyStatus разграничен от universeStatus', () => {
+  it('A) fixtures success + история fail (FD FINISHED) - universeStatus=COMPLETE, historyStatus=PARTIAL', async () => {
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) return { matches: [fdMatch('fd1', 2021, '2026-11-01T18:00:00Z', 'SCHEDULED', 'A', 'B')] };
+      if (p.includes('status=FINISHED')) throw new Error('FD history down');
+      return { matches: [] }; // СП заявка - успешна
+    };
+    const apiFetchAS = async () => ({ response: [] }); // fixtures success; fetchAsLeagueSeasonHistory() по подразбиране също успешна
+    const { fetchCandidateUniverse } = buildFns({ apiFetch, apiFetchAS });
+    const res = await fetchCandidateUniverse('2026-11-01', '2026-11-01');
+    expect(res.universeStatus).toBe('COMPLETE'); // всички fixture заявки успешни
+    expect(res.historyStatus).toBe('PARTIAL'); // FD историята провалена - 2 от 3 history dataset-а
+    expect(res.historyDatasetsLoaded).toBe(2);
+    expect(res.historyDatasetsExpected).toBe(3);
+  });
+
+  it('B) fixtures success + история success - и universeStatus, и historyStatus = COMPLETE', async () => {
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) return { matches: [fdMatch('fd1', 2021, '2026-11-01T18:00:00Z', 'SCHEDULED', 'A', 'B')] };
+      return { matches: [] };
+    };
+    const apiFetchAS = async () => ({ response: [] });
+    const { fetchCandidateUniverse } = buildFns({ apiFetch, apiFetchAS });
+    const res = await fetchCandidateUniverse('2026-11-01', '2026-11-01');
+    expect(res.universeStatus).toBe('COMPLETE');
+    expect(res.historyStatus).toBe('COMPLETE');
+    expect(res.historyDatasetsLoaded).toBe(res.historyDatasetsExpected);
+  });
+
+  it('C) fixtures fail (FD SCHEDULED) + история success - universeStatus=PARTIAL, historyStatus=COMPLETE (обратна посока на A)', async () => {
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) throw new Error('FD upcoming down');
+      return { matches: [] }; // история (FINISHED) + СП - успешни
+    };
+    const apiFetchAS = async () => ({ response: [] });
+    const { fetchCandidateUniverse } = buildFns({ apiFetch, apiFetchAS });
+    const res = await fetchCandidateUniverse('2026-11-01', '2026-11-01');
+    expect(res.universeStatus).toBe('PARTIAL'); // предстоящите FD мачове не се заредиха
+    expect(res.historyStatus).toBe('COMPLETE'); // но ЦЯЛАТА история (FD+WC+AS) е налична
+  });
+
+  it('D) частичен провал на AS история - само 1 от 2 extra лиги - historyStatus=PARTIAL, по-ниско от universeStatus', async () => {
+    const extraAsLeagueIds = [172, 203];
+    const asLeagues = [{ id: 172, icon: '🇧🇬', title: 'Ефбет Лига' }, { id: 203, icon: '🇹🇷', title: 'Süper Lig' }];
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) return { matches: [] };
+      return { matches: [] };
+    };
+    const apiFetchAS = async () => ({ response: [] }); // всички AS fixtures успешни
+    const fetchAsLeagueSeasonHistory = async (id) => {
+      if (id === 203) throw new Error('203 history down');
+      return { matches: [], blendingPrevSeason: false };
+    };
+    const { fetchCandidateUniverse } = buildFns({ apiFetch, apiFetchAS, fetchAsLeagueSeasonHistory, extraAsLeagueIds, asLeagues });
+    const res = await fetchCandidateUniverse('2026-11-01', '2026-11-01');
+    expect(res.universeStatus).toBe('COMPLETE'); // всички fixture заявки (FD+AS) успешни
+    expect(res.historyStatus).toBe('PARTIAL'); // 1 от 2 AS history заявки провалена
+    // denominator: 1 FD + 1 WC + 2 AS лиги = 4; заредени: FD+WC+1 AS = 3
+    expect(res.historyDatasetsExpected).toBe(4);
+    expect(res.historyDatasetsLoaded).toBe(3);
+  });
+
+  it('E) FD история fail + Световно fail, при успешни FD daily fixtures и AS - historyStatus пада под PARTIAL, но не FAILED (AS история все пак успешна)', async () => {
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) return { matches: [fdMatch('fd1', 2021, '2026-11-01T18:00:00Z', 'SCHEDULED', 'A', 'B')] };
+      if (p.includes('status=FINISHED')) throw new Error('FD history down');
+      throw new Error('WC down'); // СП заявка - също провалена
+    };
+    const apiFetchAS = async () => ({ response: [] }); // AS fixtures + история успешни
+    const { fetchCandidateUniverse } = buildFns({ apiFetch, apiFetchAS });
+    const res = await fetchCandidateUniverse('2026-11-01', '2026-11-01');
+    expect(res.historyDatasetsLoaded).toBe(1); // само AS историята е успешна (FD hist + WC - и двете провалени)
+    expect(res.historyStatus).toBe('PARTIAL'); // >0 и <expected
+    // universeStatus също деградира (WC fixture-а провален), но независимо от historyStatus денумератора
+    expect(res.universeStatus).toBe('PARTIAL');
+  });
+
+  it('historyStatus=FAILED, когато и FD, и WC, и ВСИЧКИ AS история се провалят', async () => {
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) return { matches: [fdMatch('fd1', 2021, '2026-11-01T18:00:00Z', 'SCHEDULED', 'A', 'B')] };
+      throw new Error('down'); // и FD FINISHED, и СП (Световно) провалени
+    };
+    const apiFetchAS = async () => ({ response: [] }); // AS fixtures успешни
+    const fetchAsLeagueSeasonHistory = async () => { throw new Error('AS history down'); };
+    const { fetchCandidateUniverse } = buildFns({ apiFetch, apiFetchAS, fetchAsLeagueSeasonHistory });
+    const res = await fetchCandidateUniverse('2026-11-01', '2026-11-01');
+    expect(res.historyDatasetsLoaded).toBe(0);
+    expect(res.historyStatus).toBe('FAILED');
+    // universeStatus НЕ е COMPLETE тук - Световната заявка (/competitions/2000/matches)
+    // служи и за двете цели (fixture списък + история), затова неуспехът й пада и
+    // в competitionsLoaded/universeStatus (PARTIAL), не само в historyStatus.
+    // Демонстрира, че при провал на СПОДЕЛЕН fetch и двата статуса реагират -
+    // независимостта на historyStatus е от AS-per-league провал (виж тест D),
+    // не от споделения FD/WC fetch.
+    expect(res.universeStatus).toBe('PARTIAL');
+  });
+
+  it('fetchDailyCandidateUniverse() пренася historyStatus/historyDatasets* непроменени от fetchCandidateUniverse()', async () => {
+    const apiFetch = async (p) => {
+      if (p.includes('status=SCHEDULED')) return { matches: [] };
+      if (p.includes('status=FINISHED')) throw new Error('FD history down');
+      return { matches: [] };
+    };
+    const apiFetchAS = async () => ({ response: [] });
+    const { fetchDailyCandidateUniverse } = buildFns({ apiFetch, apiFetchAS });
+    const res = await fetchDailyCandidateUniverse('2026-11-01');
+    expect(res.historyStatus).toBe('PARTIAL');
+    expect(res.universeStatus).toBe('COMPLETE');
   });
 });
 

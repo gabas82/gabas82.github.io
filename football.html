@@ -2168,13 +2168,76 @@ async function fetchH2HCached(key,fetcher){
 // candidate + result.allMatches на buildPrediction() - тая функция самата
 // НЕ го прави (остава строго data layer, без prediction-computation
 // отговорност, без ranking).
+// FOOTBALL DASHBOARD ЗАДАЧА 8.4 (виж PR #55 review "loadUpcoming() не
+// преизползва shared data layer") - football-data.org FINISHED история +
+// Световно 2026 заявка (/competitions/2000/matches) бяха код-за-код
+// дублирани между loadUpcoming() и fetchCandidateUniverse(), с ВЕЧЕ
+// идентична catch-and-continue семантика в двете (провал -> просто
+// продължава без тая част, без throw). Изважда САМО тия две мрежови
+// заявки (изпълнени паралелно, огледално на оригинала в loadUpcoming()) -
+// умишлено връща суровите success флагове/причини вместо готови warning
+// низове, защото двата извикващи текстове на предупрежденията се различават
+// ("...за прогнозите..." в loadUpcoming() срещу по-късия вариант в
+// fetchCandidateUniverse()) - всеки caller си изгражда своето съобщение с
+// apiErrorMessage(), без промяна в показания текст. Сливането на резултата
+// в upcoming/allMatches (различно представяне - суров match срещу
+// candidate wrapper - и различен dedup между двете извикващи функции)
+// остава изцяло в тях, непипнато.
+async function fetchFdHistoryAndWc(dateTo){
+  let historyMatches=[],wcScheduled=[],wcFinished=[];
+  let fdHistOk=false,wcOk=false;
+  let fdHistError=null,wcError=null;
+  const[histResult,wcResult]=await Promise.allSettled([
+    apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+dateTo+'&status=FINISHED'),
+    apiFetch('/competitions/2000/matches?_t='+Date.now())
+  ]);
+  if(histResult.status==='fulfilled'){
+    historyMatches=histResult.value.matches||[];
+    fdHistOk=true;
+  }else{
+    fdHistError=histResult.reason;
+  }
+  if(wcResult.status==='fulfilled'){
+    const wcAll=wcResult.value.matches||[];
+    wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
+    wcFinished=wcAll.filter(m=>m.status==='FINISHED');
+    wcOk=true;
+  }else{
+    wcError=wcResult.reason;
+  }
+  return{historyMatches,wcScheduled,wcFinished,fdHistOk,wcOk,fdHistError,wcError};
+}
+// FOOTBALL DASHBOARD ЗАДАЧА 8.4 (виж PR #55 review "universeStatus COMPLETE
+// въпреки провалена FINISHED история") - fetchCandidateUniverse() връща ДВЕ
+// отделни, умишлено разделени completeness полета:
+//   universeStatus  - пълнота на СПИСЪКА с предстоящи кандидат-мачове
+//                      (SCHEDULED/TIMED fixture заявки: FD upcoming + WC +
+//                      AS extra-league /fixtures). COMPLETE тук казва само
+//                      "знаем КОИ мачове се играят" - НИЩО за това дали има
+//                      история зад тях.
+//   historyStatus   - пълнота на ИСТОРИЧЕСКИТЕ данни, нужни на
+//                      buildPrediction() (allMatches: FD FINISHED история +
+//                      WC FINISHED + AS fetchAsLeagueSeasonHistory() на
+//                      лига). Denominator-ът умишлено НЕ е брой competitions
+//                      (за разлика от competitionsExpected/universeStatus) -
+//                      FD историята идва от ЕДНА заявка, която покрива
+//                      ВСИЧКИ non-AS competitions едновременно, затова се
+//                      брои като 1 dataset, не като COMPS.length. Реалните
+//                      независими history заявки/datasets са: 1 (FD,
+//                      споделена) + 1 (WC - двойна употреба на fixture
+//                      заявката, покрива и история) + по 1 за всяка
+//                      EXTRA_AS_LEAGUE_IDS лига (fetchAsLeagueSeasonHistory).
+// universeStatus=COMPLETE НЕ предполага historyStatus=COMPLETE, и обратно -
+// бъдещ selector трябва да проверява historyStatus, не universeStatus,
+// преди да се довери на allMatches.
 async function fetchCandidateUniverse(dateFrom,dateTo){
   const candidateWrappers=[];
   let allMatches=[];
   const providersUsed=new Set();
   const warnings=[];
-  let fdOk=false,wcOk=false;
+  let fdOk=false,wcOk=false,fdHistOk=false;
   const asLeagueLoaded={};
+  const asHistLoaded={};
 
   try{
     const upData=await apiFetch('/matches?dateFrom='+dateFrom+'&dateTo='+dateTo+'&status=SCHEDULED,TIMED');
@@ -2185,26 +2248,22 @@ async function fetchCandidateUniverse(dateFrom,dateTo){
     warnings.push(apiErrorMessage(e,'предстоящи мачове (football-data.org)'));
   }
 
-  try{
-    const histResult=await apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+dateTo+'&status=FINISHED');
-    allMatches=[...(histResult.matches||[])];
-  }catch(e){
-    warnings.push(apiErrorMessage(e,'историческите мачове (football-data.org)'));
+  const fdWc=await fetchFdHistoryAndWc(dateTo);
+  if(fdWc.fdHistOk){
+    allMatches=[...fdWc.historyMatches];
+    fdHistOk=true;
+  }else{
+    warnings.push(apiErrorMessage(fdWc.fdHistError,'историческите мачове (football-data.org)'));
   }
-
-  try{
-    const wcData=await apiFetch('/competitions/2000/matches?_t='+Date.now());
-    const wcAll=wcData.matches||[];
-    const wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
+  if(fdWc.wcOk){
     const existingIds=new Set(candidateWrappers.map(c=>String(c.match.id)));
-    wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){candidateWrappers.push(buildCandidateWrapper(m));existingIds.add(String(m.id));}});
-    const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
+    fdWc.wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){candidateWrappers.push(buildCandidateWrapper(m));existingIds.add(String(m.id));}});
     const existingMatchIds=new Set(allMatches.map(m=>String(m.id)));
-    wcFinishedOnly.forEach(m=>{if(!existingMatchIds.has(String(m.id))){allMatches.push(m);existingMatchIds.add(String(m.id));}});
+    fdWc.wcFinished.forEach(m=>{if(!existingMatchIds.has(String(m.id))){allMatches.push(m);existingMatchIds.add(String(m.id));}});
     wcOk=true;
     providersUsed.add('football-data.org');
-  }catch(e){
-    warnings.push(apiErrorMessage(e,'World Cup 2026'));
+  }else{
+    warnings.push(apiErrorMessage(fdWc.wcError,'World Cup 2026'));
   }
 
   const season=currentSeasonYear();
@@ -2232,7 +2291,9 @@ async function fetchCandidateUniverse(dateFrom,dateTo){
     }
     if(histD.status==='fulfilled'){
       histD.value.matches.forEach(f=>allMatches.push(asFixtureToMatch(f)));
+      asHistLoaded[id]=true;
     }else{
+      asHistLoaded[id]=false;
       warnings.push(apiErrorMessage(histD.reason,label));
     }
   });
@@ -2246,6 +2307,12 @@ async function fetchCandidateUniverse(dateFrom,dateTo){
   const extraLoaded=Object.values(asLeagueLoaded).filter(Boolean).length;
   const competitionsLoaded=nonWcCompsLoaded+wcLoaded+extraLoaded;
 
+  // historyDatasets* - виж коментара над функцията: реални независими history
+  // източници (1 FD + 1 WC + по 1 на AS extra лига), НЕ брой competitions.
+  const historyDatasetsExpected=2+EXTRA_AS_LEAGUE_IDS.length;
+  const asHistLoadedCount=Object.values(asHistLoaded).filter(Boolean).length;
+  const historyDatasetsLoaded=(fdHistOk?1:0)+(wcOk?1:0)+asHistLoadedCount;
+
   return{
     candidateDate:dateFrom===dateTo?dateFrom:(dateFrom+'..'+dateTo),
     candidates:dedup.matches,
@@ -2256,6 +2323,9 @@ async function fetchCandidateUniverse(dateFrom,dateTo){
     excludedDuplicate:dedup.excludedDuplicate,
     providersUsed:[...providersUsed],
     universeStatus:classifyUniverseStatus(competitionsLoaded,competitionsExpected),
+    historyDatasetsExpected,
+    historyDatasetsLoaded,
+    historyStatus:classifyUniverseStatus(historyDatasetsLoaded,historyDatasetsExpected),
     warnings,
     generatedAt:Date.now(),
   };
@@ -2294,7 +2364,6 @@ async function loadUpcoming(){
     const upData=await apiFetch('/matches?dateFrom='+today+'&dateTo='+day3+'&status=SCHEDULED,TIMED');
     let upcoming=upData.matches||[];
     let allMatches=[];
-    const ts=Date.now();
     // FOOTBALL DASHBOARD ЗАДАЧА 6.1 (виж "Historical Data Reliability") -
     // historyWarnings разграничава провалена историческа заявка (API грешка/
     // rate limit) от реално малка/липсваща история - преди, и единният
@@ -2307,18 +2376,18 @@ async function loadUpcoming(){
     // само проследява и показва КОИ източници на allMatches са се провалили.
     const historyWarnings=[];
     try{
-      const[hResult,wcResult]=await Promise.allSettled([
-        apiFetch('/matches?dateFrom='+getDateMinus(180)+'&dateTo='+today+'&status=FINISHED'),
-        apiFetch('/competitions/2000/matches?_t='+ts)
-      ]);
-      if(hResult.status==='fulfilled'){
-        allMatches=[...(hResult.value.matches||[])];
+      // ЗАДАЧА 8.4 (виж PR #55 review "shared FD/WC fetch") - самите две
+      // заявки (FD FINISHED история + Световно 2000) вече идват от
+      // fetchFdHistoryAndWc() (споделена с fetchCandidateUniverse()) -
+      // сливането в upcoming/allMatches по-долу остава непипнато, същото
+      // като преди извличането.
+      const fdWc=await fetchFdHistoryAndWc(today);
+      if(fdWc.fdHistOk){
+        allMatches=[...fdWc.historyMatches];
       }else{
-        historyWarnings.push(apiErrorMessage(hResult.reason, 'историческите мачове за прогнозите (football-data.org)'));
+        historyWarnings.push(apiErrorMessage(fdWc.fdHistError, 'историческите мачове за прогнозите (football-data.org)'));
       }
-      if(wcResult.status==='fulfilled'){
-        const wcAll=wcResult.value.matches||[];
-        const wcFinishedOnly=wcAll.filter(m=>m.status==='FINISHED');
+      if(fdWc.wcOk){
         // ЗАДАЧА 6.3 (виж "WC Finished Matches Deduplication") - основната
         // fd.org заявка (/matches?...&status=FINISHED, без competitions=
         // филтър) обикновено ВЕЧЕ връща Световните мачове, попадащи в
@@ -2330,18 +2399,17 @@ async function loadUpcoming(){
         // на existingIds по-долу - пази ПЪРВИЯ срещнат запис (от основната
         // заявка), добавя WC мач САМО ако id-то му още не присъства.
         const existingMatchIds=new Set(allMatches.map(m=>String(m.id)));
-        wcFinishedOnly.forEach(m=>{
+        fdWc.wcFinished.forEach(m=>{
           if(!existingMatchIds.has(String(m.id))){allMatches.push(m);existingMatchIds.add(String(m.id));}
         });
         // Нокаут мачовете на Световното (напр. двата полуфинала) понякога са
         // разделени с повече от 3 дни един от друг — 3-дневният прозорец на
         // основната заявка пропуска втория. Тук ги добавяме отделно, без
         // ограничение по дата, за да не изчезват от таб ПРОГНОЗИ.
-        const wcScheduled=wcAll.filter(m=>['SCHEDULED','TIMED'].includes(m.status));
         const existingIds=new Set(upcoming.map(m=>String(m.id)));
-        wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
+        fdWc.wcScheduled.forEach(m=>{if(!existingIds.has(String(m.id))){upcoming.push(m);existingIds.add(String(m.id));}});
       }else{
-        historyWarnings.push(apiErrorMessage(wcResult.reason, 'World Cup 2026'));
+        historyWarnings.push(apiErrorMessage(fdWc.wcError, 'World Cup 2026'));
       }
     }catch(e){
       historyWarnings.push(apiErrorMessage(e, 'историческите данни за прогнозите'));

@@ -32,7 +32,9 @@ function extractBraced(src, startMarker) {
 }
 
 const html = fs.readFileSync('./football.html', 'utf8');
-const code = extractBraced(html, 'function apiErrorMessage(') + '\n' + extractFunction(html, 'loadUpcoming');
+const code = extractBraced(html, 'function apiErrorMessage(')
+  + '\n' + extractFunction(html, 'fetchFdHistoryAndWc')
+  + '\n' + extractFunction(html, 'loadUpcoming');
 
 const TEST_COMPS = [
   { id: 2021, name: 'Premier League', flag: '🏴' },

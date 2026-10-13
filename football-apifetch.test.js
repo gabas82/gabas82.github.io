@@ -212,6 +212,7 @@ describe('loadUpcoming() - API грешка от fd.org вече НЕ се по�
   const combinedHtml = fs.readFileSync('./football.html', 'utf8');
   const combinedSrc = [
     extractBraced(combinedHtml, 'async function apiFetch('),
+    extractBraced(combinedHtml, 'async function fetchFdHistoryAndWc('),
     extractBraced(combinedHtml, 'async function loadUpcoming('),
   ].join('\n');
 
