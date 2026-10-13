@@ -35,7 +35,13 @@ const html = fs.readFileSync('./football.html', 'utf8');
 // ЗАДАЧА 6.1 (виж "Historical Data Reliability") - loadUpcoming() вече вика
 // apiErrorMessage() за историческите грешки (historyWarnings) - екстрактваме
 // РЕАЛНАТА функция (не стъб), огледално на football-comebackerror.test.js.
-const code = extractBraced(html, 'function apiErrorMessage(') + '\n' + extractFunction(html, 'loadUpcoming');
+// ЗАДАЧА 8.4 (виж PR #55 review "shared FD/WC fetch") - loadUpcoming() вече
+// вика fetchFdHistoryAndWc() (споделена с fetchCandidateUniverse()) за
+// FD FINISHED история + Световно 2026 - екстрактваме РЕАЛНАТА функция, не стъб,
+// за да тестваме истинската интеграция, не копие.
+const code = extractBraced(html, 'function apiErrorMessage(')
+  + '\n' + extractFunction(html, 'fetchFdHistoryAndWc')
+  + '\n' + extractFunction(html, 'loadUpcoming');
 
 // Малък, тестов конфигуриран списък (не истинските 11+11 от football.html) -
 // достатъчен да тества МЕХАНИЗМА (видимост/таван/сортиране/H2H), без да
@@ -191,6 +197,58 @@ describe('loadUpcoming - F3a: всички конфигурирани състе
     const html = document.getElementById('upcoming-content').innerHTML;
     expect(html).toContain('error-box');
     expect(html).not.toContain('Няма мачове в следващите 21 дни.');
+  });
+});
+
+describe('loadUpcoming - ЗАДАЧА 8.4: fetchFdHistoryAndWc() shared helper не променя UI текста/поведението', () => {
+  it('F) точният label текст на историческото предупреждение остава непроменен след извличането в shared helper', async () => {
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [] });
+      if (p.includes('status=FINISHED')) return Promise.reject(new Error('history fetch boom'));
+      return Promise.resolve({ matches: [] });
+    };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch: () => '<div>MATCH</div>' });
+    await loadUpcoming();
+    const html = document.getElementById('upcoming-content').innerHTML;
+    // точният префикс, използван ПРЕДИ извличането - различен от краткия label
+    // във fetchCandidateUniverse() ("историческите мачове (football-data.org)")
+    expect(html).toContain('историческите мачове за прогнозите (football-data.org): history fetch boom');
+  });
+
+  it('F) точният label текст на World Cup предупреждението остава непроменен след извличането в shared helper', async () => {
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [] });
+      if (p.includes('/competitions/2000/matches')) return Promise.reject(new Error('wc boom'));
+      return Promise.resolve({ matches: [] });
+    };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch: () => '<div>MATCH</div>' });
+    await loadUpcoming();
+    const html = document.getElementById('upcoming-content').innerHTML;
+    expect(html).toContain('World Cup 2026: wc boom');
+  });
+
+  it('F) заявките за FD история и Световно продължават да се изпълняват ПАРАЛЕЛНО (shared helper запазва Promise.allSettled, не sequential await)', async () => {
+    const callOrder = [];
+    let histResolve, wcResolve;
+    const apiFetch = (p) => {
+      if (p.includes('status=SCHEDULED,TIMED')) return Promise.resolve({ matches: [] });
+      if (p.includes('status=FINISHED')) {
+        callOrder.push('hist-start');
+        return new Promise(res => { histResolve = () => { callOrder.push('hist-end'); res({ matches: [] }); }; });
+      }
+      if (p.includes('/competitions/2000/matches')) {
+        callOrder.push('wc-start');
+        return new Promise(res => { wcResolve = () => { callOrder.push('wc-end'); res({ matches: [] }); }; });
+      }
+      return Promise.resolve({ matches: [] });
+    };
+    const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch: () => '<div>MATCH</div>' });
+    const p = loadUpcoming();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    // и двете заявки трябва да са СТАРТИРАНИ преди която и да е от тях да приключи
+    expect(callOrder).toEqual(['hist-start', 'wc-start']);
+    wcResolve(); histResolve();
+    await p;
   });
 });
 

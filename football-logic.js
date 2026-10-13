@@ -674,6 +674,87 @@ function pickCanonicalEntry(group){
   if(!preMatch.length)return null;
   return preMatch.reduce((best,e)=>e.savedAt<best.savedAt?e:best);
 }
+
+// ЗАДАЧА 8.3 (виж "Daily Candidate Universe — Data Layer", одита от Задача
+// №8.2) - чисти helper-и за новия candidate-universe data layer
+// (fetchCandidateUniverse()/fetchDailyCandidateUniverse(), football.html).
+// Преизползват СЪЩЕСТВУВАЩИЯ isCrossProviderDuplicate()/mapCompPairKey()/
+// teamNamesMatch() точно над - НЕ нов dedup стандарт.
+
+// Обвива суров match/fixture обект в минималната форма, която
+// isCrossProviderDuplicate() очаква ({compId,date,home,away}) - БЕЗ savedAt/
+// statusAtSave (тия НЕ съществуват преди save-ване на прогноза - candidate
+// universe работи с СУРОВИ, все още незаписани мачове).
+function buildCandidateWrapper(match){
+  return{
+    compId:match?.competition?.id??null,
+    date:match?.utcDate,
+    home:match?.homeTeam?.shortName||match?.homeTeam?.name||'',
+    away:match?.awayTeam?.shortName||match?.awayTeam?.name||'',
+    match,
+  };
+}
+// Дедупликира candidate wrapper-и (buildCandidateWrapper() по-горе) чрез
+// СЪЩАТА isCrossProviderDuplicate() логика като history pipeline-а.
+// Детерминистичен избор измежду потвърдена cross-provider двойка: предпочита
+// football-data.org (compId БЕЗ 'as_' префикс) пред api-sports - за разлика
+// от pickCanonicalEntry() (savedAt-базиран), тук НЯМА savedAt все още (преди
+// save-ване), затова избора е по доставчик, не по време. Връща САМО суровите
+// match обекти (не wrapper-ите) + брой изключени дубликати.
+function dedupCandidateUniverse(wrappers,compsAsMap){
+  const list=wrappers||[];
+  const used=new Set();
+  const kept=[];
+  let excludedDuplicate=0;
+  for(let i=0;i<list.length;i++){
+    if(used.has(i))continue;
+    const group=[{idx:i,w:list[i]}];
+    for(let j=i+1;j<list.length;j++){
+      if(used.has(j))continue;
+      if(isCrossProviderDuplicate(list[i],list[j],compsAsMap)){group.push({idx:j,w:list[j]});used.add(j);}
+    }
+    used.add(i);
+    if(group.length===1){kept.push(group[0].w.match);continue;}
+    excludedDuplicate+=group.length-1;
+    const canon=group.find(g=>!String(g.w.compId).startsWith('as_'))||group[0];
+    kept.push(canon.w.match);
+  }
+  return{matches:kept,excludedDuplicate};
+}
+// Europe/Berlin календарен ден - СЪЩАТА конвенция като getToday() по-горе
+// (timeZone:'Europe/Berlin', sv-SE locale за YYYY-MM-DD формат). Използва се
+// за да провери дали ДАДЕН kickoff (utcDate) реално попада в целевия Berlin
+// ден - НЕ разчита на суровата API dateFrom/dateTo граница на провайдъра
+// (UTC-базирана, не гарантирано подравнена с Berlin денонощието - виж
+// discussion-а "мач около полунощ не трябва да попада в различен ден при
+// replay").
+function isInBerlinDay(utcDateStr,berlinDay){
+  if(!utcDateStr||!berlinDay)return false;
+  const d=new Date(utcDateStr);
+  if(!Number.isFinite(d.getTime()))return false;
+  try{return d.toLocaleDateString('sv-SE',{timeZone:'Europe/Berlin'})===berlinDay;}catch(e){return false;}
+}
+// Добавя/изважда календарни дни към YYYY-MM-DD низ (UTC-аритметика, чисто
+// текстово - НЕ интерпретира входа в конкретна часова зона, само премества
+// датата) - ползва се за да построи по-широк суров fetch прозорец около
+// целевия Berlin ден (виж fetchDailyCandidateUniverse(), football.html).
+function addCalendarDays(dayStr,n){
+  const d=new Date(dayStr+'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate()+(n||0));
+  return d.toISOString().split('T')[0];
+}
+// COMPLETE/PARTIAL/FAILED - ЧИСТО по бройки, без да гадае ПОРАДИ какво точно
+// е провалена дадена competition (виж discussion-а "Top selector никога не
+// трябва да нарича избора 'Top 3 на деня', ако universe-ът е непълен").
+function classifyUniverseStatus(competitionsLoaded,competitionsExpected){
+  const loaded=Number.isFinite(competitionsLoaded)?competitionsLoaded:0;
+  const expected=Number.isFinite(competitionsExpected)?competitionsExpected:0;
+  if(expected<=0)return'COMPLETE';
+  if(loaded<=0)return'FAILED';
+  if(loaded>=expected)return'COMPLETE';
+  return'PARTIAL';
+}
+
 // Оркестрира целия "надежден подмасив" pipeline - НЕ трие/презаписва
 // оригиналната история (само чете подадения масив, връща нов филтриран).
 // Връща и прозрачните бройки за УИ секцията КАЛИБРАЦИЯ (виж discussion-а
@@ -965,7 +1046,9 @@ if (typeof module !== 'undefined' && module.exports) {
     isPreMatchPrediction, mapCompPairKey, teamNamesMatch, isCrossProviderDuplicate,
     pickCanonicalEntry, filterReliableHistory, buildCalibrationReport, splitHistoryByModelVersion,
     calcReliableHistoryStats, buildReliableStatsReport,
-    calc1X2ProperScores, buildProperScoresReport, calcOverBttsJoint,
+    calc1X2ProperScores, buildProperScoresReport,
+    buildCandidateWrapper, dedupCandidateUniverse, isInBerlinDay, addCalendarDays, classifyUniverseStatus,
+    calcOverBttsJoint,
     classifyAsLeagueTabEmptyState, sortMatchesByDate,
     limitSortedUpcoming, hasRecentFinishedActivity, buildEmptyWindowMessage
   };
