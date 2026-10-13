@@ -30,8 +30,8 @@ function buildSampleTierChipHtml() {
 }
 function buildSavePrediction() {
   const code = extractBraced(html, 'function savePrediction(');
-  const fn = new Function('getHistory', 'saveHistory', 'PREDICTION_MODEL_VERSION', code + '\nreturn savePrediction;');
-  return fn(getHistory, saveHistory, PREDICTION_MODEL_VERSION);
+  const fn = new Function('getHistory', 'saveHistory', 'PREDICTION_MODEL_VERSION', 'calcConfidence', code + '\nreturn savePrediction;');
+  return fn(getHistory, saveHistory, PREDICTION_MODEL_VERSION, calcConfidence);
 }
 
 function clearHist() { try { localStorage.removeItem(HIST_KEY); } catch (e) {} }
