@@ -562,41 +562,56 @@ async function loadWCScorers(){
 // полето). ВСЕКИ извикващ вече минава през try/catch или Promise.allSettled -
 // хвърлена грешка никога не презаписва/изтрива съществуващи данни, само не
 // се третира тихо като "празно".
+// FOOTBALL DASHBOARD ЗАДАЧА 9.1 (виж "FD Inflight Dedup + History
+// Single-Flight", одита от Задача №9.0 - "apiFetch() няма дори exact-path
+// inflight dedup, за разлика от apiFetchAS()") - fdInflightRequests,
+// огледален byte-for-byte на доказания asInflightRequests модел по-долу.
+// НЕ е TTL/data cache - записът се пази САМО докато реалната мрежова заявка
+// е в ход; веднъж резолвната (success ИЛИ failure), finally блока го маха
+// от регистъра - следващо извикване (дори веднага след) прави НОВА мрежова
+// заявка, без изключение. Единствения ефект: конкурентни извиквания с
+// ТОЧНО еднакъв `p` споделят ЕДИН реален fetch, вместо по един всеки.
+const fdInflightRequests={};
 async function apiFetch(p){
-  let r;
-  try{
-    r=await fetch(WORKER+p);
-  }catch(e){
-    const err=new Error('Няма връзка с football-data.org. Провери интернет връзката и опитай отново.');
-    err.isNetworkError=true;
-    throw err;
-  }
-  if(!r.ok){
-    const err=new Error('HTTP '+r.status);
-    err.isHttpError=true;
-    throw err;
-  }
-  let data;
-  try{
-    data=await r.json();
-  }catch(e){
-    const err=new Error('Неочакван отговор от football-data.org.');
-    err.isInvalidResponse=true;
-    throw err;
-  }
-  if(data&&typeof data.message==='string'&&data.message){
-    const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
-    err.isApiError=true;
-    err.providerMessage=data.message;
-    // football-data.org понякога добавя и errorCode (напр. 400/403/429) към
-    // документираното {"message":...} тяло - не е задължително поле и не
-    // участва в самото засичане на грешката (message сам по себе си е
-    // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
-    // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
-    if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
-    throw err;
-  }
-  return data;
+  if(fdInflightRequests[p])return fdInflightRequests[p];
+  const promise=(async()=>{
+    let r;
+    try{
+      r=await fetch(WORKER+p);
+    }catch(e){
+      const err=new Error('Няма връзка с football-data.org. Провери интернет връзката и опитай отново.');
+      err.isNetworkError=true;
+      throw err;
+    }
+    if(!r.ok){
+      const err=new Error('HTTP '+r.status);
+      err.isHttpError=true;
+      throw err;
+    }
+    let data;
+    try{
+      data=await r.json();
+    }catch(e){
+      const err=new Error('Неочакван отговор от football-data.org.');
+      err.isInvalidResponse=true;
+      throw err;
+    }
+    if(data&&typeof data.message==='string'&&data.message){
+      const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
+      err.isApiError=true;
+      err.providerMessage=data.message;
+      // football-data.org понякога добавя и errorCode (напр. 400/403/429) към
+      // документираното {"message":...} тяло - не е задължително поле и не
+      // участва в самото засичане на грешката (message сам по себе си е
+      // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
+      // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
+      if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
+      throw err;
+    }
+    return data;
+  })();
+  fdInflightRequests[p]=promise;
+  try{return await promise;}finally{delete fdInflightRequests[p];}
 }
 // API ОПТИМИЗАЦИЯ (виж discussion-а "стабилизиране на API натоварването и
 // правилно обработване на rate limit"):
@@ -873,7 +888,23 @@ async function updateHistoryResultsAS(hist){
   }catch(e){}
   return changed;
 }
+// FOOTBALL DASHBOARD ЗАДАЧА 9.1 (виж "History Single-Flight", одита от
+// Задача №9.0 - "loadHistory() вика updateHistoryResults() директно,
+// backgroundHistorySync() също - двете могат да се застъпят") -
+// historyResultsInFlight е shared-promise single-flight, НА НИВОТО на
+// updateHistoryResults() самата (не само на backgroundHistorySync()'s
+// собствен historySyncInFlight по-долу, който пази ДРУГО - собствената си
+// re-entrancy при бавна мрежа + следващ 5-мин тик). Двата guard-а са
+// независими слоеве: ако loadHistory() и backgroundHistorySync() се
+// застъпят, тук се гарантира ЕДНА реална FD+AS резолюционна операция -
+// вторият caller получава/изчаква СЪЩИЯ промис, не стартира нова. Нулева
+// промяна в самата логика по-долу (FD/AS резолюция, warning/error
+// поведение, saveHistory() извикване) - само wrapped в единен in-flight
+// slot, огледално на fdInflightRequests/asInflightRequests модела.
+let historyResultsInFlight=null;
 async function updateHistoryResults(){
+  if(historyResultsInFlight)return historyResultsInFlight;
+  const promise=(async()=>{
   const hist=getHistory();
   if(!hist.length)return;
   const toUpdate=hist.filter(h=>!h.result);
@@ -920,6 +951,9 @@ async function updateHistoryResults(){
     if(changedAS)changed=true;
   }catch(e){}
   if(changed)saveHistory(hist);
+  })();
+  historyResultsInFlight=promise;
+  try{return await promise;}finally{historyResultsInFlight=null;}
 }
 // КАЛИБРАЦИЯ (Етап A, виж discussion-а) - показва за всеки пазар дали
 // "прогнозирано ~X%" реално съвпада с "настъпва X% от времето" в тая кофа -
@@ -2362,7 +2396,15 @@ async function loadUpcoming(){
   try{
     const today=getToday(),day3=getDatePlus(UPCOMING_WINDOW_DAYS);
     const upData=await apiFetch('/matches?dateFrom='+today+'&dateTo='+day3+'&status=SCHEDULED,TIMED');
-    let upcoming=upData.matches||[];
+    // ЗАДАЧА 9.1 (виж "FD Inflight Dedup" - sanity check преди implementation) -
+    // .slice() тук е НЕОБХОДИМА защитна копия, не стилистична промяна:
+    // apiFetch() вече може да върне СПОДЕЛЕН `data` обект на конкурентни
+    // извиквания с идентичен `p` (напр. две бързи последователни отваряния
+    // на таб ПРОГНОЗИ) - без копие, `upcoming.push(...)` по-долу (WC/AS extra
+    // мачове) би мутирал ЕДИН И СЪЩ масив от две едновременни loadUpcoming()
+    // изпълнения, риск от дублирани/изгубени записи, който не съществуваше
+    // преди inflight dedup-а.
+    let upcoming=(upData.matches||[]).slice();
     let allMatches=[];
     // FOOTBALL DASHBOARD ЗАДАЧА 6.1 (виж "Historical Data Reliability") -
     // historyWarnings разграничава провалена историческа заявка (API грешка/

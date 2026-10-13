@@ -43,6 +43,11 @@ const combinedSrc = [
   extractBraced(html, 'function beginAsForeground('),
   extractBraced(html, 'function endAsForeground('),
   extractBraced(html, 'async function updateHistoryResultsAS('),
+  // ЗАДАЧА 9.1 (виж "History Single-Flight") - updateHistoryResults() вече
+  // ползва собствен module-level historyResultsInFlight (shared-promise
+  // single-flight), отделен от backgroundHistorySync()'s historySyncInFlight
+  // по-долу - двата guard-а са независими слоеве, виж коментара в football.html.
+  'let historyResultsInFlight=null;',
   extractBraced(html, 'async function updateHistoryResults('),
   extractStatement(html, 'let historySyncInFlight=false;'),
   extractBraced(html, 'async function backgroundHistorySync('),
@@ -267,6 +272,54 @@ describe('backgroundHistorySync - (В) single-flight lock', () => {
     await h.backgroundHistorySync();
     await h.backgroundHistorySync();
     expect(apiFetchMock).toHaveBeenCalledTimes(4);
+  });
+});
+
+// ЗАДАЧА 9.1 (виж "History Single-Flight", одита от Задача №9.0 -
+// "loadHistory() вика updateHistoryResults() директно, без да минава през
+// backgroundHistorySync()'s historySyncInFlight - двете могат да се
+// застъпят"). updateHistoryResults() самата вече е single-flight (shared
+// promise, НЕ само backgroundHistorySync()'s wrapper) - loadHistory()'s
+// директно (fire-and-forget) извикване симулирано тук чрез директен
+// h.updateHistoryResults() вместо през backgroundHistorySync().
+describe('updateHistoryResults() - ЗАДАЧА 9.1: single-flight на самото ниво на функцията', () => {
+  it('H) конкурентни backgroundHistorySync() + updateHistoryResults() (симулира loadHistory()) -> ЕДНА history-resolution операция', async () => {
+    saveHistory([asHistEntry(1, 172)]);
+    const fetchMock = vi.fn(() => okResponse({ response: [] }));
+    const apiFetchMock = vi.fn(async () => ({ matches: [] }));
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock });
+    // backgroundHistorySync() вика updateHistoryResults() вътрешно;
+    // директното h.updateHistoryResults() симулира loadHistory()'s
+    // собствен, непазен от historySyncInFlight, fire-and-forget извикване.
+    await Promise.all([h.backgroundHistorySync(), h.updateHistoryResults()]);
+    // fd.org частта на updateHistoryResults прави точно 2 заявки (FINISHED
+    // история + WC) ЗА ЦЯЛОТО извикване - ако двете операции бяха
+    // независими, щяхме да видим 4, не 2.
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('I) след приключване на history sync, следваща (не-паралелна) операция стартира нормално', async () => {
+    saveHistory([asHistEntry(1, 172)]);
+    const fetchMock = vi.fn(() => okResponse({ response: [] }));
+    const apiFetchMock = vi.fn(async () => ({ matches: [] }));
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock });
+    await Promise.all([h.backgroundHistorySync(), h.updateHistoryResults()]);
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    // записът остава нерезолвнат (AS fixture никога не идва с FT статус в
+    // тоя мок) - затова updateHistoryResults() ПАК има работа и трябва пак
+    // реално да заяви, доказвайки registry-то е изчистено, не "заклещено".
+    await h.updateHistoryResults();
+    expect(apiFetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('конкурентни извиквания НЕ дублират действителната резолюция (loadHistoryStub извикан точно веднъж от backgroundHistorySync, независимо от race-а)', async () => {
+    saveHistory([asHistEntry(1, 172)]);
+    const fetchMock = vi.fn(() => okResponse({ response: [] }));
+    const apiFetchMock = vi.fn(async () => ({ matches: [] }));
+    const loadHistoryStub = vi.fn();
+    const h = buildHarness({ fetchImpl: fetchMock, apiFetchImpl: apiFetchMock, currentTab: 'history', loadHistoryStub });
+    await Promise.all([h.backgroundHistorySync(), h.updateHistoryResults()]);
+    expect(loadHistoryStub).toHaveBeenCalledTimes(1); // само backgroundHistorySync() го вика, точно веднъж
   });
 });
 
