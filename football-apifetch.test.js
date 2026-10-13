@@ -24,7 +24,11 @@ function extractBraced(src, startMarker) {
   return src.slice(idx, i);
 }
 
-const apiFetchCode = extractBraced(html, 'async function apiFetch(');
+// ЗАДАЧА 9.1 (виж "FD Inflight Dedup") - apiFetch() вече ползва module-level
+// fdInflightRequests регистър (огледален на asInflightRequests) - текстовата
+// екстракция трябва да го включи явно, иначе е ReferenceError в екстрактнатия
+// scope.
+const apiFetchCode = 'const fdInflightRequests={};\n' + extractBraced(html, 'async function apiFetch(');
 
 function buildApiFetch(fetchImpl) {
   const fn = new Function('WORKER', 'fetch', apiFetchCode + `\nreturn apiFetch;`);
@@ -142,8 +146,10 @@ describe('updateHistoryResults() - влияние на новата apiFetch г�
     return src.slice(idx, i);
   }
   const combinedSrc = [
+    'const fdInflightRequests={};',
     extractAsync(combinedHtml, 'apiFetch'),
     extractBraced(combinedHtml, 'async function updateHistoryResultsAS('),
+    'let historyResultsInFlight=null;',
     extractBraced(combinedHtml, 'async function updateHistoryResults('),
   ].join('\n');
 
@@ -211,6 +217,7 @@ describe('updateHistoryResults() - влияние на новата apiFetch г�
 describe('loadUpcoming() - API грешка от fd.org вече НЕ се показва като "Няма мачове"', () => {
   const combinedHtml = fs.readFileSync('./football.html', 'utf8');
   const combinedSrc = [
+    'const fdInflightRequests={};',
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function fetchFdHistoryAndWc('),
     extractBraced(combinedHtml, 'async function loadUpcoming('),
@@ -271,6 +278,7 @@ describe('loadWCKnockoutData() - запазва кеша при API грешка
   const combinedHtml = fs.readFileSync('./football.html', 'utf8');
   const combinedSrc = [
     'let wcKnockoutMatchesCache=null;',
+    'const fdInflightRequests={};',
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function loadWCKnockoutData('),
   ].join('\n');
