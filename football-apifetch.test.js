@@ -34,7 +34,10 @@ function extractStatement(src, startMarker) {
 // fdInflightRequests регистър (огледален на asInflightRequests) - текстовата
 // екстракция трябва да го включи явно, иначе е ReferenceError в екстрактнатия
 // scope.
-const apiFetchCode = 'const fdInflightRequests={};\n' + extractBraced(html, 'async function apiFetch(');
+// ЗАДАЧА 9.5 - apiFetch() вече ползва module-level FD_PROVIDER_COOLDOWN_MS/
+// fdProviderRateLimitedUntil (провайдър-ниво rate-limit guard) - добавено
+// явно в екстракцията.
+const apiFetchCode = 'const fdInflightRequests={};\nconst FD_PROVIDER_COOLDOWN_MS=60*1000;\nlet fdProviderRateLimitedUntil=0;\n' + extractBraced(html, 'async function apiFetch(');
 
 function buildApiFetch(fetchImpl) {
   const fn = new Function('WORKER', 'fetch', apiFetchCode + `\nreturn apiFetch;`);
@@ -153,6 +156,10 @@ describe('updateHistoryResults() - влияние на новата apiFetch г�
   }
   const combinedSrc = [
     'const fdInflightRequests={};',
+    // ЗАДАЧА 9.5 - apiFetch() вече ползва FD_PROVIDER_COOLDOWN_MS/
+    // fdProviderRateLimitedUntil - добавено явно в екстракцията.
+    'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
+    'let fdProviderRateLimitedUntil=0;',
     extractAsync(combinedHtml, 'apiFetch'),
     // ЗАДАЧА 9.4 - updateHistoryResultsAS() нов module-level state (явна екстракция).
     extractStatement(combinedHtml, 'const AS_HISTORY_RATE_LIMIT_COOLDOWN_MS='),
@@ -231,6 +238,8 @@ describe('loadUpcoming() - API грешка от fd.org вече НЕ се по�
   const combinedHtml = fs.readFileSync('./football.html', 'utf8');
   const combinedSrc = [
     'const fdInflightRequests={};',
+    'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
+    'let fdProviderRateLimitedUntil=0;',
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function fetchFdHistoryAndWc('),
     extractBraced(combinedHtml, 'async function loadUpcoming('),
@@ -292,6 +301,8 @@ describe('loadWCKnockoutData() - запазва кеша при API грешка
   const combinedSrc = [
     'let wcKnockoutMatchesCache=null;',
     'const fdInflightRequests={};',
+    'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
+    'let fdProviderRateLimitedUntil=0;',
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function loadWCKnockoutData('),
   ].join('\n');

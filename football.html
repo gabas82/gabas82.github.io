@@ -581,7 +581,30 @@ async function loadWCScorers(){
 // заявка, без изключение. Единствения ефект: конкурентни извиквания с
 // ТОЧНО еднакъв `p` споделят ЕДИН реален fetch, вместо по един всеки.
 const fdInflightRequests={};
+// ЗАДАЧА 9.5 (виж "Minimal Provider Pressure Guard", одита от Задача №9.0/
+// production incident follow-up - "foreground loaders продължават да пращат
+// заявки след потвърден rate limit, без provider-level защита") -
+// FD_PROVIDER_COOLDOWN_MS/fdProviderRateLimitedUntil е УНИВЕРСАЛЕН guard,
+// отделен от AS_HISTORY_RATE_LIMIT_COOLDOWN_MS/asHistorySyncRateLimitedUntil
+// (ЗАДАЧА 9.4/PR #58, НЕПРОМЕНЕНИ - тая, по-консервативна 15-мин политика
+// остава специфична за background history sync; тук е универсален 60-сек
+// floor за ВСИЧКИ FD caller-и). 60 секунди е ЧИСТО защитна client-side
+// политика, НЕ твърдение за реалния provider quota/reset прозорец - Worker-ът
+// губи Retry-After/reset metadata (виж коментара при apiErrorMessage() по-
+// долу), затова нямаме надеждна информация КОГА реално се освобождава
+// лимита. Guard-ът се активира САМО при вече доказания, съществуващ сигнал -
+// `providerErrorCode===429` (от `data.errorCode`, football.org-овото
+// опционално поле) - НЕ при generic network/HTTP/API грешка без тоя код.
+const FD_PROVIDER_COOLDOWN_MS=60*1000;
+let fdProviderRateLimitedUntil=0;
 async function apiFetch(p){
+  if(Date.now()<fdProviderRateLimitedUntil){
+    const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
+    err.isApiError=true;
+    err.providerErrorCode=429;
+    err.isProviderCooldown=true;
+    throw err;
+  }
   if(fdInflightRequests[p])return fdInflightRequests[p];
   const promise=(async()=>{
     let r;
@@ -615,6 +638,10 @@ async function apiFetch(p){
       // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
       // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
       if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
+      // ЗАДАЧА 9.5 - guard-ът се активира ТОЧНО тук, на СЪЩИЯ вече доказан
+      // сигнал, който apiErrorMessage() ползва за "лимит достигнат" текста -
+      // нулево ново detection, само side-effect на съществуващ branch.
+      if(err.providerErrorCode===429)fdProviderRateLimitedUntil=Date.now()+FD_PROVIDER_COOLDOWN_MS;
       throw err;
     }
     return data;
@@ -638,7 +665,29 @@ async function apiFetch(p){
 // Promise.allSettled/try-catch навсякъде, затова отхвърлен промис просто
 // означава "не се обнови тая обиколка", НЕ презаписва предишни валидни данни.
 const asInflightRequests={};
+// ЗАДАЧА 9.5 (виж "Minimal Provider Pressure Guard") - AS_PROVIDER_COOLDOWN_MS/
+// asProviderRateLimitedUntil, огледален (но НАПЪЛНО независим - собствена
+// променлива, собствен provider) на FD_PROVIDER_COOLDOWN_MS по-горе.
+// AS_HISTORY_RATE_LIMIT_COOLDOWN_MS/asHistorySyncRateLimitedUntil (ЗАДАЧА 9.4/
+// PR #58) остава НЕПРОМЕНЕНА - по-консервативна (15 мин), специфична само за
+// background history sync вътре в updateHistoryResultsAS(). Тук е
+// универсален 60-сек floor за ВСИЧКИ apiFetchAS() caller-и (league tabs,
+// ГОЛМАЙСТОРИ/КАРТОНИ, ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ/ОБРАТИ extra-AS блокове,
+// pollCompScorers() - без да пипаме НИТО ЕДИН от тях директно). 60 секунди е
+// защитна client-side политика, НЕ твърдение за реалния provider quota/reset
+// прозорец - Worker-ът губи rate-limit header-ите (x-ratelimit-*) при проксиране,
+// затова нямаме надеждна Retry-After/reset информация. Активира се САМО на
+// вече доказания сигнал `data.errors.rateLimit` (HTTP 200 тяло) - НЕ при
+// мрежова грешка, НЕ при HTTP non-200, НЕ при валиден празен отговор.
+const AS_PROVIDER_COOLDOWN_MS=60*1000;
+let asProviderRateLimitedUntil=0;
 async function apiFetchAS(p){
+  if(Date.now()<asProviderRateLimitedUntil){
+    const err=new Error('Достигнат лимит на заявките към api-sports.io. Опитай отново след малко.');
+    err.isRateLimit=true;
+    err.isProviderCooldown=true;
+    throw err;
+  }
   if(asInflightRequests[p])return asInflightRequests[p];
   const promise=(async()=>{
     const r=await fetch(WORKER_AS+p);
@@ -647,6 +696,10 @@ async function apiFetchAS(p){
     if(data&&data.errors&&Object.keys(data.errors).length){
       const err=new Error(data.errors.rateLimit||JSON.stringify(data.errors));
       err.isRateLimit=!!data.errors.rateLimit;
+      // ЗАДАЧА 9.5 - guard-ът се активира точно тук, на СЪЩИЯ вече доказан
+      // isRateLimit сигнал, който PR #58 ползва за историческия cooldown -
+      // нулево ново detection.
+      if(err.isRateLimit)asProviderRateLimitedUntil=Date.now()+AS_PROVIDER_COOLDOWN_MS;
       throw err;
     }
     return data;
