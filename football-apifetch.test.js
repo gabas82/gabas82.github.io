@@ -23,6 +23,12 @@ function extractBraced(src, startMarker) {
   }
   return src.slice(idx, i);
 }
+function extractStatement(src, startMarker) {
+  const idx = src.indexOf(startMarker);
+  if (idx === -1) throw new Error(`не намерих: ${startMarker}`);
+  const end = src.indexOf(';', idx);
+  return src.slice(idx, end + 1);
+}
 
 // ЗАДАЧА 9.1 (виж "FD Inflight Dedup") - apiFetch() вече ползва module-level
 // fdInflightRequests регистър (огледален на asInflightRequests) - текстовата
@@ -148,8 +154,15 @@ describe('updateHistoryResults() - влияние на новата apiFetch г�
   const combinedSrc = [
     'const fdInflightRequests={};',
     extractAsync(combinedHtml, 'apiFetch'),
+    // ЗАДАЧА 9.4 - updateHistoryResultsAS() нов module-level state (явна екстракция).
+    extractStatement(combinedHtml, 'const AS_HISTORY_RATE_LIMIT_COOLDOWN_MS='),
+    extractStatement(combinedHtml, 'let asHistorySyncRateLimitedUntil='),
     extractBraced(combinedHtml, 'async function updateHistoryResultsAS('),
     'let historyResultsInFlight=null;',
+    // PR #58 FINAL REVIEW FIX - нова module-level променлива, ползвана
+    // вътре в updateHistoryResults() (виж football-apioptimization.test.js
+    // за самия regression тест на race-а, който тя неутрализира).
+    'let foregroundHistoryRequestPending=false;',
     extractBraced(combinedHtml, 'async function updateHistoryResults('),
   ].join('\n');
 
