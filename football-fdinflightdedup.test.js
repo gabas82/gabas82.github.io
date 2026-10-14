@@ -29,7 +29,10 @@ function extractBraced(src, startMarker) {
 // включва явно, иначе е ReferenceError в екстрактнатия scope. Изложен е и
 // getInflightCount(), за да проверим пряко cleanup-а (не само косвено през
 // брой заявки).
-const apiFetchCode = 'const fdInflightRequests={};\n' + extractBraced(html, 'async function apiFetch(');
+// ЗАДАЧА 9.5 - apiFetch() вече ползва module-level FD_PROVIDER_COOLDOWN_MS/
+// fdProviderRateLimitedUntil (провайдър-ниво rate-limit guard) - екстракцията
+// го включва явно, иначе е ReferenceError в екстрактнатия scope.
+const apiFetchCode = 'const fdInflightRequests={};\nconst FD_PROVIDER_COOLDOWN_MS=60*1000;\nlet fdProviderRateLimitedUntil=0;\n' + extractBraced(html, 'async function apiFetch(');
 
 function buildApiFetch(fetchImpl) {
   const fn = new Function('WORKER', 'fetch', apiFetchCode + `
@@ -148,7 +151,7 @@ describe('apiFetch() - ЗАДАЧА 9.1: exact-path inflight dedup', () => {
 describe('apiFetchAS() - ЗАДАЧА 9.1 т.J: непроменено поведение (regression)', () => {
   const asInflightCode = extractBraced(html, 'async function apiFetchAS(');
   function buildApiFetchAS(fetchImpl) {
-    const fn = new Function('WORKER_AS', 'fetch', 'const asInflightRequests={};\n' + asInflightCode + `\nreturn apiFetchAS;`);
+    const fn = new Function('WORKER_AS', 'fetch', 'const asInflightRequests={};\nconst AS_PROVIDER_COOLDOWN_MS=60*1000;\nlet asProviderRateLimitedUntil=0;\n' + asInflightCode + `\nreturn apiFetchAS;`);
     return fn('https://worker.test/apisports', fetchImpl);
   }
   it('2 конкурентни извиквания с идентичен path -> точно 1 реален fetch (непроменено)', async () => {
@@ -172,6 +175,8 @@ describe('apiFetchAS() - ЗАДАЧА 9.1 т.J: непроменено пове�
 describe('loadLive() - ЗАДАЧА 9.1 т.K: без нов кеш слой (regression)', () => {
   const liveCombinedSrc = [
     'const fdInflightRequests={};',
+    'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
+    'let fdProviderRateLimitedUntil=0;',
     extractBraced(html, 'async function apiFetch('),
     extractBraced(html, 'async function loadLive('),
   ].join('\n');

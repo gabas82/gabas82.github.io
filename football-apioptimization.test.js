@@ -38,6 +38,12 @@ function extractStatement(src, startMarker) {
 // обикновени затворени променливи, не чрез параметри.
 const combinedSrc = [
   extractStatement(html, 'const asInflightRequests={};'),
+  // ЗАДАЧА 9.5 (виж "Minimal Provider Pressure Guard") - apiFetchAS() вече
+  // ползва собствен module-level AS_PROVIDER_COOLDOWN_MS/
+  // asProviderRateLimitedUntil (универсален provider-level guard, отделен от
+  // AS_HISTORY_RATE_LIMIT_COOLDOWN_MS по-долу) - екстрактваме ги явно.
+  extractStatement(html, 'const AS_PROVIDER_COOLDOWN_MS='),
+  extractStatement(html, 'let asProviderRateLimitedUntil='),
   extractBraced(html, 'async function apiFetchAS('),
   extractStatement(html, 'let asForegroundActiveCount=0;'),
   extractBraced(html, 'function beginAsForeground('),
