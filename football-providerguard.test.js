@@ -320,3 +320,114 @@ describe('fetchExtraASFixturesByDate() - ЗАДАЧА 9.6: invariant - cooldown 
     expect(warnings.length).toBe(1);
   });
 });
+
+// ЗАДАЧА (виж "loadFinished() peak API-Sports concurrency" discussion) -
+// тества РЕАЛНИЯ loadFinished() (не копие), заедно с РЕАЛНИТЕ guard-овани
+// apiFetch()/apiFetchAS() (combinedSrc по-горе, НЕПРОМЕНЕНИ от тая задача) и
+// РЕАЛНАТА fetchExtraASFixturesByDate(). Доказва ИМЕННО одобрения design:
+// двата AS date batch-а (вчера/днес) вече са sequential - max 4 concurrent
+// AS заявки, не 8 - докато FD (apiFetch, вчера+днес) остава изцяло
+// concurrent с цялата AS верига. Умишлено НЕ тества currentTab early-exit
+// (изрично извън обхвата - виж discussion-а).
+const finishedSrc = [
+  extraSrc,
+  extractBraced(html, 'async function loadFinished('),
+].join('\n');
+
+function buildFinishedHarness(fetchImpl) {
+  const fn = new Function(
+    'WORKER', 'WORKER_AS', 'fetch', 'currentSeasonYear',
+    'document', 'getDateMinus', 'getToday',
+    'getHistory', 'findMatchingRecord', 'getFlag', 'computeRegularScore', 'durationBadge', 'formatMatchDateTime',
+    finishedSrc + `
+    return { apiFetch, apiFetchAS, fetchExtraASFixturesByDate, loadFinished };
+  `);
+  const contentEl = { innerHTML: '' };
+  const fakeDoc = { getElementById: (id) => id === 'finished-content' ? contentEl : { innerHTML: '' } };
+  const instance = fn(
+    'https://worker.test/football', 'https://worker.test/apisports', fetchImpl, () => 2026,
+    fakeDoc, () => '2026-10-10', () => '2026-10-11',
+    () => [], () => null, () => '🏳️', () => null, () => '', (d) => d
+  );
+  return { ...instance, getHtml: () => contentEl.innerHTML };
+}
+
+// Fetch mock, който брои текущо-активните (все още нерезолвнати) заявки по
+// provider (AS vs FD, по URL префикс) и пази PEAK стойността, достигната
+// по всяко време - директно доказателство за реалната concurrency topology,
+// не само финалния брой заявки.
+function makeConcurrencyTrackingFetch(responseFor) {
+  let activeAS = 0, peakAS = 0, totalAS = 0;
+  let activeFD = 0, peakFD = 0, totalFD = 0;
+  const fetchMock = vi.fn((url) => {
+    const isAS = url.includes('/apisports');
+    if (isAS) { activeAS++; totalAS++; peakAS = Math.max(peakAS, activeAS); }
+    else { activeFD++; totalFD++; peakFD = Math.max(peakFD, activeFD); }
+    return Promise.resolve().then(() => responseFor(url)).finally(() => {
+      if (isAS) activeAS--; else activeFD--;
+    });
+  });
+  return { fetchMock, getPeakAS: () => peakAS, getTotalAS: () => totalAS, getPeakFD: () => peakFD, getTotalFD: () => totalFD };
+}
+
+describe('loadFinished() - ЗАДАЧА: sequential-by-date AS batching (peak concurrency 8 -> 4)', () => {
+  it('A) peak concurrent реални AS calls <= 4 (не 8)', async () => {
+    const { fetchMock, getPeakAS } = makeConcurrencyTrackingFetch((url) =>
+      url.includes('/apisports')
+        ? okResponse({ errors: [], response: [] })
+        : okResponse({ matches: [] })
+    );
+    const h = buildFinishedHarness(fetchMock);
+    await h.loadFinished();
+    expect(getPeakAS()).toBeLessThanOrEqual(4);
+    expect(getPeakAS()).toBe(4); // доказва, че вътре в 1 дата 4-те лиги остават concurrent (изискване 4)
+  });
+
+  it('B) без rate-limit: общият брой AS attempts остава същият (8), и двете дати се зареждат', async () => {
+    const { fetchMock, getTotalAS } = makeConcurrencyTrackingFetch((url) => {
+      if (url.includes('/apisports')) return okResponse({ errors: [], response: [{ fixture: { id: 1, date: '2026-10-10T18:00:00Z', status: { short: 'FT' } }, league: { id: 172 }, teams: { home: { id: 1, name: 'A' }, away: { id: 2, name: 'B' } }, goals: { home: 1, away: 0 }, score: { halftime: { home: 0, away: 0 } } }] });
+      return okResponse({ matches: [] });
+    });
+    const h = buildFinishedHarness(fetchMock);
+    await h.loadFinished();
+    expect(getTotalAS()).toBe(8); // 4 лиги x 2 дати - непроменен общ брой
+    expect(h.getHtml()).not.toContain('Няма приключили мачове');
+  });
+
+  it('C) реален provider rate-limit на "вчера" batch-а arm-ва guard-а -> "днес" batch не прави нови реални AS fetch calls', async () => {
+    const { fetchMock, getTotalAS, getPeakAS } = makeConcurrencyTrackingFetch((url) =>
+      url.includes('/apisports')
+        ? okResponse({ errors: { rateLimit: 'Too many requests.' }, results: 0, response: [] })
+        : okResponse({ matches: [] })
+    );
+    const h = buildFinishedHarness(fetchMock);
+    await h.loadFinished();
+    // Само "вчера" batch-ът достига реално upstream (4 заявки) - "днес"
+    // batch-ът стартира СЛЕД него (sequential), по което време guard-ът
+    // (asProviderRateLimitedUntil) вече е armed от реалните rateLimit
+    // отговори на "вчера" - "днес"'s 4 apiFetchAS() извиквания се отхвърлят
+    // ЛОКАЛНО (guard short-circuit), нулев допълнителен реален fetch.
+    expect(getTotalAS()).toBe(4);
+    expect(getPeakAS()).toBeLessThanOrEqual(4);
+  });
+
+  it('D) FD (вчера+днес) заявките остават concurrent - не чакат завършването на "вчера" AS batch-а', async () => {
+    let resolveAS;
+    const pendingAS = new Promise((resolve) => { resolveAS = resolve; });
+    const fdCalls = [];
+    const fetchMock = vi.fn((url) => {
+      if (url.includes('/apisports')) return pendingAS;
+      fdCalls.push(url);
+      return Promise.resolve(okResponse({ matches: [] }));
+    });
+    const h = buildFinishedHarness(fetchMock);
+    const resultPromise = h.loadFinished();
+    // Източваме микротаск опашката без да разрешаваме AS-то - FD заявките
+    // трябва вече да са дошли, въпреки че целият AS batch (вчера+днес) виси
+    // неразрешен.
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(fdCalls.length).toBe(2); // и двете FD заявки (вчера+днес) вече извикани
+    resolveAS(okResponse({ errors: [], response: [] }));
+    await resultPromise;
+  });
+});

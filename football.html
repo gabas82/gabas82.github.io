@@ -2219,17 +2219,38 @@ async function loadToday(){
 // (apiErrorMessage()) за всеки провалил се източник. Прогнозната
 // верификация (ticksHtml по-долу) и визуализацията на успешно заредените
 // мачове са напълно непипнати.
+// ЗАДАЧА (виж "loadFinished() peak API-Sports concurrency" discussion,
+// production forensic анализ - "4 лиги × 2 дати стартират В ЕДИН И СЪЩ
+// synchronous tick = 8 concurrent apiFetchAS() извиквания; ако provider-ът
+// реално rate-limit-не в тоя момент, множество от тях независимо получават
+// РЕАЛЕН (не guard short-circuit) errors.rateLimit, всеки без
+// isProviderCooldown - до 8 league-labeled warning-а, известното "concurrent
+// initial burst" ограничение на #59's guard design, не бъг"). extra2Promise
+// е ВЕРИЖНО закачен след extra1Promise (.then, НЕ await преди старта) -
+// двата AS batch-а (вчера/днес) вече са sequential ЕДИН СПРЯМО ДРУГ (max 4
+// concurrent AS заявки, не 8) - ако "вчера" разкрие реален provider
+// rate-limit, guard-ът (apiFetchAS(), НЕПРОМЕНЕН) вече е armed преди "днес"
+// batch-ът да стартира, затова "днес" се отхвърля локално (0 реален
+// upstream), вместо и 4-те му заявки вече да са в полет. FD (d1/d2) остава
+// напълно concurrent с цялата AS верига - extra1Promise/extra2Promise се
+// подават директно в същия Promise.allSettled, не added latency от FD->AS
+// coupling. Умишлено БЕЗ currentTab проверка между двата batch-а в тая
+// задача - чисто concurrency topology промяна, нулева промяна в data-loading
+// семантиката (и двете дати винаги се зареждат докрай, независимо от tab
+// switch по средата).
 async function loadFinished(){
   const c=document.getElementById('finished-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const yesterday=getDateMinus(1),today=getToday();
     const dataWarnings=[];
+    const extra1Promise=fetchExtraASFixturesByDate(yesterday,dataWarnings);
+    const extra2Promise=extra1Promise.then(()=>fetchExtraASFixturesByDate(today,dataWarnings));
     const[d1Result,d2Result,extra1Result,extra2Result]=await Promise.allSettled([
       apiFetch('/matches?date='+yesterday+'&status=FINISHED'),
       apiFetch('/matches?date='+today+'&status=FINISHED'),
-      fetchExtraASFixturesByDate(yesterday,dataWarnings),
-      fetchExtraASFixturesByDate(today,dataWarnings)
+      extra1Promise,
+      extra2Promise
     ]);
     let d1Matches=[],d2Matches=[];
     if(d1Result.status==='fulfilled'){
