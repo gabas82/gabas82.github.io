@@ -29,6 +29,12 @@ function extractBraced(src, startMarker) {
   }
   return src.slice(idx, i);
 }
+function extractStatement(src, startMarker) {
+  const idx = src.indexOf(startMarker);
+  if (idx === -1) throw new Error(`не намерих: ${startMarker}`);
+  const end = src.indexOf(';', idx);
+  return src.slice(idx, end + 1);
+}
 
 // apiFetch() и apiFetchAS() споделят ЕДИН И СЪЩ глобален `fetch` символ в
 // реалния football.html (само различен WORKER/WORKER_AS url префикс) - тук
@@ -55,6 +61,29 @@ function buildHarness(fetchImpl) {
     };
   `);
   return fn('https://worker.test/football', 'https://worker.test/apisports', fetchImpl);
+}
+
+// ЗАДАЧА 9.6 (виж "Shared Provider Cooldown Display Fix") - разширява горния
+// combinedSrc (РЕАЛНИЯТ, guard-ован apiFetchAS(), НЕПРОМЕНЕН от тая задача) с
+// РЕАЛНИТЕ EXTRA_AS_LEAGUE_IDS/AS_LEAGUES/apiErrorMessage/
+// fetchExtraASFixturesByDate(), за да докажем ИМЕННО invariant-а, одобрен
+// explicit от собственика: "когато cooldown е активен ПРЕДИ старта на
+// batch-а, всички 4 извиквания се reject-ват локално и underlying fetch
+// остава 0" - а не нещо по-силно (виж обсъждането за защо "mixed
+// cooldown + real-error в един burst" не е твърдение, което тестваме тук).
+const extraSrc = [
+  combinedSrc,
+  extractStatement(html, 'const EXTRA_AS_LEAGUE_IDS='),
+  extractStatement(html, 'const AS_LEAGUES='),
+  extractBraced(html, 'function apiErrorMessage('),
+  extractBraced(html, 'async function fetchExtraASFixturesByDate('),
+].join('\n');
+
+function buildExtraHarness(fetchImpl) {
+  const fn = new Function('WORKER', 'WORKER_AS', 'fetch', 'currentSeasonYear', extraSrc + `
+    return { apiFetchAS, fetchExtraASFixturesByDate };
+  `);
+  return fn('https://worker.test/football', 'https://worker.test/apisports', fetchImpl, () => 2026);
 }
 
 function okResponse(body) { return { ok: true, json: async () => body }; }
@@ -273,5 +302,21 @@ describe('apiFetch() - ЗАДАЧА 9.5: football-data.org provider-level rate-l
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(r1).toEqual(r2);
+  });
+});
+
+describe('fetchExtraASFixturesByDate() - ЗАДАЧА 9.6: invariant - cooldown активен ПРЕДИ старта на batch-а', () => {
+  it('предварително активен cooldown => всичките 4 извиквания се reject-ват локално, underlying fetch остава 0, warnings.length===1', async () => {
+    const fetchMock = vi.fn(() => okResponse({ errors: { rateLimit: 'too many' } }));
+    const h = buildExtraHarness(fetchMock);
+    // Армираме guard-а с ЕДНО, по-ранно извикване (симулира LIVE's
+    // /fixtures?live=all, стартирало и резолвнало ПРЕДИ batch-а).
+    await h.apiFetchAS('/fixtures?live=all').catch(() => {});
+    fetchMock.mockClear();
+    const warnings = [];
+    const result = await h.fetchExtraASFixturesByDate('2026-10-16', warnings);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.length).toBe(0);
+    expect(warnings.length).toBe(1);
   });
 });

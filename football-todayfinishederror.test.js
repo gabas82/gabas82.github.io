@@ -321,3 +321,85 @@ describe('fetchExtraASFixturesByDate() - PR 5a: обратна съвмести�
     expect(warnings[0]).toContain('⏳');
   });
 });
+
+// ЗАДАЧА 9.6 (виж "Shared Provider Cooldown Display Fix", production forensic
+// анализ след PR #59 - "1 реален upstream rate-limit event от LIVE се
+// превръща в 4 визуално независими per-league warnings в ДНЕС, докато guard-ът
+// вече е спрял всичките 4 локално, 0 реален мрежов трафик"). Тества точно
+// одобрения дизайн: isProviderCooldown-маркирани rejections се колапсират в
+// ТОЧНО 1 споделено предупреждение; реални, независими per-league провали
+// (isRateLimit БЕЗ isProviderCooldown, generic грешки) запазват старото,
+// league-labeled поведение непроменено.
+describe('fetchExtraASFixturesByDate() - ЗАДАЧА 9.6: shared provider cooldown display fix', () => {
+  it('A) всичките 4 reject-нати с isProviderCooldown=true -> ТОЧНО 1 споделено предупреждение, без league label', async () => {
+    const combinedSrc = SHARED_SRC;
+    const fn = new Function(
+      'apiFetchAS', 'currentSeasonYear',
+      combinedSrc + '\nreturn fetchExtraASFixturesByDate;'
+    );
+    const apiFetchAS = () => Promise.reject(Object.assign(new Error('cooldown active'), { isRateLimit: true, isProviderCooldown: true }));
+    const fetchExtraASFixturesByDate = fn(apiFetchAS, () => 2026);
+    const warnings = [];
+    const result = await fetchExtraASFixturesByDate('2026-10-16', warnings);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(0);
+    expect(warnings.length).toBe(1); // НЕ 4 - колапсирано в едно споделено
+    expect(warnings[0]).toContain('⏳');
+    expect(warnings[0]).not.toContain('Ефбет');
+    expect(warnings[0]).not.toContain('Сюпер');
+    expect(warnings[0]).not.toContain('Бундеслига');
+    expect(warnings[0]).not.toContain('конференциите');
+  });
+
+  it('B) regression: без isProviderCooldown - 4 независими rate-limit провала -> 4 league-labeled предупреждения (старо поведение непроменено)', async () => {
+    const combinedSrc = SHARED_SRC;
+    const fn = new Function(
+      'apiFetchAS', 'currentSeasonYear',
+      combinedSrc + '\nreturn fetchExtraASFixturesByDate;'
+    );
+    const apiFetchAS = () => Promise.reject(Object.assign(new Error('rate limit'), { isRateLimit: true }));
+    const fetchExtraASFixturesByDate = fn(apiFetchAS, () => 2026);
+    const warnings = [];
+    await fetchExtraASFixturesByDate('2026-10-16', warnings);
+    expect(warnings.length).toBe(4);
+    expect(warnings.some(w => w.includes('Ефбет Лига'))).toBe(true);
+    expect(warnings.some(w => w.includes('Сюпер Лиг'))).toBe(true);
+    expect(warnings.some(w => w.includes('2. Бундеслига'))).toBe(true);
+    expect(warnings.some(w => w.includes('Лига на конференциите'))).toBe(true);
+  });
+
+  it('C) единична generic (не rate-limit, не cooldown) грешка само за 1 лига -> 1 league-labeled предупреждение, останалите 3 успяват', async () => {
+    const combinedSrc = SHARED_SRC;
+    const fn = new Function(
+      'apiFetchAS', 'currentSeasonYear',
+      combinedSrc + '\nreturn fetchExtraASFixturesByDate;'
+    );
+    const apiFetchAS = (p) => p.includes('league=79')
+      ? Promise.reject(new Error('HTTP 500'))
+      : Promise.resolve({ response: [] });
+    const fetchExtraASFixturesByDate = fn(apiFetchAS, () => 2026);
+    const warnings = [];
+    await fetchExtraASFixturesByDate('2026-10-16', warnings);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain('2. Бундеслига');
+  });
+});
+
+describe('apiErrorMessage() - ЗАДАЧА 9.6: isProviderCooldown branch', () => {
+  function buildApiErrorMessage() {
+    const fn = new Function(extractBraced(html, 'function apiErrorMessage(') + '\nreturn apiErrorMessage;');
+    return fn();
+  }
+  it('F) isProviderCooldown=true -> нов споделен текст, БЕЗ league suffix дори с подаден label', () => {
+    const apiErrorMessage = buildApiErrorMessage();
+    const msg = apiErrorMessage({ isProviderCooldown: true, isRateLimit: true }, 'Ефбет Лига');
+    expect(msg).toContain('⏳');
+    expect(msg).not.toContain('Ефбет Лига');
+    expect(msg).not.toContain(' за ');
+  });
+  it('G) regression: isRateLimit=true БЕЗ isProviderCooldown -> стария "Достигнат лимит... за <label>" текст непроменен', () => {
+    const apiErrorMessage = buildApiErrorMessage();
+    const msg = apiErrorMessage({ isRateLimit: true }, 'Ефбет Лига');
+    expect(msg).toBe('⏳ Достигнат лимит на заявките към API-то за Ефбет Лига. Опитай отново след малко.');
+  });
+});
