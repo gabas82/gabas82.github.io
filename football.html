@@ -346,17 +346,37 @@ const UPCOMING_MAX_PER_COMP=10;
 // пълна обратна съвместимост. loadToday()/loadFinished() (единствените
 // извикващи) вече подават споделен масив, за да получат ясно съобщение за
 // всяка провалена лига вместо тихо пропускане.
+// ЗАДАЧА 9.6 (виж "Shared Provider Cooldown Display Fix") - ако #59's
+// AS_PROVIDER_COOLDOWN_MS guard вече е активен (зададен от ПО-РАННО, различно
+// извикване - напр. LIVE's /fixtures?live=all), ВСИЧКИТЕ 4 apiFetchAS()
+// извиквания тук се отхвърлят ЛОКАЛНО (нулев реален мрежов трафик, виж
+// apiFetchAS() - НЕПРОМЕНЕНА от тая задача), всяко носещо
+// `isProviderCooldown=true`. Преди тая задача, forEach-ът по-долу третираше
+// тия 4 еднакво със 4 НЕЗАВИСИМИ, РЕАЛНИ per-league провала - 1 споделено
+// cooldown състояние се визуализираше като 4 отделни "Достигнат лимит"
+// кутии, въпреки че провайдърът е бил питан точно 0 пъти за тоя batch.
+// `cooldownWarned` колапсира произволен брой последователни cooldown-причинени
+// rejections в ТОЧНО 1 споделено предупреждение (apiErrorMessage() без label -
+// виж новия isProviderCooldown branch там). РЕАЛНИ, независими per-league
+// провали (rate-limit ОТ самия provider response, "Free plan"/season грешки,
+// network/HTTP грешки - isProviderCooldown отсъства в тях) продължават да
+// получават собствено, league-labeled съобщение - нулева промяна в тая ветка.
 async function fetchExtraASFixturesByDate(dateStr,warnings){
   const season=currentSeasonYear();
   const results=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&date='+dateStr)));
   const out=[];
+  let cooldownWarned=false;
   results.forEach((r,i)=>{
     if(r.status==='fulfilled'){
       out.push(...(r.value.response||[]));
     }else if(warnings){
-      const leagueId=EXTRA_AS_LEAGUE_IDS[i];
-      const label=(AS_LEAGUES.find(l=>l.id===leagueId)||{}).title||('лига '+leagueId);
-      warnings.push(apiErrorMessage(r.reason, label));
+      if(r.reason&&r.reason.isProviderCooldown){
+        if(!cooldownWarned){warnings.push(apiErrorMessage(r.reason));cooldownWarned=true;}
+      }else{
+        const leagueId=EXTRA_AS_LEAGUE_IDS[i];
+        const label=(AS_LEAGUES.find(l=>l.id===leagueId)||{}).title||('лига '+leagueId);
+        warnings.push(apiErrorMessage(r.reason, label));
+      }
     }
   });
   return out;
@@ -2765,8 +2785,24 @@ async function loadUpcoming(){
 // само JSON тялото остава достъпно - то позволява "лимит достигнат изобщо"
 // (generic), не "коя точно граница" - разграничаване там би било само догадка,
 // точно каквото задачата изрично забранява (ЕТАП 2, точка 5).
+// ЗАДАЧА 9.6 (виж "Shared Provider Cooldown Display Fix", production forensic
+// анализ след PR #59 - "1 реален upstream rate-limit event от LIVE се
+// превръща в 4 визуално независими per-league warnings в ДНЕС, докато
+// guard-ът вече е спрял всичките 4 локално, 0 реален мрежов трафик") -
+// e.isProviderCooldown (вдигнат изключително от apiFetchAS()'s guard branch,
+// football.html, НЕПРОМЕНЕН от тая задача) означава "тая конкретна заявка
+// НИКОГА не е стигнала до мрежата - отхвърлена е локално заради ВЕЧЕ активен
+// cooldown от по-ранно, различно извикване". Нарочно БЕЗ league `suffix` -
+// текстово подсилва, че причината е споделено състояние, не провал на тая
+// конкретна лига. Проверката е ПЪРВА (преди generic isRateLimit) - guard
+// грешките носят И `isRateLimit=true` (за обратна съвместимост с всички
+// съществуващи isRateLimit consumer-и), затова редът на проверките тук решава
+// кой текст се показва.
 function apiErrorMessage(e, label){
   const suffix = label ? ' за ' + label : '';
+  if(e && e.isProviderCooldown){
+    return '⏳ API-Sports временно спрян (защитен режим след предходен лимит) - изчакай малко, после презареди.';
+  }
   if(e && (e.isRateLimit || e.providerErrorCode===429)){
     return '⏳ Достигнат лимит на заявките към API-то' + suffix + '. Опитай отново след малко.';
   }
