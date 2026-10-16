@@ -403,3 +403,102 @@ describe('apiErrorMessage() - ЗАДАЧА 9.6: isProviderCooldown branch', () =
     expect(msg).toBe('⏳ Достигнат лимит на заявките към API-то за Ефбет Лига. Опитай отново след малко.');
   });
 });
+
+// ЗАДАЧА 9.7 (виж "Provider Identity + Finished Dedup", production follow-up
+// след #60 - "и apiFetch() (FD), и apiFetchAS() (AS) вдигат isProviderCooldown,
+// apiErrorMessage() показваше hardcoded 'API-Sports' дори за FD cooldown;
+// loadFinished() вика fetchExtraASFixturesByDate() ДВА пъти [вчера+днес],
+// всеки с локален cooldown-collapsing state - 2 отделни AS warning-а вместо
+// 1, плюс 2 отделни FD warning-а от d1Result/d2Result без никакъв collapsing
+// - до 4 текстово идентични кутии при едновременен FD+AS cooldown"). Тества
+// точно одобрения дизайн: apiErrorMessage() избира текста по СЪЩЕСТВУВАЩИТЕ
+// структурни флагове (isRateLimit -> API-Sports, providerErrorCode===429 ->
+// football-data.org, нулево ново поле, нулево message parsing);
+// loadFinished() dedup-ва FD и AS ОТДЕЛНО (различни tracker-и, никога не се
+// пресичат) - 1 FD + 1 AS warning при едновременен cooldown, не 1 общ и не 4.
+describe('apiErrorMessage() - ЗАДАЧА 9.7: provider identity по isRateLimit/providerErrorCode', () => {
+  function buildApiErrorMessage() {
+    const fn = new Function(extractBraced(html, 'function apiErrorMessage(') + '\nreturn apiErrorMessage;');
+    return fn();
+  }
+  it('FD cooldown (isProviderCooldown + providerErrorCode===429) -> football-data.org текст, НЕ API-Sports', () => {
+    const apiErrorMessage = buildApiErrorMessage();
+    const msg = apiErrorMessage({ isProviderCooldown: true, isApiError: true, providerErrorCode: 429 });
+    expect(msg).toContain('football-data.org');
+    expect(msg).not.toContain('API-Sports');
+  });
+  it('AS cooldown (isProviderCooldown + isRateLimit) -> API-Sports текст, НЕ football-data.org (regression)', () => {
+    const apiErrorMessage = buildApiErrorMessage();
+    const msg = apiErrorMessage({ isProviderCooldown: true, isRateLimit: true });
+    expect(msg).toContain('API-Sports');
+    expect(msg).not.toContain('football-data.org');
+  });
+  it('F) non-cooldown FD грешка (providerErrorCode===429 БЕЗ isProviderCooldown) -> generic "лимит" текст, никога API-Sports', () => {
+    const apiErrorMessage = buildApiErrorMessage();
+    const msg = apiErrorMessage({ providerErrorCode: 429 }, 'предстоящи мачове (football-data.org)');
+    expect(msg).not.toContain('API-Sports');
+    expect(msg).toBe('⏳ Достигнат лимит на заявките към API-то за предстоящи мачове (football-data.org). Опитай отново след малко.');
+  });
+});
+
+describe('loadFinished()/loadToday() - ЗАДАЧА 9.7: per-provider cooldown dedup', () => {
+  it('A) Finished: FD cooldown вчера+днес -> точно 1 warning, съдържа football-data.org, НЕ API-Sports', async () => {
+    const apiFetch = () => Promise.reject(Object.assign(new Error('fd cooldown'), { isApiError: true, providerErrorCode: 429, isProviderCooldown: true }));
+    const apiFetchAS = () => emptyAS();
+    const { loadFinished, getHtml } = buildLoadFinished({ apiFetch, apiFetchAS });
+    await loadFinished();
+    const html = getHtml();
+    const boxCount = (html.match(/error-box/g) || []).length;
+    expect(boxCount).toBe(1);
+    expect(html).toContain('football-data.org');
+    expect(html).not.toContain('API-Sports');
+  });
+
+  it('B) Finished: AS cooldown вчера+днес -> точно 1 API-Sports warning (не 2, въпреки 2-та отделни call-а)', async () => {
+    const apiFetch = () => emptyFd();
+    const apiFetchAS = () => Promise.reject(Object.assign(new Error('as cooldown'), { isRateLimit: true, isProviderCooldown: true }));
+    const { loadFinished, getHtml } = buildLoadFinished({ apiFetch, apiFetchAS });
+    await loadFinished();
+    const html = getHtml();
+    const boxCount = (html.match(/error-box/g) || []).length;
+    expect(boxCount).toBe(1);
+    expect(html).toContain('API-Sports');
+    expect(html).not.toContain('football-data.org');
+  });
+
+  it('C) Finished: FD + AS cooldown едновременно -> точно 2 warnings, правилно named, никога collapse-нати заедно', async () => {
+    const apiFetch = () => Promise.reject(Object.assign(new Error('fd cooldown'), { isApiError: true, providerErrorCode: 429, isProviderCooldown: true }));
+    const apiFetchAS = () => Promise.reject(Object.assign(new Error('as cooldown'), { isRateLimit: true, isProviderCooldown: true }));
+    const { loadFinished, getHtml } = buildLoadFinished({ apiFetch, apiFetchAS });
+    await loadFinished();
+    const html = getHtml();
+    const boxCount = (html.match(/error-box/g) || []).length;
+    expect(boxCount).toBe(2);
+    expect(html).toContain('football-data.org');
+    expect(html).toContain('API-Sports');
+  });
+
+  it('D) Today: AS cooldown -> точно 1 API-Sports warning (regression, loadToday() без 3-ти cooldownState arg)', async () => {
+    const apiFetch = () => emptyFd();
+    const apiFetchAS = () => Promise.reject(Object.assign(new Error('as cooldown'), { isRateLimit: true, isProviderCooldown: true }));
+    const { loadToday, getHtml } = buildLoadToday({ apiFetch, apiFetchAS });
+    await loadToday();
+    const html = getHtml();
+    const boxCount = (html.match(/error-box/g) || []).length;
+    expect(boxCount).toBe(1);
+    expect(html).toContain('API-Sports');
+  });
+
+  it('E) Finished: реална (non-cooldown) AS league-specific грешка на СЪЩАТА лига вчера И днес -> 2 отделни warnings, league label запазен и в двата, НЕ се collapse-ват', async () => {
+    const apiFetch = () => emptyFd();
+    const apiFetchAS = (p) => p.includes('league=79')
+      ? Promise.reject(new Error('HTTP 500'))
+      : Promise.resolve({ response: [] });
+    const { loadFinished, getHtml } = buildLoadFinished({ apiFetch, apiFetchAS });
+    await loadFinished();
+    const html = getHtml();
+    const boxCount = (html.match(/error-box/g) || []).length;
+    expect(boxCount).toBe(2); // вчера + днес - НЕ dedup-нати, въпреки идентичен текст
+    expect((html.match(/Бундеслига/g) || []).length).toBe(2);
+  });
+});

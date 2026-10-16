@@ -320,3 +320,34 @@ describe('fetchExtraASFixturesByDate() - ЗАДАЧА 9.6: invariant - cooldown 
     expect(warnings.length).toBe(1);
   });
 });
+
+// ЗАДАЧА 9.7 (виж "Provider Identity + Finished Dedup") - потвърждава, че
+// опционалният 3-ти `cooldownState` параметър (нов тая задача) НЕ пипа guard
+// timing-а - cooldown expiry продължава да възстановява реални мрежови
+// извиквания точно както преди, с РЕАЛНАТА guard-ована apiFetchAS().
+describe('fetchExtraASFixturesByDate() - ЗАДАЧА 9.7: cooldown expiry с споделен cooldownState', () => {
+  it('след изтичане на cooldown-а, следващ batch (нов cooldownState) реално достига мрежата', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(() => okResponse({ errors: { rateLimit: 'too many' } }));
+      const h = buildExtraHarness(fetchMock);
+      await h.apiFetchAS('/fixtures?live=all').catch(() => {});
+      fetchMock.mockClear();
+      const cs1 = { warned: false };
+      const warnings1 = [];
+      await h.fetchExtraASFixturesByDate('2026-10-16', warnings1, cs1);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(warnings1.length).toBe(1);
+      vi.advanceTimersByTime(60 * 1000 + 1000);
+      fetchMock.mockImplementation(() => okResponse({ response: [{ id: 1 }] }));
+      const cs2 = { warned: false };
+      const warnings2 = [];
+      const result = await h.fetchExtraASFixturesByDate('2026-10-16', warnings2, cs2);
+      expect(fetchMock).toHaveBeenCalledTimes(4); // 4-те лиги реално достигат мрежата
+      expect(warnings2.length).toBe(0);
+      expect(result.length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -361,17 +361,28 @@ const UPCOMING_MAX_PER_COMP=10;
 // провали (rate-limit ОТ самия provider response, "Free plan"/season грешки,
 // network/HTTP грешки - isProviderCooldown отсъства в тях) продължават да
 // получават собствено, league-labeled съобщение - нулева промяна в тая ветка.
-async function fetchExtraASFixturesByDate(dateStr,warnings){
+// ЗАДАЧА 9.7 (виж "Provider Identity + Finished Dedup") - нов, ОПЦИОНАЛЕН 3-ти
+// параметър `cooldownState` ({warned:bool}, подаван by reference) - позволява
+// на caller, който вика тая функция ПОВЕЧЕ от веднъж в рамките на една своя
+// операция (loadFinished() - веднъж за вчера, веднъж за днес), да сподели
+// ЕДНО cooldown-collapsing състояние между двата call-а, вместо всеки да пази
+// собствен локален `cooldownWarned` (което води до 2 отделни "collapsed"
+// warning-а вместо 1 - виж production forensic анализа). Без подаден 3-ти arg
+// (loadToday()'s единствен call, НЕПРОМЕНЕН тук) - fallback е нов локален
+// обект на всяко извикване, byte-for-byte същото поведение като преди тая
+// задача. Network/request логиката (Promise.allSettled по-горе) е непипната -
+// това е чисто presentation-layer state, споделено between 2 calls.
+async function fetchExtraASFixturesByDate(dateStr,warnings,cooldownState){
   const season=currentSeasonYear();
   const results=await Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(id=>apiFetchAS('/fixtures?league='+id+'&season='+season+'&date='+dateStr)));
   const out=[];
-  let cooldownWarned=false;
+  const cs=cooldownState||{warned:false};
   results.forEach((r,i)=>{
     if(r.status==='fulfilled'){
       out.push(...(r.value.response||[]));
     }else if(warnings){
       if(r.reason&&r.reason.isProviderCooldown){
-        if(!cooldownWarned){warnings.push(apiErrorMessage(r.reason));cooldownWarned=true;}
+        if(!cs.warned){warnings.push(apiErrorMessage(r.reason));cs.warned=true;}
       }else{
         const leagueId=EXTRA_AS_LEAGUE_IDS[i];
         const label=(AS_LEAGUES.find(l=>l.id===leagueId)||{}).title||('лига '+leagueId);
@@ -2219,26 +2230,46 @@ async function loadToday(){
 // (apiErrorMessage()) за всеки провалил се източник. Прогнозната
 // верификация (ticksHtml по-долу) и визуализацията на успешно заредените
 // мачове са напълно непипнати.
+// ЗАДАЧА 9.7 (виж "Provider Identity + Finished Dedup", production follow-up
+// след #60 - "loadFinished() вика fetchExtraASFixturesByDate() ДВА пъти
+// [вчера+днес], всеки call с локален cooldown-collapsing state, плюс
+// отделните apiFetch() [FD] call-а за вчера/днес - при едновременен FD+AS
+// cooldown resultira 4 текстово идентични '⏳ ... временно спрян' кутии") -
+// `asCooldownState` се подава СПОДЕЛЕН на двата fetchExtraASFixturesByDate()
+// call-а (вчера+днес) - колапсира AS-страната в ТОЧНО 1 warning. `fdCooldownWarned`
+// е отделна, НЕЗАВИСИМА локална променлива само за d1Result/d2Result (FD) -
+// двата tracker-а НИКОГА не се пресичат (различни променливи, не споделен
+// ключ/флаг), затова FD cooldown никога не "запушва" AS warning-а и обратно -
+// при едновременен FD+AS cooldown резултатът е точно 2 warning-а (1 FD + 1 AS),
+// не 1 и не 4. Реални, non-cooldown провали (без isProviderCooldown) минават
+// през непроменения else клон по-долу - запазват си league/дата label-а,
+// никога не се dedup-ват.
 async function loadFinished(){
   const c=document.getElementById('finished-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const yesterday=getDateMinus(1),today=getToday();
     const dataWarnings=[];
+    const asCooldownState={warned:false};
+    let fdCooldownWarned=false;
     const[d1Result,d2Result,extra1Result,extra2Result]=await Promise.allSettled([
       apiFetch('/matches?date='+yesterday+'&status=FINISHED'),
       apiFetch('/matches?date='+today+'&status=FINISHED'),
-      fetchExtraASFixturesByDate(yesterday,dataWarnings),
-      fetchExtraASFixturesByDate(today,dataWarnings)
+      fetchExtraASFixturesByDate(yesterday,dataWarnings,asCooldownState),
+      fetchExtraASFixturesByDate(today,dataWarnings,asCooldownState)
     ]);
     let d1Matches=[],d2Matches=[];
     if(d1Result.status==='fulfilled'){
       d1Matches=d1Result.value.matches||[];
+    }else if(d1Result.reason&&d1Result.reason.isProviderCooldown){
+      if(!fdCooldownWarned){dataWarnings.push(apiErrorMessage(d1Result.reason));fdCooldownWarned=true;}
     }else{
       dataWarnings.push(apiErrorMessage(d1Result.reason, 'вчерашните мачове (football-data.org)'));
     }
     if(d2Result.status==='fulfilled'){
       d2Matches=d2Result.value.matches||[];
+    }else if(d2Result.reason&&d2Result.reason.isProviderCooldown){
+      if(!fdCooldownWarned){dataWarnings.push(apiErrorMessage(d2Result.reason));fdCooldownWarned=true;}
     }else{
       dataWarnings.push(apiErrorMessage(d2Result.reason, 'днешните мачове (football-data.org)'));
     }
@@ -2789,19 +2820,36 @@ async function loadUpcoming(){
 // анализ след PR #59 - "1 реален upstream rate-limit event от LIVE се
 // превръща в 4 визуално независими per-league warnings в ДНЕС, докато
 // guard-ът вече е спрял всичките 4 локално, 0 реален мрежов трафик") -
-// e.isProviderCooldown (вдигнат изключително от apiFetchAS()'s guard branch,
-// football.html, НЕПРОМЕНЕН от тая задача) означава "тая конкретна заявка
-// НИКОГА не е стигнала до мрежата - отхвърлена е локално заради ВЕЧЕ активен
-// cooldown от по-ранно, различно извикване". Нарочно БЕЗ league `suffix` -
-// текстово подсилва, че причината е споделено състояние, не провал на тая
-// конкретна лига. Проверката е ПЪРВА (преди generic isRateLimit) - guard
-// грешките носят И `isRateLimit=true` (за обратна съвместимост с всички
-// съществуващи isRateLimit consumer-и), затова редът на проверките тук решава
-// кой текст се показва.
+// e.isProviderCooldown означава "тая конкретна заявка НИКОГА не е стигнала
+// до мрежата - отхвърлена е локално заради ВЕЧЕ активен cooldown от по-ранно,
+// различно извикване". Нарочно БЕЗ league `suffix` - текстово подсилва, че
+// причината е споделено състояние, не провал на тая конкретна лига.
+// Проверката е ПЪРВА (преди generic isRateLimit/providerErrorCode клона) -
+// guard грешките носят И тия обратно съвместими флагове, затова редът на
+// проверките тук решава кой текст се показва.
+// ЗАДАЧА 9.7 (виж "Provider Identity + Finished Dedup", production follow-up
+// след #60 - "и apiFetch() (FD), и apiFetchAS() (AS) вдигат isProviderCooldown,
+// но текстът тук беше hardcoded 'API-Sports' - FD cooldown се показваше
+// погрешно като AS проблем") - вместо нов provider marker, branch-ът ползва
+// СЪЩЕСТВУВАЩИТЕ, вече взаимно изключващи се структурни сигнали: isRateLimit
+// се сетва ИЗКЛЮЧИТЕЛНО от apiFetchAS() (guard-а на ред ~705-709 и реалния AS
+// rate-limit отговор, ред ~716-722), providerErrorCode===429 - ИЗКЛЮЧИТЕЛНО от
+// apiFetch() (FD guard-а на ред ~620-626 и data.errorCode, ред ~660-664).
+// Нулево message parsing, нулево ново поле на error обекта, apiFetch()/
+// apiFetchAS() остават byte-for-byte непроменени от тая задача.
 function apiErrorMessage(e, label){
   const suffix = label ? ' за ' + label : '';
   if(e && e.isProviderCooldown){
-    return '⏳ API-Sports временно спрян (защитен режим след предходен лимит) - изчакай малко, после презареди.';
+    if(e.isRateLimit){
+      return '⏳ API-Sports временно спрян (защитен режим след предходен лимит) - изчакай малко, после презареди.';
+    }
+    if(e.providerErrorCode===429){
+      return '⏳ football-data.org временно спрян (защитен режим след предходен лимит) - изчакай малко, после презареди.';
+    }
+    // Defensive fallback - при текущите 2 guard-а (apiFetch()/apiFetchAS())
+    // не би трябвало да се стигне тук (и двата винаги носят или isRateLimit,
+    // или providerErrorCode===429 заедно с isProviderCooldown).
+    return '⏳ Доставчик временно спрян (защитен режим след предходен лимит) - изчакай малко, после презареди.';
   }
   if(e && (e.isRateLimit || e.providerErrorCode===429)){
     return '⏳ Достигнат лимит на заявките към API-то' + suffix + '. Опитай отново след малко.';
