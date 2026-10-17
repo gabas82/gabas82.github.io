@@ -705,11 +705,44 @@ let asProviderRateLimitedUntil=0;
 // cooldown root-cause анализ след football-dashboard-proxy миграцията") -
 // чист console.log observability add-on, одобрен explicit scope: само 4
 // събития (REAL_FETCH_START/REAL_FETCH_RESPONSE/RATE_LIMIT_ARM/
-// LOCAL_COOLDOWN_BLOCK), нулева промяна в return/throw/control-flow
-// семантиката на apiFetchAS() - всеки оригинален ред/условие остава
-// непроменен, логването е чисто add-on около тях. Никакви keys/secrets/
-// headers/пълен WORKER_AS URL не се логват - само path и provider-връщани
-// (вече публични, non-credential) полета.
+// LOCAL_COOLDOWN_BLOCK). Никакви keys/secrets/headers/пълен WORKER_AS URL
+// не се логват - само path и provider-връщани (вече публични,
+// non-credential) полета.
+//
+// PHASE 2A: централен max-concurrency limiter за РЕАЛНИТЕ apiFetchAS()
+// fetch() извиквания (виж discussion-а "request-pressure root cause" -
+// LIVE→ДНЕС incident, "concurrent initial burst" race, вече доказан и
+// покрит от regression теста по-долу). Чист concurrency limiter, НЕ нов
+// rate-limit framework - без retry/backoff/delay/timer/cache/cancellation/
+// priority/tab-specific логика, само FIFO опашка + максимум
+// AS_MAX_CONCURRENT_FETCHES едновременни реални upstream fetch() към
+// api-sports.io. Exact-path inflight dedup (asInflightRequests,
+// НЕПРОМЕНЕН по-долу) си остава ПЪРВИЯТ guard - duplicate caller към ВЕЧЕ
+// in-flight path никога не създава втори queue job/slot, точно както преди.
+const AS_MAX_CONCURRENT_FETCHES=2;
+let asActiveFetchCount=0;
+const asFetchQueue=[];
+function acquireAsFetchSlot(){
+  return new Promise(resolve=>{
+    if(asActiveFetchCount<AS_MAX_CONCURRENT_FETCHES){
+      asActiveFetchCount++;
+      resolve();
+    }else{
+      asFetchQueue.push(resolve);
+    }
+  });
+}
+// Slot hand-off директно на следващия чакащ (FIFO, asFetchQueue.shift()) -
+// asActiveFetchCount НЕ се намалява в тоя случай, slot-ът просто преминава
+// без прекъсване към следващия job. Намалява се само ако опашката е празна.
+function releaseAsFetchSlot(){
+  if(asFetchQueue.length){
+    const next=asFetchQueue.shift();
+    next();
+  }else{
+    asActiveFetchCount--;
+  }
+}
 async function apiFetchAS(p){
   if(Date.now()<asProviderRateLimitedUntil){
     console.log('[AS-DIAG] LOCAL_COOLDOWN_BLOCK',{timestamp:Date.now(),path:p,asProviderRateLimitedUntil,remainingMs:asProviderRateLimitedUntil-Date.now()});
@@ -720,27 +753,50 @@ async function apiFetchAS(p){
   }
   if(asInflightRequests[p])return asInflightRequests[p];
   const promise=(async()=>{
-    console.log('[AS-DIAG] REAL_FETCH_START',{timestamp:Date.now(),path:p});
-    const r=await fetch(WORKER_AS+p);
-    if(!r.ok){
-      console.log('[AS-DIAG] REAL_FETCH_RESPONSE',{timestamp:Date.now(),path:p,httpStatus:r.status,hasProviderErrors:null,providerErrorKeys:null,responseLength:null});
-      throw new Error('HTTP '+r.status);
-    }
-    const data=await r.json();
-    console.log('[AS-DIAG] REAL_FETCH_RESPONSE',{timestamp:Date.now(),path:p,httpStatus:r.status,hasProviderErrors:!!(data&&data.errors&&Object.keys(data.errors).length),providerErrorKeys:(data&&data.errors)?Object.keys(data.errors):[],responseLength:Array.isArray(data&&data.response)?data.response.length:null});
-    if(data&&data.errors&&Object.keys(data.errors).length){
-      const err=new Error(data.errors.rateLimit||JSON.stringify(data.errors));
-      err.isRateLimit=!!data.errors.rateLimit;
-      // ЗАДАЧА 9.5 - guard-ът се активира точно тук, на СЪЩИЯ вече доказан
-      // isRateLimit сигнал, който PR #58 ползва за историческия cooldown -
-      // нулево ново detection.
-      if(err.isRateLimit){
-        asProviderRateLimitedUntil=Date.now()+AS_PROVIDER_COOLDOWN_MS;
-        console.log('[AS-DIAG] RATE_LIMIT_ARM',{timestamp:Date.now(),path:p,message:typeof data.errors.rateLimit==='string'?data.errors.rateLimit:null,asProviderRateLimitedUntil});
+    await acquireAsFetchSlot();
+    try{
+      // КРИТИЧНО (PHASE 2A) - re-check непосредствено ПРЕДИ реалния fetch(),
+      // не само guard проверката при влизане в apiFetchAS() по-горе. Job,
+      // чакал в опашката (slot зает от друг path), може да види cooldown,
+      // arm-нат от СЪЩО ТОЙ друг path, докато е чакал - точно тая проверка
+      // затваря "concurrent initial burst" race-а: вместо да достигне
+      // мрежата напразно, job-ът получава същата isProviderCooldown грешка
+      // локално, без нито един допълнителен реален upstream fetch.
+      if(Date.now()<asProviderRateLimitedUntil){
+        console.log('[AS-DIAG] LOCAL_COOLDOWN_BLOCK',{timestamp:Date.now(),path:p,asProviderRateLimitedUntil,remainingMs:asProviderRateLimitedUntil-Date.now()});
+        const err=new Error('Достигнат лимит на заявките към api-sports.io. Опитай отново след малко.');
+        err.isRateLimit=true;
+        err.isProviderCooldown=true;
+        throw err;
       }
-      throw err;
+      console.log('[AS-DIAG] REAL_FETCH_START',{timestamp:Date.now(),path:p});
+      const r=await fetch(WORKER_AS+p);
+      if(!r.ok){
+        console.log('[AS-DIAG] REAL_FETCH_RESPONSE',{timestamp:Date.now(),path:p,httpStatus:r.status,hasProviderErrors:null,providerErrorKeys:null,responseLength:null});
+        throw new Error('HTTP '+r.status);
+      }
+      const data=await r.json();
+      console.log('[AS-DIAG] REAL_FETCH_RESPONSE',{timestamp:Date.now(),path:p,httpStatus:r.status,hasProviderErrors:!!(data&&data.errors&&Object.keys(data.errors).length),providerErrorKeys:(data&&data.errors)?Object.keys(data.errors):[],responseLength:Array.isArray(data&&data.response)?data.response.length:null});
+      if(data&&data.errors&&Object.keys(data.errors).length){
+        const err=new Error(data.errors.rateLimit||JSON.stringify(data.errors));
+        err.isRateLimit=!!data.errors.rateLimit;
+        // ЗАДАЧА 9.5 - guard-ът се активира точно тук, на СЪЩИЯ вече доказан
+        // isRateLimit сигнал, който PR #58 ползва за историческия cooldown -
+        // нулево ново detection.
+        if(err.isRateLimit){
+          asProviderRateLimitedUntil=Date.now()+AS_PROVIDER_COOLDOWN_MS;
+          console.log('[AS-DIAG] RATE_LIMIT_ARM',{timestamp:Date.now(),path:p,message:typeof data.errors.rateLimit==='string'?data.errors.rateLimit:null,asProviderRateLimitedUntil});
+        }
+        throw err;
+      }
+      return data;
+    }finally{
+      // Slot освобождаване при ВСИЧКИ изходи - success, HTTP non-200,
+      // provider грешка (вкл. rateLimit), и мрежово изключение (fetch()
+      // самия хвърля) - finally покрива throw ПРЕДИ catch-а на извикващия,
+      // гарантирано нулев deadlock.
+      releaseAsFetchSlot();
     }
-    return data;
   })();
   asInflightRequests[p]=promise;
   try{return await promise;}finally{delete asInflightRequests[p];}

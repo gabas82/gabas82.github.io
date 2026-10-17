@@ -44,6 +44,16 @@ const combinedSrc = [
   // AS_HISTORY_RATE_LIMIT_COOLDOWN_MS по-долу) - екстрактваме ги явно.
   extractStatement(html, 'const AS_PROVIDER_COOLDOWN_MS='),
   extractStatement(html, 'let asProviderRateLimitedUntil='),
+  // PHASE 2A (виж discussion-а "request-pressure root cause") -
+  // apiFetchAS() вече минава през централен max-concurrency limiter
+  // (AS_MAX_CONCURRENT_FETCHES/asActiveFetchCount/asFetchQueue +
+  // acquireAsFetchSlot()/releaseAsFetchSlot()) - екстрактваме ги явно,
+  // необходими dependencies на самата apiFetchAS().
+  extractStatement(html, 'const AS_MAX_CONCURRENT_FETCHES='),
+  extractStatement(html, 'let asActiveFetchCount='),
+  extractStatement(html, 'const asFetchQueue='),
+  extractBraced(html, 'function acquireAsFetchSlot('),
+  extractBraced(html, 'function releaseAsFetchSlot('),
   extractBraced(html, 'async function apiFetchAS('),
   extractStatement(html, 'let asForegroundActiveCount=0;'),
   extractBraced(html, 'function beginAsForeground('),

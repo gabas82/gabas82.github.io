@@ -28,6 +28,11 @@ const asSrc = [
   'const asInflightRequests={};',
   'const AS_PROVIDER_COOLDOWN_MS=60*1000;',
   'let asProviderRateLimitedUntil=0;',
+  'const AS_MAX_CONCURRENT_FETCHES=2;',
+  'let asActiveFetchCount=0;',
+  'const asFetchQueue=[];',
+  extractBraced(html, 'function acquireAsFetchSlot('),
+  extractBraced(html, 'function releaseAsFetchSlot('),
   extractBraced(html, 'async function apiFetchAS('),
 ].join('\n');
 
