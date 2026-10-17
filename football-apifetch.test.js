@@ -37,7 +37,11 @@ function extractStatement(src, startMarker) {
 // ЗАДАЧА 9.5 - apiFetch() вече ползва module-level FD_PROVIDER_COOLDOWN_MS/
 // fdProviderRateLimitedUntil (провайдър-ниво rate-limit guard) - добавено
 // явно в екстракцията.
-const apiFetchCode = 'const fdInflightRequests={};\nconst FD_PROVIDER_COOLDOWN_MS=60*1000;\nlet fdProviderRateLimitedUntil=0;\n' + extractBraced(html, 'async function apiFetch(');
+// PHASE 2B - apiFetch() вече минава през централен max-concurrency limiter
+// (FD_MAX_CONCURRENT_FETCHES/fdActiveFetchCount/fdFetchQueue +
+// acquireFdFetchSlot()/releaseFdFetchSlot()) - екстрактваме ги явно.
+const fdQueueCode = extractBraced(html, 'function acquireFdFetchSlot(') + '\n' + extractBraced(html, 'function releaseFdFetchSlot(');
+const apiFetchCode = 'const fdInflightRequests={};\nconst FD_PROVIDER_COOLDOWN_MS=60*1000;\nlet fdProviderRateLimitedUntil=0;\nconst FD_MAX_CONCURRENT_FETCHES=2;\nlet fdActiveFetchCount=0;\nconst fdFetchQueue=[];\n' + fdQueueCode + '\n' + extractBraced(html, 'async function apiFetch(');
 
 function buildApiFetch(fetchImpl) {
   const fn = new Function('WORKER', 'fetch', apiFetchCode + `\nreturn apiFetch;`);
@@ -160,6 +164,13 @@ describe('updateHistoryResults() - влияние на новата apiFetch г�
     // fdProviderRateLimitedUntil - добавено явно в екстракцията.
     'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
     'let fdProviderRateLimitedUntil=0;',
+    // PHASE 2B - apiFetch() вече минава през централен max-concurrency
+    // limiter - необходими dependencies, явно екстрактнати.
+    'const FD_MAX_CONCURRENT_FETCHES=2;',
+    'let fdActiveFetchCount=0;',
+    'const fdFetchQueue=[];',
+    extractBraced(combinedHtml, 'function acquireFdFetchSlot('),
+    extractBraced(combinedHtml, 'function releaseFdFetchSlot('),
     extractAsync(combinedHtml, 'apiFetch'),
     // ЗАДАЧА 9.4 - updateHistoryResultsAS() нов module-level state (явна екстракция).
     extractStatement(combinedHtml, 'const AS_HISTORY_RATE_LIMIT_COOLDOWN_MS='),
@@ -240,6 +251,11 @@ describe('loadUpcoming() - API грешка от fd.org вече НЕ се по�
     'const fdInflightRequests={};',
     'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
     'let fdProviderRateLimitedUntil=0;',
+    'const FD_MAX_CONCURRENT_FETCHES=2;',
+    'let fdActiveFetchCount=0;',
+    'const fdFetchQueue=[];',
+    extractBraced(combinedHtml, 'function acquireFdFetchSlot('),
+    extractBraced(combinedHtml, 'function releaseFdFetchSlot('),
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function fetchFdHistoryAndWc('),
     extractBraced(combinedHtml, 'async function loadUpcoming('),
@@ -303,6 +319,11 @@ describe('loadWCKnockoutData() - запазва кеша при API грешка
     'const fdInflightRequests={};',
     'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
     'let fdProviderRateLimitedUntil=0;',
+    'const FD_MAX_CONCURRENT_FETCHES=2;',
+    'let fdActiveFetchCount=0;',
+    'const fdFetchQueue=[];',
+    extractBraced(combinedHtml, 'function acquireFdFetchSlot('),
+    extractBraced(combinedHtml, 'function releaseFdFetchSlot('),
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function loadWCKnockoutData('),
   ].join('\n');

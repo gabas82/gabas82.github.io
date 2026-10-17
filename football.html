@@ -617,6 +617,45 @@ const fdInflightRequests={};
 // опционално поле) - НЕ при generic network/HTTP/API грешка без тоя код.
 const FD_PROVIDER_COOLDOWN_MS=60*1000;
 let fdProviderRateLimitedUntil=0;
+// PHASE 2B (виж discussion-а "request-pressure root cause" - огледален,
+// напълно независим FD concurrency limiter на PHASE 2A's AS опашка, PR #65).
+// Доказан идентичен structural race: apiFetch() нямаше никакъв concurrency
+// таван - множество различни FD paths, стартирали в един синхронен tick
+// (напр. loadWCScorers() + backgroundHistorySync()'s 2 заявки на bootstrap),
+// всички достигаха upstream едновременно, преди guard-ът да успее да се
+// активира. Чист FIFO concurrency limiter, НЕ нов rate-limit framework -
+// без retry/backoff/delay/timer/cache/cancellation/priority/tab-specific
+// логика, само максимум FD_MAX_CONCURRENT_FETCHES едновременни реални
+// upstream fetch() към football-data.org. Exact-path inflight dedup
+// (fdInflightRequests, НЕПРОМЕНЕН по-долу) остава ПЪРВИЯТ guard - duplicate
+// caller към ВЕЧЕ in-flight path никога не създава втори queue job/slot.
+// Напълно НЕЗАВИСИМО състояние от AS опашката (PR #65) - собствен брояч,
+// собствена FIFO опашка, собствени acquire/release - никакво споделено
+// provider queue между двата доставчика.
+const FD_MAX_CONCURRENT_FETCHES=2;
+let fdActiveFetchCount=0;
+const fdFetchQueue=[];
+function acquireFdFetchSlot(){
+  return new Promise(resolve=>{
+    if(fdActiveFetchCount<FD_MAX_CONCURRENT_FETCHES){
+      fdActiveFetchCount++;
+      resolve();
+    }else{
+      fdFetchQueue.push(resolve);
+    }
+  });
+}
+// Slot hand-off директно на следващия чакащ (FIFO, fdFetchQueue.shift()) -
+// fdActiveFetchCount НЕ се намалява в тоя случай, slot-ът просто преминава
+// без прекъсване към следващия job. Намалява се само ако опашката е празна.
+function releaseFdFetchSlot(){
+  if(fdFetchQueue.length){
+    const next=fdFetchQueue.shift();
+    next();
+  }else{
+    fdActiveFetchCount--;
+  }
+}
 async function apiFetch(p){
   if(Date.now()<fdProviderRateLimitedUntil){
     const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
@@ -627,44 +666,67 @@ async function apiFetch(p){
   }
   if(fdInflightRequests[p])return fdInflightRequests[p];
   const promise=(async()=>{
-    let r;
+    await acquireFdFetchSlot();
     try{
-      r=await fetch(WORKER+p);
-    }catch(e){
-      const err=new Error('Няма връзка с football-data.org. Провери интернет връзката и опитай отново.');
-      err.isNetworkError=true;
-      throw err;
+      // КРИТИЧНО (PHASE 2B) - re-check непосредствено ПРЕДИ реалния fetch(),
+      // не само guard проверката при влизане в apiFetch() по-горе. Job,
+      // чакал в опашката (slot зает от друг path), може да види cooldown,
+      // arm-нат от СЪЩО ТОЙ друг path, докато е чакал - точно тая проверка
+      // затваря "concurrent initial burst" race-а: вместо да достигне
+      // мрежата напразно, job-ът получава същата isProviderCooldown грешка
+      // локално, без нито един допълнителен реален upstream fetch.
+      if(Date.now()<fdProviderRateLimitedUntil){
+        const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
+        err.isApiError=true;
+        err.providerErrorCode=429;
+        err.isProviderCooldown=true;
+        throw err;
+      }
+      let r;
+      try{
+        r=await fetch(WORKER+p);
+      }catch(e){
+        const err=new Error('Няма връзка с football-data.org. Провери интернет връзката и опитай отново.');
+        err.isNetworkError=true;
+        throw err;
+      }
+      if(!r.ok){
+        const err=new Error('HTTP '+r.status);
+        err.isHttpError=true;
+        throw err;
+      }
+      let data;
+      try{
+        data=await r.json();
+      }catch(e){
+        const err=new Error('Неочакван отговор от football-data.org.');
+        err.isInvalidResponse=true;
+        throw err;
+      }
+      if(data&&typeof data.message==='string'&&data.message){
+        const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
+        err.isApiError=true;
+        err.providerMessage=data.message;
+        // football-data.org понякога добавя и errorCode (напр. 400/403/429) към
+        // документираното {"message":...} тяло - не е задължително поле и не
+        // участва в самото засичане на грешката (message сам по себе си е
+        // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
+        // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
+        if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
+        // ЗАДАЧА 9.5 - guard-ът се активира ТОЧНО тук, на СЪЩИЯ вече доказан
+        // сигнал, който apiErrorMessage() ползва за "лимит достигнат" текста -
+        // нулево ново detection, само side-effect на съществуващ branch.
+        if(err.providerErrorCode===429)fdProviderRateLimitedUntil=Date.now()+FD_PROVIDER_COOLDOWN_MS;
+        throw err;
+      }
+      return data;
+    }finally{
+      // Slot освобождаване при ВСИЧКИ изходи - success, HTTP non-200,
+      // provider грешка (вкл. 429), и мрежово изключение (fetch() самия
+      // хвърля) - finally покрива throw ПРЕДИ catch-а на извикващия,
+      // гарантирано нулев deadlock.
+      releaseFdFetchSlot();
     }
-    if(!r.ok){
-      const err=new Error('HTTP '+r.status);
-      err.isHttpError=true;
-      throw err;
-    }
-    let data;
-    try{
-      data=await r.json();
-    }catch(e){
-      const err=new Error('Неочакван отговор от football-data.org.');
-      err.isInvalidResponse=true;
-      throw err;
-    }
-    if(data&&typeof data.message==='string'&&data.message){
-      const err=new Error('Временно няма връзка с football-data.org. Опитай отново.');
-      err.isApiError=true;
-      err.providerMessage=data.message;
-      // football-data.org понякога добавя и errorCode (напр. 400/403/429) към
-      // документираното {"message":...} тяло - не е задължително поле и не
-      // участва в самото засичане на грешката (message сам по себе си е
-      // достатъчен и по-постоянно присъстващ индикатор), но го пазим, ако го
-      // има, за бъдеща по-точна диагностика без да пипаме логиката тук.
-      if(typeof data.errorCode==='number')err.providerErrorCode=data.errorCode;
-      // ЗАДАЧА 9.5 - guard-ът се активира ТОЧНО тук, на СЪЩИЯ вече доказан
-      // сигнал, който apiErrorMessage() ползва за "лимит достигнат" текста -
-      // нулево ново detection, само side-effect на съществуващ branch.
-      if(err.providerErrorCode===429)fdProviderRateLimitedUntil=Date.now()+FD_PROVIDER_COOLDOWN_MS;
-      throw err;
-    }
-    return data;
   })();
   fdInflightRequests[p]=promise;
   try{return await promise;}finally{delete fdInflightRequests[p];}

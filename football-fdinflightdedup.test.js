@@ -32,11 +32,21 @@ function extractBraced(src, startMarker) {
 // ЗАДАЧА 9.5 - apiFetch() вече ползва module-level FD_PROVIDER_COOLDOWN_MS/
 // fdProviderRateLimitedUntil (провайдър-ниво rate-limit guard) - екстракцията
 // го включва явно, иначе е ReferenceError в екстрактнатия scope.
-const apiFetchCode = 'const fdInflightRequests={};\nconst FD_PROVIDER_COOLDOWN_MS=60*1000;\nlet fdProviderRateLimitedUntil=0;\n' + extractBraced(html, 'async function apiFetch(');
+// PHASE 2B - apiFetch() вече минава през централен max-concurrency limiter
+// (FD_MAX_CONCURRENT_FETCHES/fdActiveFetchCount/fdFetchQueue +
+// acquireFdFetchSlot()/releaseFdFetchSlot()) - екстрактваме ги явно,
+// необходими dependencies на самата apiFetch().
+const fdQueueCode = extractBraced(html, 'function acquireFdFetchSlot(') + '\n' + extractBraced(html, 'function releaseFdFetchSlot(');
+const apiFetchCode = 'const fdInflightRequests={};\nconst FD_PROVIDER_COOLDOWN_MS=60*1000;\nlet fdProviderRateLimitedUntil=0;\nconst FD_MAX_CONCURRENT_FETCHES=2;\nlet fdActiveFetchCount=0;\nconst fdFetchQueue=[];\n' + fdQueueCode + '\n' + extractBraced(html, 'async function apiFetch(');
 
 function buildApiFetch(fetchImpl) {
   const fn = new Function('WORKER', 'fetch', apiFetchCode + `
-    return { apiFetch, getInflightCount: () => Object.keys(fdInflightRequests).length };
+    return {
+      apiFetch,
+      getInflightCount: () => Object.keys(fdInflightRequests).length,
+      getActiveFetchCount: () => fdActiveFetchCount,
+      getQueueLength: () => fdFetchQueue.length,
+    };
   `);
   return fn('https://worker.test/football', fetchImpl);
 }
@@ -55,7 +65,9 @@ describe('apiFetch() - ЗАДАЧА 9.1: exact-path inflight dedup', () => {
     const { apiFetch } = buildApiFetch(fetchMock);
     const p1 = apiFetch('/matches?x=1');
     const p2 = apiFetch('/matches?x=1');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // PHASE 2B - fetch() вече се dispatch-ва СЛЕД await acquireFdFetchSlot()
+    // (минимум 1 microtask tick) - изчакваме, вместо синхронна проверка.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1000, interval: 1 });
     pending.resolve(okResponse({ matches: [1, 2, 3] }));
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -70,7 +82,7 @@ describe('apiFetch() - ЗАДАЧА 9.1: exact-path inflight dedup', () => {
     const p1 = apiFetch('/competitions/2000/matches');
     const p2 = apiFetch('/competitions/2000/matches');
     const p3 = apiFetch('/competitions/2000/matches');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1000, interval: 1 });
     pending.resolve(okResponse({ matches: [] }));
     await Promise.all([p1, p2, p3]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -178,6 +190,11 @@ describe('loadLive() - ЗАДАЧА 9.1 т.K: без нов кеш слой (reg
     'const fdInflightRequests={};',
     'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
     'let fdProviderRateLimitedUntil=0;',
+    'const FD_MAX_CONCURRENT_FETCHES=2;',
+    'let fdActiveFetchCount=0;',
+    'const fdFetchQueue=[];',
+    extractBraced(html, 'function acquireFdFetchSlot('),
+    extractBraced(html, 'function releaseFdFetchSlot('),
     extractBraced(html, 'async function apiFetch('),
     extractBraced(html, 'async function loadLive('),
   ].join('\n');
