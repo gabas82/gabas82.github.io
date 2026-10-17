@@ -45,6 +45,11 @@ const combinedSrc = [
   'const fdInflightRequests={};',
   'const FD_PROVIDER_COOLDOWN_MS=60*1000;',
   'let fdProviderRateLimitedUntil=0;',
+  'const FD_MAX_CONCURRENT_FETCHES=2;',
+  'let fdActiveFetchCount=0;',
+  'const fdFetchQueue=[];',
+  extractBraced(html, 'function acquireFdFetchSlot('),
+  extractBraced(html, 'function releaseFdFetchSlot('),
   extractBraced(html, 'async function apiFetch('),
   'const asInflightRequests={};',
   'const AS_PROVIDER_COOLDOWN_MS=60*1000;',
@@ -65,6 +70,8 @@ function buildHarness(fetchImpl) {
       getAsInflightCount: () => Object.keys(asInflightRequests).length,
       getAsActiveFetchCount: () => asActiveFetchCount,
       getAsQueueLength: () => asFetchQueue.length,
+      getFdActiveFetchCount: () => fdActiveFetchCount,
+      getFdQueueLength: () => fdFetchQueue.length,
     };
   `);
   return fn('https://worker.test/football', 'https://worker.test/apisports', fetchImpl);
@@ -329,11 +336,50 @@ describe('apiFetch() - ЗАДАЧА 9.5: football-data.org provider-level rate-l
     const h = buildHarness(fetchMock);
     const p1 = h.apiFetch('/matches?date=2026-10-14');
     const p2 = h.apiFetch('/matches?date=2026-10-14');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // PHASE 2B - fetch() вече се dispatch-ва СЛЕД await acquireFdFetchSlot()
+    // (минимум 1 microtask tick), не синхронно веднага след извикването -
+    // затова изчакваме, вместо да проверяваме синхронно; самата dedup
+    // гаранция (1 реален fetch за 2 идентични path-а) остава непроменена.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1000, interval: 1 });
     pending.resolve(okResponse({ matches: [1, 2] }));
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(r1).toEqual(r2);
+  });
+
+  // PHASE 2B (виж discussion-а "request-pressure root cause" - огледален,
+  // напълно независим FD concurrency limiter на AS опашката от PR #65) -
+  // тоя тест преди доказваше ИМЕННО бъг-а, който PHASE 2B фиксира (N
+  // различни FD paths стигаха мрежата едновременно, guard-ът не можеше да
+  // спре вече стартирал burst). Сега доказва обратното - FIX-натото
+  // поведение, огледално на AS "concurrent initial burst" теста по-горе.
+  it('concurrent initial burst (PHASE 2B FIX): max FD_MAX_CONCURRENT_FETCHES=2 от 4-те РАЗЛИЧНИ FD paths реално стигат мрежата едновременно; queued job-овете re-check-ват cooldown-а ПРЕДИ dispatch', async () => {
+    const resolvers = [];
+    const fetchMock = vi.fn(() => new Promise(res => resolvers.push(res)));
+    const h = buildHarness(fetchMock);
+    const dates = ['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13'];
+    const promises = dates.map(d => h.apiFetch('/matches?date=' + d).catch(e => e));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 1000, interval: 1 });
+    expect(h.getFdActiveFetchCount()).toBe(2);
+    expect(h.getFdQueueLength()).toBe(2);
+    // Първата от 2-те активни резолвира с реален provider 429 - arm-ва
+    // cooldown-а. Slot-ът ѝ hand-off-ва директно към следващия чакащ (FIFO) -
+    // той re-check-ва cooldown-а ПРЕДИ собствения fetch() и го вижда вече
+    // armed - критичният PHASE 2B fix за "concurrent initial burst" race-а.
+    resolvers[0](okResponse({ message: 'limit', errorCode: 429 }));
+    // Втората все още активна резолвира нормално - slot-ът ѝ hand-off-ва към
+    // последния чакащ, който ПАК вижда armed cooldown.
+    resolvers[1](okResponse({ matches: [] }));
+    const results = await Promise.all(promises);
+    // КРИТИЧНО - fetchMock НИКОГА не достига 3 или 4.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]).toMatchObject({ isApiError: true, providerErrorCode: 429 }); // реален
+    expect(results[1]).toEqual({ matches: [] });
+    expect(results[2]).toMatchObject({ isProviderCooldown: true }); // локален block, без fetch
+    expect(results[3]).toMatchObject({ isProviderCooldown: true }); // локален block, без fetch
+    fetchMock.mockClear();
+    await expect(h.apiFetch('/matches?date=2026-10-20')).rejects.toMatchObject({ isProviderCooldown: true });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
