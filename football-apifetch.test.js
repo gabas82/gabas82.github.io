@@ -258,6 +258,9 @@ describe('loadUpcoming() - API грешка от fd.org вече НЕ се по�
     extractBraced(combinedHtml, 'function releaseFdFetchSlot('),
     extractBraced(combinedHtml, 'async function apiFetch('),
     extractBraced(combinedHtml, 'async function fetchFdHistoryAndWc('),
+    // PHASE 2C-A - loadUpcoming() вика scheduleCompScorersEnrichment() след рендъра;
+    // тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
+    'function scheduleCompScorersEnrichment(){}',
     extractBraced(combinedHtml, 'async function loadUpcoming('),
   ].join('\n');
 

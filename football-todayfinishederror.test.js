@@ -38,6 +38,9 @@ const SHARED_SRC = [
   extractBraced(html, 'function apiErrorMessage('),
   extractBraced(html, 'async function fetchExtraASFixturesByDate('),
   extractBraced(html, 'function asFixtureToMatch('),
+  // PHASE 2C-A - loadToday() вика scheduleCompScorersEnrichment() след рендъра;
+  // тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
+  'function scheduleCompScorersEnrichment(){}',
 ].join('\n');
 
 function buildLoadToday({ apiFetch, apiFetchAS, renderMatch }) {

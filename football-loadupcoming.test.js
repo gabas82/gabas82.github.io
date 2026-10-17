@@ -39,7 +39,10 @@ const html = fs.readFileSync('./football.html', 'utf8');
 // вика fetchFdHistoryAndWc() (споделена с fetchCandidateUniverse()) за
 // FD FINISHED история + Световно 2026 - екстрактваме РЕАЛНАТА функция, не стъб,
 // за да тестваме истинската интеграция, не копие.
+// PHASE 2C-A - loadUpcoming() вика scheduleCompScorersEnrichment() след рендъра;
+// тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
 const code = extractBraced(html, 'function apiErrorMessage(')
+  + '\nfunction scheduleCompScorersEnrichment(){}'
   + '\n' + extractFunction(html, 'fetchFdHistoryAndWc')
   + '\n' + extractFunction(html, 'loadUpcoming');
 
