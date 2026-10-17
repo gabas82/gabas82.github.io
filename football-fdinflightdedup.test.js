@@ -149,9 +149,10 @@ describe('apiFetch() - ЗАДАЧА 9.1: exact-path inflight dedup', () => {
 // добавя АНАЛОГИЧЕН механизъм само за apiFetch() (FD), не променя
 // apiFetchAS() самата. Регресия, не нов тест на нова логика.
 describe('apiFetchAS() - ЗАДАЧА 9.1 т.J: непроменено поведение (regression)', () => {
+  const asQueueCode = extractBraced(html, 'function acquireAsFetchSlot(') + '\n' + extractBraced(html, 'function releaseAsFetchSlot(');
   const asInflightCode = extractBraced(html, 'async function apiFetchAS(');
   function buildApiFetchAS(fetchImpl) {
-    const fn = new Function('WORKER_AS', 'fetch', 'const asInflightRequests={};\nconst AS_PROVIDER_COOLDOWN_MS=60*1000;\nlet asProviderRateLimitedUntil=0;\n' + asInflightCode + `\nreturn apiFetchAS;`);
+    const fn = new Function('WORKER_AS', 'fetch', 'const asInflightRequests={};\nconst AS_PROVIDER_COOLDOWN_MS=60*1000;\nlet asProviderRateLimitedUntil=0;\nconst AS_MAX_CONCURRENT_FETCHES=2;\nlet asActiveFetchCount=0;\nconst asFetchQueue=[];\n' + asQueueCode + '\n' + asInflightCode + `\nreturn apiFetchAS;`);
     return fn('https://worker.test/apisports', fetchImpl);
   }
   it('2 конкурентни извиквания с идентичен path -> точно 1 реален fetch (непроменено)', async () => {

@@ -49,6 +49,11 @@ const combinedSrc = [
   'const asInflightRequests={};',
   'const AS_PROVIDER_COOLDOWN_MS=60*1000;',
   'let asProviderRateLimitedUntil=0;',
+  'const AS_MAX_CONCURRENT_FETCHES=2;',
+  'let asActiveFetchCount=0;',
+  'const asFetchQueue=[];',
+  extractBraced(html, 'function acquireAsFetchSlot('),
+  extractBraced(html, 'function releaseAsFetchSlot('),
   extractBraced(html, 'async function apiFetchAS('),
 ].join('\n');
 
@@ -58,6 +63,8 @@ function buildHarness(fetchImpl) {
       apiFetch, apiFetchAS,
       getFdInflightCount: () => Object.keys(fdInflightRequests).length,
       getAsInflightCount: () => Object.keys(asInflightRequests).length,
+      getAsActiveFetchCount: () => asActiveFetchCount,
+      getAsQueueLength: () => asFetchQueue.length,
     };
   `);
   return fn('https://worker.test/football', 'https://worker.test/apisports', fetchImpl);
@@ -174,32 +181,57 @@ describe('apiFetchAS() - ЗАДАЧА 9.5: API-Sports provider-level rate-limit 
     const h = buildHarness(fetchMock);
     const p1 = h.apiFetchAS('/fixtures?league=172&season=2026&last=20');
     const p2 = h.apiFetchAS('/fixtures?league=172&season=2026&last=20');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // PHASE 2A - fetch() вече се dispatch-ва СЛЕД await acquireAsFetchSlot()
+    // (минимум 1 microtask tick), не синхронно веднага след извикването -
+    // затова изчакваме, вместо да проверяваме синхронно; самата dedup
+    // гаранция (1 реален fetch за 2 идентични path-а) остава непроменена.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: 1000, interval: 1 });
     pending.resolve(okResponse({ response: [{ id: 1 }] }));
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(r1).toEqual(r2);
   });
 
-  it('concurrent initial burst: 4 РАЗЛИЧНИ paths стартирали ПРЕДИ 1-вия rate-limit отговор - всичките 4 стигат мрежата; СЛЕДВАЩА заявка е блокирана', async () => {
+  // PHASE 2A (виж discussion-а "request-pressure root cause" - централен
+  // max-concurrency limiter за apiFetchAS()'s реални fetch() извиквания) -
+  // тоя тест преди доказваше ИМЕННО бъг-а, който PHASE 2A фиксира (4-те
+  // paths стигаха мрежата едновременно, guard-ът не можеше да спре вече
+  // стартирал burst). Сега доказва обратното - FIX-натото поведение.
+  it('concurrent initial burst (PHASE 2A FIX): max AS_MAX_CONCURRENT_FETCHES=2 от 4-те РАЗЛИЧНИ paths реално стигат мрежата едновременно; queued job-овете re-check-ват cooldown-а ПРЕДИ dispatch', async () => {
     const resolvers = [];
     const fetchMock = vi.fn(() => new Promise(res => resolvers.push(res)));
     const h = buildHarness(fetchMock);
     // 4 "едновременни" AS заявки, точно както fetchExtraASFixturesByDate()'s
     // Promise.allSettled(EXTRA_AS_LEAGUE_IDS.map(...)) - стартирани в СЪЩАТА
-    // синхронна итерация, ПРЕДИ която и да е от тях да е резолвнала.
+    // синхронна итерация.
     const ids = [172, 203, 79, 848];
     const promises = ids.map(id => h.apiFetchAS('/fixtures?league=' + id).catch(e => e));
-    expect(fetchMock).toHaveBeenCalledTimes(4); // guard-ът НЕ може да спре вече стартирал burst - доказано
-    // Първата резолвира rate-limited - guard-ът се активира ЗА ПРЪВ ПЪТ едва сега.
+    // Само 2 (MAX_CONCURRENT) реално стигат до fetch() - другите 2 чакат в
+    // FIFO опашката, slot-ът им не е зает.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 1000, interval: 1 });
+    expect(h.getAsActiveFetchCount()).toBe(2);
+    expect(h.getAsQueueLength()).toBe(2);
+    // Първата от 2-те активни (172) резолвира с реален upstream rate limit -
+    // arm-ва cooldown-а. Slot-ът ѝ hand-off-ва директно към следващия чакащ
+    // (79, FIFO) - той re-check-ва cooldown-а ПРЕДИ собствения fetch() и го
+    // вижда вече armed - критичният PHASE 2A fix за "concurrent initial
+    // burst" race-а.
     resolvers[0](okResponse({ errors: { rateLimit: 'too many' } }));
-    // Останалите 3 резолвират нормално (бяха вече изпратени, преди guard-а) - НЕ се пипат.
+    // Втората все още активна (203) резолвира нормално - slot-ът ѝ
+    // hand-off-ва към последния чакащ (848), който ПАК вижда armed cooldown.
     resolvers[1](okResponse({ response: [] }));
-    resolvers[2](okResponse({ response: [] }));
-    resolvers[3](okResponse({ response: [] }));
-    await Promise.all(promises);
+    const results = await Promise.all(promises);
+    // КРИТИЧНО - fetchMock НИКОГА не достига 3 или 4, независимо че имаше
+    // 4 unique paths - queued job-овете локално се отхвърлят, нулеви
+    // допълнителни реални upstream fetch-ове.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(results[0]).toMatchObject({ isRateLimit: true }); // 172 - реален upstream rate limit
+    expect(results[1]).toEqual({ response: [] }); // 203 - реално резолвира нормално
+    expect(results[2]).toMatchObject({ isProviderCooldown: true }); // 79 - локален block, без fetch
+    expect(results[3]).toMatchObject({ isProviderCooldown: true }); // 848 - локален block, без fetch
     fetchMock.mockClear();
-    // 5-то, ПО-КЪСНО извикване (след resolve на всичките 4) - вече блокирано.
+    // 5-то, ПО-КЪСНО извикване - пак блокирано от fast-path guard-а, дори не
+    // стига до опашката.
     await expect(h.apiFetchAS('/fixtures?league=999')).rejects.toMatchObject({ isRateLimit: true });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -370,8 +402,17 @@ function makeConcurrencyTrackingFetch(responseFor) {
   return { fetchMock, getPeakAS: () => peakAS, getTotalAS: () => totalAS, getPeakFD: () => peakFD, getTotalFD: () => totalFD };
 }
 
-describe('loadFinished() - ЗАДАЧА: sequential-by-date AS batching (peak concurrency 8 -> 4)', () => {
-  it('A) peak concurrent реални AS calls <= 4 (не 8)', async () => {
+// PHASE 2A (виж discussion-а "request-pressure root cause") - централният
+// max-concurrency limiter в apiFetchAS() (AS_MAX_CONCURRENT_FETCHES=2)
+// важи ГЛОБАЛНО за ВСИЧКИ apiFetchAS() caller-и, вкл. loadFinished()'s
+// 4-лигов batch (PR #62's sequential-by-date topology остава непроменена
+// отгоре - вчера/днес си остават sequential batch-ове - но ВЪТРЕ във всеки
+// batch, PR #62's 4-concurrent таван сега допълнително се ограничава до 2
+// от PHASE 2A, по-строгия, по-нисък слой). Тестовете по-долу бяха
+// актуализирани от "peak==4" на "peak==2" - PHASE 2A е по-строгото
+// ограничение, PR #62's sequential-by-date дизайн остава изцяло запазен.
+describe('loadFinished() - ЗАДАЧА: sequential-by-date AS batching (peak concurrency 8 -> 4 -> PHASE 2A: 2)', () => {
+  it('A) peak concurrent реални AS calls <= 2 (PHASE 2A глобален таван, по-строг от PR #62\'s 4)', async () => {
     const { fetchMock, getPeakAS } = makeConcurrencyTrackingFetch((url) =>
       url.includes('/apisports')
         ? okResponse({ errors: [], response: [] })
@@ -379,8 +420,8 @@ describe('loadFinished() - ЗАДАЧА: sequential-by-date AS batching (peak co
     );
     const h = buildFinishedHarness(fetchMock);
     await h.loadFinished();
-    expect(getPeakAS()).toBeLessThanOrEqual(4);
-    expect(getPeakAS()).toBe(4); // доказва, че вътре в 1 дата 4-те лиги остават concurrent (изискване 4)
+    expect(getPeakAS()).toBeLessThanOrEqual(2);
+    expect(getPeakAS()).toBe(2); // PHASE 2A - глобалният AS_MAX_CONCURRENT_FETCHES=2 таван, не 4
   });
 
   it('B) без rate-limit: общият брой AS attempts остава същият (8), и двете дати се зареждат', async () => {
@@ -402,13 +443,17 @@ describe('loadFinished() - ЗАДАЧА: sequential-by-date AS batching (peak co
     );
     const h = buildFinishedHarness(fetchMock);
     await h.loadFinished();
-    // Само "вчера" batch-ът достига реално upstream (4 заявки) - "днес"
-    // batch-ът стартира СЛЕД него (sequential), по което време guard-ът
-    // (asProviderRateLimitedUntil) вече е armed от реалните rateLimit
-    // отговори на "вчера" - "днес"'s 4 apiFetchAS() извиквания се отхвърлят
-    // ЛОКАЛНО (guard short-circuit), нулев допълнителен реален fetch.
-    expect(getTotalAS()).toBe(4);
-    expect(getPeakAS()).toBeLessThanOrEqual(4);
+    // PHASE 2A - "вчера" batch-ът вече стартира само 2 (не 4) РЕАЛНИ fetch
+    // едновременно (глобалния AS_MAX_CONCURRENT_FETCHES таван). И двете
+    // реално arm-ват cooldown-а (всяка независимо получава real rateLimit) -
+    // останалите 2 от "вчера"'s собствен batch, при dequeue от опашката,
+    // ВЕЧЕ виждат armed cooldown (PHASE 2A pre-dispatch re-check) и се
+    // отхвърлят ЛОКАЛНО, без fetch. "днес" batch-ът стартира СЛЕД "вчера"
+    // (sequential, PR #62 непроменено), по което време guard-ът е отдавна
+    // armed - всичките му 4 apiFetchAS() извиквания отхвърлени на самия
+    // fast-path guard (дори не влизат в опашката), нулев допълнителен fetch.
+    expect(getTotalAS()).toBe(2);
+    expect(getPeakAS()).toBeLessThanOrEqual(2);
   });
 
   it('D) FD (вчера+днес) заявките остават concurrent - не чакат завършването на "вчера" AS batch-а', async () => {
