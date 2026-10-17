@@ -63,6 +63,9 @@ describe('loadUpcoming() wiring - Лига на конференциите пр�
     extractStatement(html, 'const AS_LEAGUES=['),
     extractStatement(html, 'const EXTRA_AS_LEAGUE_IDS='),
     extractBraced(html, 'async function fetchFdHistoryAndWc('),
+    // PHASE 2C-A - loadUpcoming() вика scheduleCompScorersEnrichment() след рендъра;
+    // тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
+    'function scheduleCompScorersEnrichment(){}',
     extractBraced(html, 'async function loadUpcoming('),
   ].join('\n');
 

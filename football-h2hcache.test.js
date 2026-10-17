@@ -138,6 +138,9 @@ describe('loadUpcoming() wiring - H2H кеш през СЪЩИЯ реален fe
     extractStatement(html, 'const h2hInflight='),
     extractBraced(html, 'async function fetchH2HCached('),
     extractBraced(html, 'async function fetchFdHistoryAndWc('),
+    // PHASE 2C-A - loadUpcoming() вика scheduleCompScorersEnrichment() след рендъра;
+    // тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
+    'function scheduleCompScorersEnrichment(){}',
     extractBraced(html, 'async function loadUpcoming('),
   ].join('\n');
 
@@ -278,6 +281,9 @@ describe('fetchH2H() wiring (през loadUpcoming) - end-to-end разгран�
     extractStatement(html, 'const h2hInflight='),
     extractBraced(html, 'async function fetchH2HCached('),
     extractBraced(html, 'async function fetchFdHistoryAndWc('),
+    // PHASE 2C-A - loadUpcoming() вика scheduleCompScorersEnrichment() след рендъра;
+    // тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
+    'function scheduleCompScorersEnrichment(){}',
     extractBraced(html, 'async function loadUpcoming('),
   ].join('\n');
 

@@ -27,7 +27,9 @@ function buildLoadASLeagueTab({ apiFetchAS, apiSportsScorersBlockHtml, asFixture
     'currentSeasonYear', 'apiFetchAS', 'apiSportsScorersBlockHtml', 'classifyAsLeagueTabEmptyState',
     'asFixtureToMatch', 'extractASLiveStats', 'renderMatch', 'beginAsForeground', 'endAsForeground',
     'fetchAsLeagueSeasonHistory',
-    code + `\nreturn loadASLeagueTab;`
+    // PHASE 2C-A - loadASLeagueTab() вика scheduleCompScorersEnrichment() след рендъра;
+    // тоя harness не тества scorer enrichment, затова no-op stub е достатъчен.
+    'function scheduleCompScorersEnrichment(){}\n' + code + `\nreturn loadASLeagueTab;`
   );
   return fn(
     () => 2026, apiFetchAS, apiSportsScorersBlockHtml, classifyAsLeagueTabEmptyState,
