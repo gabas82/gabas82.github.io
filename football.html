@@ -439,36 +439,150 @@ async function fetchCompScorersList(compId){
   compTopScorersCache[key]={data,stale,ts:Date.now()};
   return compTopScorersCache[key];
 }
-// Периодично сканира DOM-а за все още незапълнени "⚽ Голмайстори" слотове (виж
-// renderMatch()) и ги попълва — независимо кой таб ги е добавил. Така не се
-// налага всяка функция, която рендира мачове, да знае за тази логика.
-function pollCompScorers(){
-  const slots=document.querySelectorAll('[data-comp-scorers-id]:not([data-comp-scorers-done])');
+// PHASE 2C-A (виж discussion-а "comp scorers като LOW-PRIORITY enrichment") -
+// заменя предишния глобален 2-секунден DOM-polling (периодичен scan на
+// целия document) механизъм с event/render-driven scheduling. Извиква се ЕДИНСТВЕНО от
+// трите production renderer-а, които реално създават comp-scorers-slot
+// (виж renderMatch() - compScorersHtml клона): loadToday(), loadUpcoming(),
+// loadASLeagueTab() - никой друг call site не произвежда такива слотове
+// (LIVE-овите матчове са isLive=true, compScorersHtml условието ги
+// изключва изрично).
+//
+// Централна цел: scorer enrichment НИКОГА да не се конкурира като
+// равноправен ("foreground") трафик с основното зареждане на Dashboard-а.
+// apiFetchAS()/apiFetch() (PR #65/#66) остават НАПЪЛНО непипнати - целият
+// priority/pacing/obsolete механизъм живее тук, extern на тях, и просто ЧЕТЕ
+// вече съществуващите им module-level брояч/опашка/cooldown променливи
+// (asActiveFetchCount/asFetchQueue/asProviderRateLimitedUntil и FD
+// огледалата им), без да ги модифицира.
+function applyCompScorersResult(id,list,stale){
+  document.querySelectorAll('[data-comp-scorers-id="'+id+'"]').forEach(el=>{
+    el.setAttribute('data-comp-scorers-done','1');
+    const homeId=el.dataset.homeId?Number(el.dataset.homeId):null;
+    const awayId=el.dataset.awayId?Number(el.dataset.awayId):null;
+    const homeName=el.dataset.homeName||'';
+    const awayName=el.dataset.awayName||'';
+    const hs=findTeamTopScorer(list,homeId,homeName);
+    const as=findTeamTopScorer(list,awayId,awayName);
+    if(!hs&&!as){el.style.display='none';return;}
+    const parts=[];
+    if(hs)parts.push('🥇 '+homeName+': '+hs.name+' ('+hs.goals+'⚽)');
+    if(as)parts.push('🥈 '+awayName+': '+as.name+' ('+as.goals+'⚽)');
+    // "stale"=новият сезон още няма голове, показва предишния - маркираме
+    // компактно (мач картичките нямат място за пълен етикет като в табовете).
+    const staleTag=stale?' <span style="color:var(--muted)">· мин. сезон</span>':'';
+    el.innerHTML='⚽ '+parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;')+staleTag;
+  });
+}
+// Монотонно растящ "render generation" - всеки call на
+// scheduleCompScorersEnrichment() (т.е. всеки път, когато ДНЕС/ПРОГНОЗИ/AS
+// league tab приключи рендъра си) инкрементира тоя брояч. Pending
+// enrichment job-ове, чиято generation вече не съвпада с текущата в
+// момента, в който им дойде редът за dispatch, се смятат obsolete и
+// отпадат БЕЗ нито един реален fetch - виж pumpScorerEnrichment() по-долу.
+// Вече ДИСПЕЧИРАН (in-flight) fetch НИКОГА не се прекъсва от смяна на
+// generation - само pending (още недиспечирани) job-ове се засягат.
+let scorerRenderGeneration=0;
+// Чисто client-side protection policy константи - НЕ твърдения за реалния
+// provider rate limit (виж discussion-а "pacing != provider-доказана
+// стойност"). SCORER_ENRICHMENT_PACING_MS - минимален интервал между 2
+// последователни РЕАЛНИ enrichment dispatch-а към ЕДИН provider (~12/мин
+// при непрекъснат backlog). SCORER_ENRICHMENT_RETRY_MS - чисто локален
+// re-check interval, използван САМО докато чакаме foreground да се
+// освободи (нямаме event hook за "slot освободен", без да пипаме
+// acquireAsFetchSlot()/acquireFdFetchSlot()/release-ите им) - никога не
+// прави network request сам по себе си, само re-invoke-ва pump-а.
+const SCORER_ENRICHMENT_PACING_MS=5000;
+const SCORER_ENRICHMENT_RETRY_MS=500;
+function makeScorerEnrichmentState(){
+  return{queue:[],active:false,lastDispatchAt:0,retryTimer:null};
+}
+const asScorerEnrichment=makeScorerEnrichmentState();
+const fdScorerEnrichment=makeScorerEnrichmentState();
+function scorerEnrichmentStateFor(key){
+  return key.startsWith('as_')?asScorerEnrichment:fdScorerEnrichment;
+}
+function scorerProviderNameFor(key){
+  return key.startsWith('as_')?'as':'fd';
+}
+// IDLE GATE - проверява се непосредствено преди ВСЕКИ отделен enrichment
+// dispatch (не само веднъж в началото): текущ foreground active/queued
+// трафик (СЪЩИЯТ споделен asActiveFetchCount/asFetchQueue брояч, който
+// apiFetchAS() вече ползва - enrichment никога не пипа тия променливи
+// директно, само ги чете) и provider cooldown. Тъй като тук сме проверили
+// `state.active` е false ПРЕДИ тая функция да се извика, activeCount в тоя
+// момент е изцяло foreground (enrichment никога не държи повече от 1 slot
+// - viz. state.active guard-а по-долу).
+function pumpScorerEnrichment(state,provider){
+  if(state.retryTimer){clearTimeout(state.retryTimer);state.retryTimer=null;}
+  if(!state.queue.length)return;
+  if(state.active)return;
+  const activeCount=provider==='as'?asActiveFetchCount:fdActiveFetchCount;
+  const queueLen=provider==='as'?asFetchQueue.length:fdFetchQueue.length;
+  const rateLimitedUntil=provider==='as'?asProviderRateLimitedUntil:fdProviderRateLimitedUntil;
+  const now=Date.now();
+  if(rateLimitedUntil>now){
+    state.retryTimer=setTimeout(()=>pumpScorerEnrichment(state,provider),rateLimitedUntil-now);
+    return;
+  }
+  if(activeCount>0||queueLen>0){
+    state.retryTimer=setTimeout(()=>pumpScorerEnrichment(state,provider),SCORER_ENRICHMENT_RETRY_MS);
+    return;
+  }
+  const elapsed=now-state.lastDispatchAt;
+  if(state.lastDispatchAt&&elapsed<SCORER_ENRICHMENT_PACING_MS){
+    state.retryTimer=setTimeout(()=>pumpScorerEnrichment(state,provider),SCORER_ENRICHMENT_PACING_MS-elapsed);
+    return;
+  }
+  let job=state.queue.shift();
+  while(job&&job.generation!==scorerRenderGeneration)job=state.queue.shift();
+  if(!job)return;
+  // Последна, "свежа" cache проверка непосредствено преди dispatch - друг
+  // job за СЪЩИЯ compId може вече да е резолвирал докато тоя е чакал в
+  // опашката. Cache hit тук е безплатен (нулев network) - продължава към
+  // следващия pending job веднага, БЕЗ pacing забавяне (pacing важи само
+  // между РЕАЛНИ fetch-ове).
+  const freshCached=compTopScorersCache[job.compId];
+  if(freshCached&&freshCached.ts>Date.now()-3600000){
+    applyCompScorersResult(job.compId,freshCached.data,freshCached.stale);
+    pumpScorerEnrichment(state,provider);
+    return;
+  }
+  state.active=true;
+  state.lastDispatchAt=Date.now();
+  fetchCompScorersList(job.compId).then(({data,stale})=>{
+    applyCompScorersResult(job.compId,data,stale);
+  }).finally(()=>{
+    state.active=false;
+    pumpScorerEnrichment(state,provider);
+  });
+}
+function enqueueScorerEnrichment(compId,generation){
+  const key=String(compId);
+  // Cache HIT - приложи веднага, нулев network scheduler, нулево чакане
+  // (т.3 от design-а) - НИКОГА не влиза в enrichment опашката.
+  const cached=compTopScorersCache[key];
+  if(cached&&cached.ts>Date.now()-3600000){
+    applyCompScorersResult(key,cached.data,cached.stale);
+    return;
+  }
+  const state=scorerEnrichmentStateFor(key);
+  state.queue.push({compId:key,generation});
+  pumpScorerEnrichment(state,scorerProviderNameFor(key));
+}
+// Извиква се от loadToday()/loadUpcoming()/loadASLeagueTab() непосредствено
+// след рендъра им (c.innerHTML=...) - събира unique competition id-та
+// ИЗКЛЮЧИТЕЛНО от току-що създадените slot-ове в подадения container
+// (не от целия document - елиминира "stale accumulation across tabs"
+// ефекта на стария глобален polling).
+function scheduleCompScorersEnrichment(containerEl){
+  const slots=containerEl.querySelectorAll('[data-comp-scorers-id]');
   if(!slots.length)return;
   const ids=new Set();
   slots.forEach(el=>ids.add(el.dataset.compScorersId));
-  ids.forEach(async id=>{
-    const{data:list,stale}=await fetchCompScorersList(id);
-    document.querySelectorAll('[data-comp-scorers-id="'+id+'"]').forEach(el=>{
-      el.setAttribute('data-comp-scorers-done','1');
-      const homeId=el.dataset.homeId?Number(el.dataset.homeId):null;
-      const awayId=el.dataset.awayId?Number(el.dataset.awayId):null;
-      const homeName=el.dataset.homeName||'';
-      const awayName=el.dataset.awayName||'';
-      const hs=findTeamTopScorer(list,homeId,homeName);
-      const as=findTeamTopScorer(list,awayId,awayName);
-      if(!hs&&!as){el.style.display='none';return;}
-      const parts=[];
-      if(hs)parts.push('🥇 '+homeName+': '+hs.name+' ('+hs.goals+'⚽)');
-      if(as)parts.push('🥈 '+awayName+': '+as.name+' ('+as.goals+'⚽)');
-      // "stale"=новият сезон още няма голове, показва предишния - маркираме
-      // компактно (мач картичките нямат място за пълен етикет като в табовете).
-      const staleTag=stale?' <span style="color:var(--muted)">· мин. сезон</span>':'';
-      el.innerHTML='⚽ '+parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;')+staleTag;
-    });
-  });
+  const generation=++scorerRenderGeneration;
+  ids.forEach(id=>enqueueScorerEnrichment(id,generation));
 }
-setInterval(pollCompScorers,2000);
 let wcScorersCache=[];
 // FOOTBALL DASHBOARD ЗАДАЧА 9.3 (виж "Comeback / ОБРАТИ Dead-Cache Fix",
 // одита от Задача №9.0/9.2 - "comebackStatsCache съществува, но единственият
@@ -755,7 +869,8 @@ const asInflightRequests={};
 // background history sync вътре в updateHistoryResultsAS(). Тук е
 // универсален 60-сек floor за ВСИЧКИ apiFetchAS() caller-и (league tabs,
 // ГОЛМАЙСТОРИ/КАРТОНИ, ДНЕС/СВЪРШИЛИ/ПРОГНОЗИ/ОБРАТИ extra-AS блокове,
-// pollCompScorers() - без да пипаме НИТО ЕДИН от тях директно). 60 секунди е
+// scorer enrichment pump-а - PHASE 2C-A - без да пипаме НИТО ЕДИН от тях
+// директно). 60 секунди е
 // защитна client-side политика, НЕ твърдение за реалния provider quota/reset
 // прозорец - Worker-ът губи rate-limit header-ите (x-ratelimit-*) при проксиране,
 // затова нямаме надеждна Retry-After/reset информация. Активира се САМО на
@@ -2343,6 +2458,7 @@ async function loadToday(){
     if(!matches.length){c.innerHTML=warningsHtml||'<div class="no-data">Няма мачове днес</div>';return;}
     matches.sort((a,b)=>new Date(a.utcDate)-new Date(b.utcDate));
     c.innerHTML=warningsHtml+matches.map(m=>renderMatch(m,false,null,null,null)).join('');
+    scheduleCompScorersEnrichment(c);
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
 }
 
@@ -2923,6 +3039,7 @@ async function loadUpcoming(){
     // понеже всеки от двата механизма пише в собствен, непресичащ се списък.
     const historyWarningsHtml=historyWarnings.map(w=>`<div class="error-box" style="margin:8px 16px">${w}</div>`).join('');
     c.innerHTML=historyWarningsHtml+html;
+    scheduleCompScorersEnrichment(c);
   }catch(e){c.innerHTML=`<div class="error-box">⚠️ ${e.message}</div>`;}
   }finally{endAsForeground();}
 }
@@ -3772,6 +3889,7 @@ async function loadASLeagueTab(tabId, leagueId, icon, title){
       });
     });
     c.innerHTML=html;
+    scheduleCompScorersEnrichment(c);
   }catch(e){
     // F1 ДИАГНОСТИКА - грешка при ОБРАБОТКА/РЕНДЕРИРАНЕ на вече получени данни
     // (fetch грешките вече са обработени по-горе) - отделно съобщение, не
