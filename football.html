@@ -701,8 +701,18 @@ const asInflightRequests={};
 // мрежова грешка, НЕ при HTTP non-200, НЕ при валиден празен отговор.
 const AS_PROVIDER_COOLDOWN_MS=60*1000;
 let asProviderRateLimitedUntil=0;
+// MINIMAL DIAGNOSTIC INSTRUMENTATION (виж "production incident - LIVE→ДНЕС
+// cooldown root-cause анализ след football-dashboard-proxy миграцията") -
+// чист console.log observability add-on, одобрен explicit scope: само 4
+// събития (REAL_FETCH_START/REAL_FETCH_RESPONSE/RATE_LIMIT_ARM/
+// LOCAL_COOLDOWN_BLOCK), нулева промяна в return/throw/control-flow
+// семантиката на apiFetchAS() - всеки оригинален ред/условие остава
+// непроменен, логването е чисто add-on около тях. Никакви keys/secrets/
+// headers/пълен WORKER_AS URL не се логват - само path и provider-връщани
+// (вече публични, non-credential) полета.
 async function apiFetchAS(p){
   if(Date.now()<asProviderRateLimitedUntil){
+    console.log('[AS-DIAG] LOCAL_COOLDOWN_BLOCK',{timestamp:Date.now(),path:p,asProviderRateLimitedUntil,remainingMs:asProviderRateLimitedUntil-Date.now()});
     const err=new Error('Достигнат лимит на заявките към api-sports.io. Опитай отново след малко.');
     err.isRateLimit=true;
     err.isProviderCooldown=true;
@@ -710,16 +720,24 @@ async function apiFetchAS(p){
   }
   if(asInflightRequests[p])return asInflightRequests[p];
   const promise=(async()=>{
+    console.log('[AS-DIAG] REAL_FETCH_START',{timestamp:Date.now(),path:p});
     const r=await fetch(WORKER_AS+p);
-    if(!r.ok)throw new Error('HTTP '+r.status);
+    if(!r.ok){
+      console.log('[AS-DIAG] REAL_FETCH_RESPONSE',{timestamp:Date.now(),path:p,httpStatus:r.status,hasProviderErrors:null,providerErrorKeys:null,responseLength:null});
+      throw new Error('HTTP '+r.status);
+    }
     const data=await r.json();
+    console.log('[AS-DIAG] REAL_FETCH_RESPONSE',{timestamp:Date.now(),path:p,httpStatus:r.status,hasProviderErrors:!!(data&&data.errors&&Object.keys(data.errors).length),providerErrorKeys:(data&&data.errors)?Object.keys(data.errors):[],responseLength:Array.isArray(data&&data.response)?data.response.length:null});
     if(data&&data.errors&&Object.keys(data.errors).length){
       const err=new Error(data.errors.rateLimit||JSON.stringify(data.errors));
       err.isRateLimit=!!data.errors.rateLimit;
       // ЗАДАЧА 9.5 - guard-ът се активира точно тук, на СЪЩИЯ вече доказан
       // isRateLimit сигнал, който PR #58 ползва за историческия cooldown -
       // нулево ново detection.
-      if(err.isRateLimit)asProviderRateLimitedUntil=Date.now()+AS_PROVIDER_COOLDOWN_MS;
+      if(err.isRateLimit){
+        asProviderRateLimitedUntil=Date.now()+AS_PROVIDER_COOLDOWN_MS;
+        console.log('[AS-DIAG] RATE_LIMIT_ARM',{timestamp:Date.now(),path:p,message:typeof data.errors.rateLimit==='string'?data.errors.rateLimit:null,asProviderRateLimitedUntil});
+      }
       throw err;
     }
     return data;
