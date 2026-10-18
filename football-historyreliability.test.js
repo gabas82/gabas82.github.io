@@ -185,8 +185,9 @@ describe('loadUpcoming() - ЗАДАЧА 6.1: historyWarnings разгранич�
     const fetchAsLeagueSeasonHistory = async () => { histCalls++; return { matches: [], blendingPrevSeason: false }; };
     const { loadUpcoming } = buildLoadUpcoming({ apiFetch, apiFetchAS, fetchAsLeagueSeasonHistory });
     await loadUpcoming();
-    // fd.org: SCHEDULED,TIMED (upcoming) + FINISHED (история) + WC2026 = 3
-    expect(fdCalls).toBe(3);
+    // fd.org: SCHEDULED,TIMED (upcoming, PHASE 2E - сега 2 chunk-а, <=10-дневен
+    // период всеки) + FINISHED (история) + WC2026 = 4
+    expect(fdCalls).toBe(4);
     // AS next=15 за всяка от 2 тестови extra лиги = 2 (историята минава през
     // инжектираната fetchAsLeagueSeasonHistory(), не apiFetchAS())
     expect(asCalls).toBe(2);
