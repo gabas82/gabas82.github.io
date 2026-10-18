@@ -2821,17 +2821,38 @@ async function loadUpcoming(){
   const c=document.getElementById('upcoming-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
-    const today=getToday(),day3=getDatePlus(UPCOMING_WINDOW_DAYS);
-    const upData=await apiFetch('/matches?dateFrom='+today+'&dateTo='+day3+'&status=SCHEDULED,TIMED');
-    // ЗАДАЧА 9.1 (виж "FD Inflight Dedup" - sanity check преди implementation) -
-    // .slice() тук е НЕОБХОДИМА защитна копия, не стилистична промяна:
-    // apiFetch() вече може да върне СПОДЕЛЕН `data` обект на конкурентни
-    // извиквания с идентичен `p` (напр. две бързи последователни отваряния
-    // на таб ПРОГНОЗИ) - без копие, `upcoming.push(...)` по-долу (WC/AS extra
-    // мачове) би мутирал ЕДИН И СЪЩ масив от две едновременни loadUpcoming()
-    // изпълнения, риск от дублирани/изгубени записи, който не съществуваше
-    // преди inflight dedup-а.
-    let upcoming=(upData.matches||[]).slice();
+    const today=getToday();
+    // PHASE 2E (виж discussion-а "Predictions >10-day Football-Data period
+    // bug") - production diagnostic (PR #140, [FD-WORKER-DIAG]) потвърди
+    // upstreamStatus=400 "Specified period must not exceed 10 days." за
+    // единичната 21-дневна заявка, която тук се правеше преди. 21-дневният
+    // UPCOMING_WINDOW_DAYS прозорец си остава изричен product избор (виж
+    // commit 7f36b77/#26 F3a - покрива типична международна пауза, лигите
+    // не трябва да изчезват мълчаливо) - НЕ се свива. Вместо това прозорецът
+    // се тегли през 2 ПОСЛЕДОВАТЕЛНИ (не паралелни) chunk заявки, всяка с
+    // период=10 дни (легалния provider максимум), които заедно покриват
+    // точно [today, today+21] без gap/overlap - умишлено последователно, не
+    // Promise.all, за да не заема Predictions едновременно и двата
+    // FD_MAX_CONCURRENT_FETCHES slot-а наведнъж. Провал на който да е chunk
+    // (chunk A ПРЕДИ chunk B изобщо да тръгне, или chunk B след успешен
+    // chunk A) пропада нагоре към СЪЩИЯ outer catch по-долу - нулева промяна
+    // в днешното failure поведение (resilience/provider isolation е отделна,
+    // бъдеща repair задача).
+    const chunkAUpperBound=getDatePlus(10);
+    const upDataA=await apiFetch('/matches?dateFrom='+today+'&dateTo='+chunkAUpperBound+'&status=SCHEDULED,TIMED');
+    const chunkBLowerBound=getDatePlus(11);
+    const chunkBUpperBound=getDatePlus(UPCOMING_WINDOW_DAYS);
+    const upDataB=await apiFetch('/matches?dateFrom='+chunkBLowerBound+'&dateTo='+chunkBUpperBound+'&status=SCHEDULED,TIMED');
+    // Deterministic merge/dedup по match id - chunk A/B покриват не-застъпващи
+    // се дата диапазони (production), затова дубликати не би трябвало да
+    // възникнат естествено, но Map-ът гарантира точно 1 запис на id във
+    // всички случаи (вкл. ръб-случаи в тестови mock-ове, които не филтрират
+    // по реална дата). Резултатът е нов масив (не споделена референция към
+    // apiFetch()'s кеширан `data` обект) - запазва защитата, която .slice()
+    // осигуряваше преди (ЗАДАЧА 9.1, "FD Inflight Dedup").
+    const mergedUpcomingById=new Map();
+    [...(upDataA.matches||[]),...(upDataB.matches||[])].forEach(m=>{mergedUpcomingById.set(String(m.id),m);});
+    let upcoming=[...mergedUpcomingById.values()];
     let allMatches=[];
     // FOOTBALL DASHBOARD ЗАДАЧА 6.1 (виж "Historical Data Reliability") -
     // historyWarnings разграничава провалена историческа заявка (API грешка/

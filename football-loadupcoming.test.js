@@ -299,7 +299,11 @@ describe('loadUpcoming - без промяна в извикваните endpoin
     const apiFetchAS = (p) => { calls.push(p); return Promise.resolve({ response: [] }); };
     const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS, renderMatch: () => '' });
     await loadUpcoming();
-    expect(calls.filter(p => p.includes('status=SCHEDULED,TIMED')).length).toBe(1);
+    // PHASE 2E ("Predictions >10-day Football-Data period bug") - основната
+    // SCHEDULED,TIMED заявка вече е 2 (chunk A + chunk B, всеки <=10-дневен
+    // период), не 1 - виж football-upcomingperiodchunking.test.js за пълното
+    // покритие на chunking/merge/dedup поведението.
+    expect(calls.filter(p => p.includes('status=SCHEDULED,TIMED')).length).toBe(2);
     expect(calls.filter(p => p.includes('status=FINISHED')).length).toBe(1);
     expect(calls.filter(p => p.includes('/competitions/2000/matches'))).toHaveLength(1);
   });
