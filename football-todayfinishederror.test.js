@@ -11,6 +11,7 @@
 // заявки, без промяна в prediction/history визуализацията.
 import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
+import { addCalendarDays, buildCandidateWrapper, dedupCandidateUniverse } from './football-logic.js';
 
 const html = fs.readFileSync('./football.html', 'utf8');
 
@@ -58,17 +59,23 @@ function buildLoadToday({ apiFetch, apiFetchAS, renderMatch }) {
   return { loadToday, getHtml: () => contentEl.innerHTML };
 }
 
-function buildLoadFinished({ apiFetch, apiFetchAS }) {
-  const combinedSrc = [SHARED_SRC, extractBraced(html, 'async function loadFinished(')].join('\n');
+const COMPS_AS_MAP_SRC = extractStatement(html, 'const COMPS_AS_MAP=');
+
+function buildLoadFinished({ apiFetch, apiFetchAS, getTodayImpl }) {
+  const combinedSrc = [
+    COMPS_AS_MAP_SRC, SHARED_SRC, extractBraced(html, 'async function loadFinished('),
+  ].join('\n');
   const fn = new Function(
-    'document', 'getDateMinus', 'getToday', 'apiFetch', 'apiFetchAS', 'currentSeasonYear',
+    'document', 'getToday', 'addCalendarDays', 'buildCandidateWrapper', 'dedupCandidateUniverse',
+    'apiFetch', 'apiFetchAS', 'currentSeasonYear',
     'getHistory', 'findMatchingRecord', 'getFlag', 'computeRegularScore', 'durationBadge', 'formatMatchDateTime',
     combinedSrc + '\nreturn loadFinished;'
   );
   const contentEl = { innerHTML: '' };
   const fakeDoc = { getElementById: (id) => id === 'finished-content' ? contentEl : { innerHTML: '' } };
   const loadFinished = fn(
-    fakeDoc, () => '2026-10-10', () => '2026-10-11', apiFetch, apiFetchAS, () => 2026,
+    fakeDoc, getTodayImpl || (() => '2026-10-11'), addCalendarDays, buildCandidateWrapper, dedupCandidateUniverse,
+    apiFetch, apiFetchAS, () => 2026,
     () => [], () => null, () => '🏳️', () => null, () => '', (d) => d
   );
   return { loadFinished, getHtml: () => contentEl.innerHTML };
