@@ -274,7 +274,7 @@ describe('loadUpcoming - F3a: сортиране ПРЕДИ таван, H2H са
     expect(seenIds.sort()).toEqual(['m1', 'm2']); // m3 (20-ти) е изрязан, не m1/m2 (най-ранните)
   });
 
-  it('H2H се заявява САМО за видимите (capped) мачове, не за всички изтеглени', async () => {
+  it('PHASE 2D (PR #68, "H2H deferred") - H2H изобщо не се заявява при initial render, независимо от cap', async () => {
     const matches = [
       { id: 'm3', utcDate: '2026-01-20', status: 'SCHEDULED', homeTeam: { id: 1 }, awayTeam: { id: 2 }, competition: { id: 2021 } },
       { id: 'm1', utcDate: '2026-01-05', status: 'SCHEDULED', homeTeam: { id: 1 }, awayTeam: { id: 2 }, competition: { id: 2021 } },
@@ -288,7 +288,7 @@ describe('loadUpcoming - F3a: сортиране ПРЕДИ таван, H2H са
     };
     const loadUpcoming = buildLoadUpcoming({ apiFetch, apiFetchAS: () => emptyAS(), renderMatch: () => '<div>MATCH</div>', maxPerComp: 2 });
     await loadUpcoming();
-    expect(h2hCalls.length).toBe(2); // само за m1/m2, не и за изрязания m3 (3 мача влизат -> 2 H2H заявки, не 3)
+    expect(h2hCalls.length).toBe(0); // H2H е deferred - 0 заявки, независимо от cap (m1/m2 видими, m3 изрязан)
   });
 });
 
