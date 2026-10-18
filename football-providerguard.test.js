@@ -16,6 +16,7 @@
 // съществуващите, доказани branch-ове.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fs from 'fs';
+import { addCalendarDays, buildCandidateWrapper, dedupCandidateUniverse } from './football-logic.js';
 
 const html = fs.readFileSync('./football.html', 'utf8');
 
@@ -408,6 +409,7 @@ describe('fetchExtraASFixturesByDate() - ЗАДАЧА 9.6: invariant - cooldown 
 // concurrent с цялата AS верига. Умишлено НЕ тества currentTab early-exit
 // (изрично извън обхвата - виж discussion-а).
 const finishedSrc = [
+  extractStatement(html, 'const COMPS_AS_MAP='),
   extraSrc,
   extractBraced(html, 'async function loadFinished('),
 ].join('\n');
@@ -415,7 +417,7 @@ const finishedSrc = [
 function buildFinishedHarness(fetchImpl) {
   const fn = new Function(
     'WORKER', 'WORKER_AS', 'fetch', 'currentSeasonYear',
-    'document', 'getDateMinus', 'getToday',
+    'document', 'getToday', 'addCalendarDays', 'buildCandidateWrapper', 'dedupCandidateUniverse',
     'getHistory', 'findMatchingRecord', 'getFlag', 'computeRegularScore', 'durationBadge', 'formatMatchDateTime',
     finishedSrc + `
     return { apiFetch, apiFetchAS, fetchExtraASFixturesByDate, loadFinished };
@@ -424,7 +426,7 @@ function buildFinishedHarness(fetchImpl) {
   const fakeDoc = { getElementById: (id) => id === 'finished-content' ? contentEl : { innerHTML: '' } };
   const instance = fn(
     'https://worker.test/football', 'https://worker.test/apisports', fetchImpl, () => 2026,
-    fakeDoc, () => '2026-10-10', () => '2026-10-11',
+    fakeDoc, () => '2026-10-11', addCalendarDays, buildCandidateWrapper, dedupCandidateUniverse,
     () => [], () => null, () => '🏳️', () => null, () => '', (d) => d
   );
   return { ...instance, getHtml: () => contentEl.innerHTML };

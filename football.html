@@ -2501,7 +2501,16 @@ async function loadFinished(){
   const c=document.getElementById('finished-content');
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
-    const yesterday=getDateMinus(1),today=getToday();
+    // POINT 1 (repair queue - "Finished duplicate match cards") Fix A -
+    // getDateMinus(1) използва system-local timezone на зрителя, getToday()
+    // е explicit pinned към Europe/Berlin - две разминати референции, които
+    // CODE-CONFIRMED могат да доведат yesterday===today (виж PHASE A
+    // анализа). addCalendarDays() е вече съществуващ, тестван helper
+    // (football-logic.js, вече ползван с отрицателен N в
+    // fetchDailyCandidateUniverse()) - чиста UTC-string аритметика върху
+    // Berlin-anchored today, без нова логика.
+    const today=getToday();
+    const yesterday=addCalendarDays(today,-1);
     const dataWarnings=[];
     const extra1Promise=fetchExtraASFixturesByDate(yesterday,dataWarnings);
     const extra2Promise=extra1Promise.then(()=>fetchExtraASFixturesByDate(today,dataWarnings));
@@ -2533,7 +2542,28 @@ async function loadFinished(){
     const extraFinished=[...extra1,...extra2]
       .filter(f=>['FT','AET','PEN','AWD','WO'].includes(f.fixture?.status?.short))
       .map(asFixtureToMatch);
-    const matches=[...d2Matches,...d1Matches,...extraFinished];
+    // POINT 1 Fix B - финален dedup преди render, непосредствено след merge,
+    // без да пипа fetch/normalization логиката по-горе. Два слоя, orthogonal
+    // на умисъл (dedupCandidateUniverse() изрично НЕ третира same-provider
+    // чифтове - виж isCrossProviderDuplicate(), "само различен доставчик се
+    // брои за дубликат тук"):
+    // 1. Same-provider id dedup (еднакъв FD numeric id ИЛИ еднакъв AS-префиксиран
+    //    id, напр. от yesterday/today overlap) - прост Set по String(m.id).
+    // 2. Cross-provider dedup - reuse на СЪЩИЯ, вече тестван helper като
+    //    Predictions candidate-universe pipeline-а (buildCandidateWrapper()/
+    //    dedupCandidateUniverse()/COMPS_AS_MAP) - НЕ нов matching algorithm.
+    //    При несигурност (непознат compId, лигите не са сдвоени в
+    //    COMPS_AS_MAP, kickoff извън толеранса, само едно от имената
+    //    съвпада) helper-ът пази ПО-ПОДРОБНО вместо да merge-ва.
+    const combinedRaw=[...d2Matches,...d1Matches,...extraFinished];
+    const seenIds=new Set();
+    const idDeduped=combinedRaw.filter(m=>{
+      const key=String(m.id);
+      if(seenIds.has(key))return false;
+      seenIds.add(key);
+      return true;
+    });
+    const{matches}=dedupCandidateUniverse(idDeduped.map(buildCandidateWrapper),COMPS_AS_MAP);
     const warningsHtml=dataWarnings.map(w=>`<div class="error-box" style="margin:8px 16px">${w}</div>`).join('');
     if(!matches.length){c.innerHTML=warningsHtml||'<div class="no-data">Няма приключили мачове</div>';return;}
     matches.sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
