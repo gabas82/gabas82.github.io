@@ -2389,7 +2389,14 @@ async function loadLive(){
   c.innerHTML='<div class="loading"><div class="spinner"></div>ЗАРЕЖДАНЕ...</div>';
   try{
     const[fdRes,asRes]=await Promise.allSettled([
-      apiFetch('/matches?status=IN_PLAY,PAUSED,HALFTIME'),
+      // P0 #2 (production diagnostic потвърди FD upstream 400 - "Argument
+      // 'status' is expected to be in enum {... без HALFTIME}") - HALFTIME е
+      // вътрешен Dashboard/AS_STATUS_MAP статус ('HT' normalization), никога
+      // валидна football-data.org заявка-стойност. IN_PLAY,PAUSED са
+      // директно потвърдени валидни от production enum и вече са точно
+      // статусите, които isLive() в renderMatch() очаква от FD-произлезли
+      // мачове - нулева промяна в normalization/merge/fallback логиката.
+      apiFetch('/matches?status=IN_PLAY,PAUSED'),
       apiFetchAS('/fixtures?live=all')
     ]);
     const fdMatches=fdRes.status==='fulfilled'?(fdRes.value.matches||[]):[];
