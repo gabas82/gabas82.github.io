@@ -2986,9 +2986,9 @@ async function loadUpcoming(){
       if(capped.length)sections.push({comp:{key:k,flag:'🏟️',name:g.name||''},matches:capped});
     }
     const visibleMatches=sections.flatMap(s=>s.matches||[]);
-    // Историята между двата отбора (h2h) се тегли само за ВИДИМИТЕ (вече
-    // ограничени до UPCOMING_MAX_PER_COMP) мачове - таванът реално намалява
-    // броя H2H заявки, не само визуализацията.
+    // PHASE 2D (PR #68) - fetchH2H() по-долу вече не се извиква автоматично
+    // при initial render (виж discussion-а "H2H deferred") - запазена
+    // непипната, за бъдещ on-demand PR.
     async function fetchH2H(m){
       const hId=m.homeTeam?.id,aId=m.awayTeam?.id;
       if(!hId||!aId)return [];
@@ -3018,13 +3018,16 @@ async function loadUpcoming(){
         return errArr;
       }
     }
-    const h2hByMatchId=new Map();
-    await Promise.all(visibleMatches.map(async m=>{h2hByMatchId.set(m.id,await fetchH2H(m));}));
+    // PHASE 2D (PR #68) - H2H вече НЕ се тегли автоматично при initial render
+    // (виж discussion-а "H2H deferred") - fetchH2H()/fetchH2HCached() по-горе
+    // остават дефинирани, непипнати, запазени за бъдещ on-demand PR.
+    // buildPrediction()/calcConfidence() никога не са ползвали H2H - prediction
+    // math е напълно непроменена от тая промяна.
     let html='';
     sections.forEach(s=>{
       html+=`<div class="comp-header">${s.comp.flag} ${s.comp.name}</div>`;
       if(s.matches){
-        s.matches.forEach(m=>{html+=renderMatch(m,true,allMatches,h2hByMatchId.get(m.id)||[],null);});
+        s.matches.forEach(m=>{html+=renderMatch(m,true,allMatches,null,null);});
       }else if(s.errorMessage){
         html+=`<div class="error-box">${s.errorMessage}</div>`;
       }else{
